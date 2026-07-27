@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+sqlalchemy
+httpx
+pydantic
+authlib
+itsdangerous
+python-dotenv
+PyJWT
+pymysql

@@ -1,0 +1,26 @@
+{
+  "meta": {
+    "url": "http://localhost:8000",
+    "ts": "2026-07-21T22:38:47.832632",
+    "concurrency": 50,
+    "articles": 100
+  },
+  "api_health": {
+    "ok": true,
+    "latency_ms": 273.59,
+    "contests": 1
+  },
+  "mediawiki_api": {
+    "skipped": true,
+    "reason": "all rounds failed"
+  },
+  "wiki_replica_db": {
+    "skipped": true,
+    "reason": "No module named 'sqlalchemy'"
+  },
+  "submit_bulk": {
+    "skipped": true,
+    "reason": "No --contest code. Pass --contest <code>"
+  },
+  "capacity": {}
+}
