@@ -14,7 +14,8 @@ from typing import List, Optional
 article_locks = {}  # { article_id: { "user": "wiki_username", "time": datetime } }
 
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, BackgroundTasks
-from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from authlib.integrations.starlette_client import OAuth
 from pydantic import BaseModel
