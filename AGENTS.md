@@ -218,8 +218,4 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-07-27 | Made OAuth callback URL dynamic based on request headers to support Toolforge domain automatically. Updated `database.py` to seamlessly read DB credentials from `TOOL_TOOLSDB_USER`/`TOOL_TOOLSDB_PASSWORD` for the app database and `TOOL_REPLICA_USER`/`TOOL_REPLICA_PASSWORD` for the wiki replica database directly from Toolforge environment variables, falling back to `replica.my.cnf`. |
 | 2026-07-29 | Added psutil for system overload tracking in main.py, implemented backup dumping to `backup` folder in project root and process restart on high load. Added frontend warning banner in App.vue polling /api/system/status. |
 | 2026-07-29 | Fixed Toolforge serving bare FastAPI instead of Vue SPA. Root causes: (1) `FileResponse` and `StaticFiles` were imported nowhere in `main.py` — the entire static-serving block at the bottom was dead code. (2) `dist/` is listed in `frontend-vue/.gitignore` so the built SPA was never present on Toolforge. Fixed by adding the missing imports and updating `Procfile` to run `npm install && npm run build` in `frontend-vue/` before starting uvicorn, so the dist folder is always freshly built at startup. |
-
-
-
-
-
+| 2026-07-30 | Fixed CdxLookup in `AdminDashboard.vue` dropping keystrokes due to delayed reactivity by binding `v-model:input-value` directly. |
