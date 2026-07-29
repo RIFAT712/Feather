@@ -381,39 +381,40 @@ const createJuryUsername = ref('');
 const createJuryMenuItems = ref([]);
 const createJuryTags = ref([]);
 
-const handleLookupInput = (searchValRef, menuItemsRef, tagsRef, existingFn, prefix) => {
-  searchValRef.value = prefix;
-  if (!prefix || typeof prefix !== 'string' || prefix.trim().length < 2) {
+const fetchJuryUsers = async (prefix, menuItemsRef, tagsRef, existingFn) => {
+  if (!prefix || prefix.trim().length < 2) {
     menuItemsRef.value = [];
     return;
   }
   const cleanPrefix = prefix.trim();
   const url = `https://bn.wiktionary.org/w/api.php?action=query&list=allusers&auprefix=${encodeURIComponent(cleanPrefix)}&format=json&origin=*`;
-  fetch(url).then(res => res.json()).then(data => {
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
     if (data.query?.allusers) {
       const existing = existingFn();
       menuItemsRef.value = data.query.allusers
         .map(u => ({ value: u.name, label: u.name }))
         .filter(u => !existing.includes(u.value) && !tagsRef.value.includes(u.value));
     }
-  }).catch(() => {});
+  } catch (e) {}
 };
 
 let juryTimeout;
-const onJuryInput = (val) => {
+watch(jurySearchValue, (newVal) => {
   clearTimeout(juryTimeout);
   juryTimeout = setTimeout(() => {
-    handleLookupInput(jurySearchValue, juryMenuItems, juryTags, () => selectedJuryContest.value?.juries || [], val);
+    fetchJuryUsers(newVal, juryMenuItems, juryTags, () => selectedJuryContest.value?.juries || []);
   }, 300);
-};
+});
 
 let createJuryTimeout;
-const onCreateJuryInput = (val) => {
+watch(createJurySearchValue, (newVal) => {
   clearTimeout(createJuryTimeout);
   createJuryTimeout = setTimeout(() => {
-    handleLookupInput(createJurySearchValue, createJuryMenuItems, createJuryTags, () => [], val);
+    fetchJuryUsers(newVal, createJuryMenuItems, createJuryTags, () => []);
   }, 300);
-};
+});
 
 watch(juryUsername, (newVal) => {
   if (newVal && !juryTags.value.includes(newVal)) juryTags.value.push(newVal);
@@ -982,7 +983,6 @@ const formatDate = (iso) => {
                 <cdx-lookup
                   v-model:selected="createJuryUsername"
                   v-model:input-value="createJurySearchValue"
-                  @input="onCreateJuryInput"
                   :menu-items="createJuryMenuItems"
                   placeholder="Search wiki username..."
                   class="jury-lookup"
@@ -1059,7 +1059,6 @@ const formatDate = (iso) => {
                 <cdx-lookup
                   v-model:selected="juryUsername"
                   v-model:input-value="jurySearchValue"
-                  @input="onJuryInput"
                   :menu-items="juryMenuItems"
                   placeholder="Search Wiktionary username..."
                   class="tag-lookup"
