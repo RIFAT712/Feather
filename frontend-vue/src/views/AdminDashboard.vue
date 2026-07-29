@@ -981,7 +981,7 @@ const formatDate = (iso) => {
               <div class="jury-lookup-row">
                 <cdx-lookup
                   v-model:selected="createJuryUsername"
-                  :input-value="createJurySearchValue"
+                  v-model:input-value="createJurySearchValue"
                   @input="onCreateJuryInput"
                   :menu-items="createJuryMenuItems"
                   placeholder="Search wiki username..."
@@ -1058,7 +1058,7 @@ const formatDate = (iso) => {
                 </span>
                 <cdx-lookup
                   v-model:selected="juryUsername"
-                  :input-value="jurySearchValue"
+                  v-model:input-value="jurySearchValue"
                   @input="onJuryInput"
                   :menu-items="juryMenuItems"
                   placeholder="Search Wiktionary username..."
