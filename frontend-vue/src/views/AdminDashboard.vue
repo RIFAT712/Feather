@@ -177,7 +177,17 @@ const handleCreate = async () => {
       })
     });
     if (!res.ok) throw new Error("Create failed");
-    showToast("🎉 Contest created successfully!");
+    const created = await res.json();
+    // Auto-assign jury if any were added in the create form
+    if (createJuryTags.value.length > 0) {
+      await fetch('/api/admin/assign-jury', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contest_code: created.code, wiki_usernames: createJuryTags.value })
+      });
+    }
+    showToast(`🎉 Contest created! ${createJuryTags.value.length > 0 ? createJuryTags.value.length + ' jury member(s) assigned.' : ''}`);
+    createJuryTags.value = [];
     resetCreateForm();
     activeTab.value = 'overview';
     refreshData();
@@ -193,6 +203,7 @@ const resetCreateForm = () => {
   mustBeCreator.value = true; minBytes.value = 0; minWords.value = 0; minRefs.value = 0;
   noRedirect.value = true; noDisambig.value = true; mainspaceOnly.value = true; allowSelfReview.value = false;
   addTalkTemplate.value = false; talkTemplateName.value = ''; includeTalkHeader.value = true;
+  createJuryTags.value = []; createJurySearchValue.value = ''; createJuryMenuItems.value = [];
   formSubTab.value = 'basic';
 };
 
@@ -358,41 +369,51 @@ const selectedJuryContest = computed(() => {
   return contests.value.find(c => c.code === selectedJuryContestCode.value) || null;
 });
 
+// --- Jury Command Center (existing contest) ---
 const jurySearchValue = ref('');
 const juryUsername = ref('');
 const juryMenuItems = ref([]);
 const juryTags = ref([]);
 
-let searchTimeout;
-watch(jurySearchValue, (newVal) => {
-  clearTimeout(searchTimeout);
-  searchTimeout = setTimeout(async () => {
-    const prefix = newVal.trim();
-    if (prefix.length < 2) {
-      juryMenuItems.value = [];
-      return;
-    }
-    try {
-      const url = `https://bn.wiktionary.org/w/api.php?action=query&list=allusers&auprefix=${encodeURIComponent(prefix)}&format=json&origin=*`;
-      const res = await fetch(url);
-      const data = await res.json();
-      if (data.query && data.query.allusers) {
-        const existing = selectedJuryContest.value?.juries || [];
-        juryMenuItems.value = data.query.allusers
-          .map(u => ({ value: u.name, label: u.name }))
-          .filter(u => !existing.includes(u.value) && !juryTags.value.includes(u.value));
-      }
-    } catch (err) {}
-  }, 300);
-});
+// --- Create-form jury (new contest) ---
+const createJurySearchValue = ref('');
+const createJuryUsername = ref('');
+const createJuryMenuItems = ref([]);
+const createJuryTags = ref([]);
+
+const makeJuryWatcher = (searchVal, menuItems, tags, existingFn) => {
+  let t;
+  watch(searchVal, (newVal) => {
+    clearTimeout(t);
+    t = setTimeout(async () => {
+      const prefix = newVal.trim();
+      if (prefix.length < 2) { menuItems.value = []; return; }
+      try {
+        const url = `https://bn.wiktionary.org/w/api.php?action=query&list=allusers&auprefix=${encodeURIComponent(prefix)}&format=json&origin=*`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.query?.allusers) {
+          const existing = existingFn();
+          menuItems.value = data.query.allusers
+            .map(u => ({ value: u.name, label: u.name }))
+            .filter(u => !existing.includes(u.value) && !tags.value.includes(u.value));
+        }
+      } catch (err) {}
+    }, 300);
+  });
+};
+
+makeJuryWatcher(jurySearchValue, juryMenuItems, juryTags,
+  () => selectedJuryContest.value?.juries || []);
+makeJuryWatcher(createJurySearchValue, createJuryMenuItems, createJuryTags, () => []);
 
 watch(juryUsername, (newVal) => {
-  if (newVal && !juryTags.value.includes(newVal)) {
-    juryTags.value.push(newVal);
-  }
-  juryUsername.value = '';
-  jurySearchValue.value = '';
-  juryMenuItems.value = [];
+  if (newVal && !juryTags.value.includes(newVal)) juryTags.value.push(newVal);
+  juryUsername.value = ''; jurySearchValue.value = ''; juryMenuItems.value = [];
+});
+watch(createJuryUsername, (newVal) => {
+  if (newVal && !createJuryTags.value.includes(newVal)) createJuryTags.value.push(newVal);
+  createJuryUsername.value = ''; createJurySearchValue.value = ''; createJuryMenuItems.value = [];
 });
 
 const removeJuryTag = (tag) => {
@@ -939,9 +960,34 @@ const formatDate = (iso) => {
           <div v-if="formSubTab === 'governance'" class="sub-tab-content">
             <div class="rule-card-toggle">
               <cdx-checkbox v-model="allowSelfReview">
-                <strong class="text-slate-100">🛡️ Governance: Allow Jury Self-Review</strong>
-                <p class="toggle-desc">If checked, jury members are permitted to evaluate articles they submitted themselves. If unchecked (default), self-review is strictly blocked by the backend API.</p>
+                <strong class="text-slate-100">🛡️ Allow Jury Self-Review</strong>
+                <p class="toggle-desc">If checked, jury members may evaluate articles they submitted themselves. If unchecked (default), self-review is strictly blocked.</p>
               </cdx-checkbox>
+            </div>
+
+            <!-- Jury Assignment -->
+            <div class="jury-section mt-6">
+              <h3 class="jury-section-title">👥 Add Jury Members</h3>
+              <p class="toggle-desc mb-3">Search and add jury members now. They will be assigned automatically when the contest is created.</p>
+
+              <div class="jury-lookup-row">
+                <cdx-lookup
+                  v-model:selected="createJuryUsername"
+                  v-model:input-value="createJurySearchValue"
+                  :menu-items="createJuryMenuItems"
+                  placeholder="Search wiki username..."
+                  class="jury-lookup"
+                />
+              </div>
+
+              <div class="jury-tags-row mt-3" v-if="createJuryTags.length">
+                <div v-for="tag in createJuryTags" :key="tag" class="juror-chip">
+                  <div class="juror-avatar">{{ tag[0].toUpperCase() }}</div>
+                  <span class="juror-name">{{ tag }}</span>
+                  <button class="unassign-btn" @click="createJuryTags = createJuryTags.filter(t => t !== tag)">&times;</button>
+                </div>
+              </div>
+              <p v-else class="no-jurors-notice" style="margin-top: 0.5rem;">No jury members added yet. You can also add them later from the Jury Command Center.</p>
             </div>
 
             <div class="form-submit-row mt-8">
