@@ -1440,25 +1440,28 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 dist_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend-vue", "dist")
-if os.path.exists(dist_dir):
-    # Mount assets folder specifically to bypass catch-all path checking
-    assets_dir = os.path.join(dist_dir, "assets")
-    if os.path.exists(assets_dir):
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
-        
-    # Catch-all handler for SPA routes and root index.html
-    @app.get("/{path_name:path}")
-    async def serve_spa(path_name: str):
-        # Allow /api and /auth requests to bypass this routing and trigger standard 404/methods
-        if path_name.startswith("api") or path_name.startswith("auth"):
-            raise HTTPException(status_code=404, detail="Not found")
-            
+
+# Mount assets — only if directory exists (built SPA)
+assets_dir = os.path.join(dist_dir, "assets")
+if os.path.exists(assets_dir):
+    app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+# Catch-all: ALWAYS registered so the root / never hits FastAPI's 404
+@app.get("/{path_name:path}")
+async def serve_spa(path_name: str):
+    # Let /api and /auth fall through to FastAPI's own routers
+    if path_name.startswith("api") or path_name.startswith("auth"):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    # Serve exact static file if it exists
+    if path_name:
         file_path = os.path.join(dist_dir, path_name)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
-            
-        # Fallback to index.html for frontend routing
-        index_path = os.path.join(dist_dir, "index.html")
-        if os.path.exists(index_path):
-            return FileResponse(index_path)
-        raise HTTPException(status_code=404, detail="Frontend build files not found")
+
+    # Always fall back to index.html for SPA routing (including root "/")
+    index_path = os.path.join(dist_dir, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+
+    return HTMLResponse("<h1>Frontend not built. Run: cd frontend-vue && npm run build</h1>", status_code=503)
