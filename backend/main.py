@@ -5,6 +5,9 @@ import uuid
 import csv
 import io
 import re
+import psutil
+import threading
+import time
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -259,6 +262,61 @@ async def logout():
 @app.get("/api/me")
 def get_me(current_user: models.User = Depends(get_current_user)):
     return {"wiki_username": current_user.wiki_username, "role": current_user.role.value}
+
+_is_restarting = False
+
+def do_backup_and_restart():
+    global _is_restarting
+    if _is_restarting:
+        return
+    _is_restarting = True
+    
+    # Dump everything to CSV
+    db = next(get_db())
+    try:
+        # Put backup in project root directory (one level above backend)
+        backup_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'backup')
+        os.makedirs(backup_dir, exist_ok=True)
+        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        
+        # Backup Articles
+        articles = db.query(models.Article).all()
+        with open(os.path.join(backup_dir, f'articles_{timestamp}.csv'), 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['id', 'title', 'submitter_id', 'contest_id', 'status'])
+            for a in articles:
+                writer.writerow([a.id, a.title, a.submitter_id, a.contest_id, a.status.value])
+                
+        # Backup Users
+        users = db.query(models.User).all()
+        with open(os.path.join(backup_dir, f'users_{timestamp}.csv'), 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['id', 'wiki_username', 'role'])
+            for u in users:
+                writer.writerow([u.id, u.wiki_username, u.role.value])
+    except Exception as e:
+        print("Backup failed:", e)
+    
+    time.sleep(2) # Give some time for response to be sent
+    os._exit(1) # Restart via process manager
+
+@app.get("/api/system/status")
+def system_status(background_tasks: BackgroundTasks):
+    global _is_restarting
+    cpu = psutil.cpu_percent(interval=None)
+    mem = psutil.virtual_memory().percent
+    
+    overloaded = cpu > 90 or mem > 90 or _is_restarting
+    
+    if overloaded and not _is_restarting:
+        background_tasks.add_task(do_backup_and_restart)
+        
+    return {
+        "cpu_percent": cpu,
+        "mem_percent": mem,
+        "overloaded": overloaded,
+        "restarting": _is_restarting
+    }
 
 @app.get("/api/contests")
 def list_contests(db: Session = Depends(get_db)):

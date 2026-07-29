@@ -4,6 +4,7 @@ import { CdxButton } from '@wikimedia/codex';
 
 const user = ref(null);
 const isLoading = ref(true);
+const isOverloaded = ref(false);
 
 onMounted(async () => {
   try {
@@ -11,6 +12,16 @@ onMounted(async () => {
     if (res.ok) user.value = await res.json();
   } catch { user.value = null; }
   finally { isLoading.value = false; }
+  
+  setInterval(async () => {
+    try {
+      const res = await fetch('/api/system/status');
+      if (res.ok) {
+        const data = await res.json();
+        isOverloaded.value = data.overloaded;
+      }
+    } catch {}
+  }, 5000);
 });
 provide('user', user);
 
@@ -40,6 +51,9 @@ const handleLogout = async () => {
   </div>
 
   <div v-else class="app-layout">
+    <div v-if="isOverloaded" class="overload-banner">
+      ⚠️ System is overloaded. Please do not submit articles right now. Backing up data and restarting...
+    </div>
     <header class="app-header">
       <div class="header-inner">
         <div class="header-left">
@@ -219,5 +233,10 @@ const handleLogout = async () => {
 .app-main {
   flex: 1; width: 100%; box-sizing: border-box;
   display: flex; flex-direction: column;
+}
+.overload-banner {
+  background: #ef4444; color: #fff; text-align: center;
+  padding: 10px; font-weight: 600; font-size: 0.9rem;
+  z-index: 1000; position: sticky; top: 0;
 }
 </style>

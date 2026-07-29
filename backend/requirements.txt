@@ -8,3 +8,4 @@ itsdangerous
 python-dotenv
 PyJWT
 pymysql
+psutil

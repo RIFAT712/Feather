@@ -216,6 +216,7 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-07-27 | Fixed hardcoded white color inconsistencies in `ActivityLog.vue`: updated `.avatar-circle` background gradient to `#4f46e5` → `#2563eb`, and updated `.dot-accepted`, `.dot-rejected`, `.dot-pending` background colors to meaningful green (`#22c55e`), red (`#ef4444`), and amber (`#f59e0b`). |
 | 2026-07-27 | Fixed hardcoded white/grey color inconsistencies across Vue views: updated save button in `ContestConfig.vue` to blue (`#2563eb`), accent bars in `ContestDashboard.vue` to green (`#22c55e`), red (`#ef4444`), and amber (`#f59e0b`), avatar conic gradient, owner role badge, accepted/rejected status pills and labels in `GlobalProfile.vue`, avatar background gradient in `UserProfile.vue`, and Wikitable export button colors in `JuryStats.vue`. |
 | 2026-07-27 | Made OAuth callback URL dynamic based on request headers to support Toolforge domain automatically. Updated `database.py` to seamlessly read DB credentials from `TOOL_TOOLSDB_USER`/`TOOL_TOOLSDB_PASSWORD` for the app database and `TOOL_REPLICA_USER`/`TOOL_REPLICA_PASSWORD` for the wiki replica database directly from Toolforge environment variables, falling back to `replica.my.cnf`. |
+| 2026-07-29 | Added psutil for system overload tracking in main.py, implemented backup dumping to `backup` folder in project root and process restart on high load. Added frontend warning banner in App.vue polling /api/system/status. |
 
 
 
