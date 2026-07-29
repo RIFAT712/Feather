@@ -21,6 +21,9 @@ const stats = ref({
   total_juries: 0
 });
 
+const systemStatus = ref({ cpu_percent: 0, mem_percent: 0, overloaded: false });
+let statusInterval = null;
+
 const isLoadingContests = ref(false);
 const toastMessage = ref('');
 const toastIsError = ref(false);
@@ -52,13 +55,26 @@ const fetchStats = async () => {
   } catch (e) {}
 };
 
+const fetchSystemStatus = async () => {
+  try {
+    const res = await fetch('/api/system/status');
+    if (res.ok) systemStatus.value = await res.json();
+  } catch(e) {}
+};
+
 const refreshData = async () => {
-  await Promise.all([fetchContests(), fetchStats()]);
+  await Promise.all([fetchContests(), fetchStats(), fetchSystemStatus()]);
 };
 
 watch(user, (newVal) => {
   if (newVal?.role === 'owner') {
     refreshData();
+    if (!statusInterval) {
+      statusInterval = setInterval(fetchSystemStatus, 3000);
+    }
+  } else {
+    clearInterval(statusInterval);
+    statusInterval = null;
   }
 }, { immediate: true });
 
@@ -524,6 +540,28 @@ const formatDate = (iso) => {
               <span class="kpi-lbl">Registered Editors</span>
             </div>
             <div class="kpi-sub">Wikimedia Participants</div>
+          </div>
+          
+          <div class="kpi-card rose">
+            <div class="kpi-icon">⚙️</div>
+            <div class="kpi-info">
+              <span class="kpi-val">{{ systemStatus.cpu_percent }}%</span>
+              <span class="kpi-lbl">Server CPU</span>
+            </div>
+            <div class="kpi-sub">
+              <span :class="systemStatus.cpu_percent > 85 ? 'text-red-400 font-bold' : ''">Load</span>
+            </div>
+          </div>
+          
+          <div class="kpi-card amber">
+            <div class="kpi-icon">💾</div>
+            <div class="kpi-info">
+              <span class="kpi-val">{{ systemStatus.mem_percent }}%</span>
+              <span class="kpi-lbl">Server RAM</span>
+            </div>
+            <div class="kpi-sub">
+              <span :class="systemStatus.mem_percent > 85 ? 'text-red-400 font-bold' : ''">Utilization</span>
+            </div>
           </div>
         </div>
       </div>
