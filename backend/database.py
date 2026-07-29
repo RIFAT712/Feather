@@ -141,8 +141,12 @@ if WIKI_DB_USER and WIKI_DB_PASSWORD:
             pool_recycle=3600,
             pool_pre_ping=True
         )
+        print(f"[DB] Wiki replica engine initialized: {WIKI_DB_HOST}/{WIKI_DB_NAME} as {WIKI_DB_USER}")
     except Exception as e:
-        print(f"Could not initialize Wiki Replica DB engine: {e}")
+        print(f"[DB] Could not initialize Wiki Replica DB engine: {e}")
+else:
+    print(f"[DB] Wiki replica engine NOT initialized — WIKI_DB_USER={WIKI_DB_USER!r}, TOOL_REPLICA_USER={os.getenv('TOOL_REPLICA_USER')!r}, replica.my.cnf exists={os.path.exists(os.path.expanduser('~/replica.my.cnf'))}")
+
 
 def query_wiki_replica_batch(titles: list) -> dict:
     """
@@ -150,11 +154,8 @@ def query_wiki_replica_batch(titles: list) -> dict:
     Returns a dict: { original_title: { "exists": True, "wiki_creator": str, "wiki_creation_date": datetime, "timestamp_str": str } }
     Returns None if the replica engine is unavailable or query fails (triggering HTTP API fallback).
     """
-    # If replica.my.cnf doesn't exist and hostname is wikimedia.cloud, we are running locally outside Toolforge
-    if not os.path.exists(os.path.expanduser("~/replica.my.cnf")) and "wikimedia.cloud" in WIKI_DB_HOST:
-        return None
-
     if not wiki_engine or not titles:
+        print(f"[Replica] Skipping: wiki_engine={wiki_engine is not None}, titles_count={len(titles) if titles else 0}")
         return None
 
     title_map = {}
@@ -212,9 +213,10 @@ def query_wiki_replica_batch(titles: list) -> dict:
                         "page_is_redirect": bool(row.page_is_redirect),
                         "page_len": int(row.page_len) if row.page_len is not None else 0
                     }
+        print(f"[Replica] Query succeeded: {len(results)}/{len(db_titles)} articles found")
         return results
     except Exception as e:
-        print(f"Wiki replica query error, falling back to HTTP API: {e}")
+        print(f"[Replica] Wiki replica query error, falling back to HTTP API: {e}")
         return None
 
 
