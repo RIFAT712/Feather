@@ -176,9 +176,13 @@ def query_wiki_replica_batch(titles: list) -> dict:
 
     try:
         with wiki_engine.connect() as conn:
-            from sqlalchemy import text
+            from sqlalchemy import text, bindparam
             for i in range(0, len(db_titles), chunk_size):
                 chunk = db_titles[i:i + chunk_size]
+                # IMPORTANT: bindparam with expanding=True is required so SQLAlchemy
+                # expands the list into individual IN (?, ?, ?) placeholders.
+                # Without it, passing a tuple as a named param binds it as a single
+                # opaque value — IN clause matches nothing for 2+ titles.
                 query = text("""
                     SELECT 
                         CONVERT(p.page_title USING utf8mb4) as page_title,
@@ -192,8 +196,8 @@ def query_wiki_replica_batch(titles: list) -> dict:
                     JOIN actor a ON r.rev_actor = a.actor_id
                     WHERE r.rev_parent_id = 0
                       AND p.page_title IN :titles
-                """)
-                res = conn.execute(query, {"titles": tuple(chunk)})
+                """).bindparams(bindparam("titles", expanding=True))
+                res = conn.execute(query, {"titles": list(chunk)})
                 for row in res:
                     db_title = row.page_title
                     orig_title = title_map.get(db_title, db_title.replace("_", " "))
