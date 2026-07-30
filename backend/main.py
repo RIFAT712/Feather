@@ -307,50 +307,75 @@ _is_restarting = False
 
 # ── Shared backup helper ──────────────────────────────────────────────────────
 def _write_backup_files(dest_dir: str, label: str):
-    """Dump articles, users, reviews, and contests to CSV files in dest_dir.
+    """Dump articles per contest, users, and contests to CSV files in dest_dir.
     Also writes a SystemLog entry so the event appears in /api/logs.
     """
     os.makedirs(dest_dir, exist_ok=True)
     timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
     db = next(get_db())
     try:
-        # Articles
-        articles = db.query(models.Article).all()
-        with open(os.path.join(dest_dir, f'articles_{timestamp}.csv'), 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow(['id', 'title', 'submitter_id', 'contest_id', 'status', 'validation_error',
-                             'wiki_creation_date', 'wiki_creator', 'submitted_at'])
-            for a in articles:
-                writer.writerow([a.id, a.title, a.submitter_id, a.contest_id, a.status.value,
-                                 a.validation_error, a.wiki_creation_date, a.wiki_creator, a.submitted_at])
+        def translate_status(s):
+            if s == "accepted": return "গৃহীত"
+            if s == "rejected": return "প্রত্যাখ্যাত"
+            if s == "pending": return "অপেক্ষমাণ"
+            if s == "validation_failed": return "যাচাইকরণ ব্যর্থ"
+            return s
+
+        contests = db.query(models.Contest).all()
+        total_articles = 0
+        for c in contests:
+            articles = db.query(models.Article).options(
+                joinedload(models.Article.submitter),
+                selectinload(models.Article.reviews).joinedload(models.Review.reviewer)
+            ).filter_by(contest_id=c.id).order_by(models.Article.submitted_at.desc()).all()
+            
+            total_articles += len(articles)
+            
+            if label == "EMERGENCY":
+                filename = f"{c.code}_articles_{timestamp}.csv"
+            else:
+                filename = f"{c.code}_articles.csv"
+                
+            filepath = os.path.join(dest_dir, filename)
+            with open(filepath, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    "Article ID", "Title", "Submitter", "Status", "Validation Error",
+                    "Wiki Creator", "Wiki Creation Date", "Submitted At", "Reviews Count", "Last Review Decision", "Last Reviewer", "Last Review Comment"
+                ])
+                for a in articles:
+                    reviews = sorted(a.reviews, key=lambda r: r.timestamp or datetime.min)
+                    last_rev = reviews[-1] if reviews else None
+                    writer.writerow([
+                        a.id, a.title, a.submitter.wiki_username if a.submitter else "",
+                        translate_status(a.status.value), a.validation_error or "",
+                        a.wiki_creator or "", a.wiki_creation_date.isoformat() if a.wiki_creation_date else "",
+                        a.submitted_at.isoformat() if a.submitted_at else "", len(reviews),
+                        translate_status(last_rev.status.value) if last_rev else "",
+                        last_rev.reviewer.wiki_username if last_rev and last_rev.reviewer else "",
+                        last_rev.comment or "" if last_rev else ""
+                    ])
 
         # Users
         users = db.query(models.User).all()
-        with open(os.path.join(dest_dir, f'users_{timestamp}.csv'), 'w', newline='', encoding='utf-8') as f:
+        users_file = f'users_{timestamp}.csv' if label == "EMERGENCY" else 'users.csv'
+        with open(os.path.join(dest_dir, users_file), 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow(['id', 'wiki_username', 'role'])
             for u in users:
                 writer.writerow([u.id, u.wiki_username, u.role.value])
 
-        # Reviews
-        reviews = db.query(models.Review).all()
-        with open(os.path.join(dest_dir, f'reviews_{timestamp}.csv'), 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow(['id', 'article_id', 'reviewer_id', 'status', 'comment', 'timestamp'])
-            for r in reviews:
-                writer.writerow([r.id, r.article_id, r.reviewer_id, r.status.value, r.comment, r.timestamp])
-
         # Contests
-        contests = db.query(models.Contest).all()
-        with open(os.path.join(dest_dir, f'contests_{timestamp}.csv'), 'w', newline='', encoding='utf-8') as f:
+        contests_file = f'contests_{timestamp}.csv' if label == "EMERGENCY" else 'contests.csv'
+        with open(os.path.join(dest_dir, contests_file), 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow(['id', 'code', 'name', 'start_date', 'end_date'])
             for c in contests:
                 writer.writerow([c.id, c.code, c.name, c.start_date, c.end_date])
 
         msg = (
-            f"{label} backup completed — {len(articles)} articles, {len(users)} users, "
-            f"{len(reviews)} reviews, {len(contests)} contests → {dest_dir} [{timestamp}]"
+            f"{label} backup completed — {total_articles} articles across {len(contests)} contests, {len(users)} users "
+            f"→ {dest_dir} [{timestamp}]"
         )
         print(f"[Backup] {msg}")
         db.add(models.SystemLog(
