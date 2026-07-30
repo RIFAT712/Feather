@@ -92,3 +92,15 @@ class Review(Base):
     
     article = relationship("Article", back_populates="reviews")
     reviewer = relationship("User", back_populates="reviews")
+
+class SystemLog(Base):
+    __tablename__ = 'system_logs'
+    id = Column(Integer, primary_key=True, index=True)
+    level = Column(String(50), default="error", nullable=False)      # error, warning, info
+    source = Column(String(50), default="frontend", nullable=False)   # frontend, backend
+    message = Column(String(2000), nullable=False)
+    stack_trace = Column(String(4000), nullable=True)
+    url = Column(String(500), nullable=True)
+    user_agent = Column(String(500), nullable=True)
+    username = Column(String(255), nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)

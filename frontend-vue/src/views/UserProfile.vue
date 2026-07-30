@@ -293,15 +293,15 @@ const formatDate = (dateStr) => {
   text-transform: capitalize;
 }
 
-.status-badge.accepted, .decision-badge.accepted { background: rgba(34, 197, 94, 0.15); color: #d1d5db; }
-.status-badge.rejected, .decision-badge.rejected { background: rgba(239, 68, 68, 0.15); color: #d1d5db; }
-.status-badge.pending { background: rgba(234, 179, 8, 0.15); color: #d1d5db; }
-.status-badge.validation_failed { background: rgba(239, 68, 68, 0.2); color: #9ca3af; border: 1px solid rgba(239, 68, 68, 0.3); }
-.decision-badge.skipped { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; }
+.status-badge.accepted, .decision-badge.accepted { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+.status-badge.rejected, .decision-badge.rejected { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.status-badge.pending { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+.status-badge.validation_failed { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.25); }
+.decision-badge.skipped { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
 
 .error-subtext {
   font-size: 0.78rem;
-  color: #9ca3af;
+  color: #f87171;
   margin-top: 4px;
 }
 
@@ -318,5 +318,12 @@ const formatDate = (dateStr) => {
   text-align: center;
   color: #94a3b8;
   font-style: italic;
+}
+
+@media (max-width: 768px) {
+  .user-profile { padding: 16px; }
+  .profile-header { flex-direction: column; text-align: center; padding: 24px 16px; gap: 16px; }
+  .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .data-table th, .data-table td { padding: 10px 14px; font-size: 0.82rem; }
 }
 </style>

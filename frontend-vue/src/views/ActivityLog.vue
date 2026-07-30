@@ -332,11 +332,11 @@ onMounted(async () => {
   font-size: 0.9rem;
 }
 
-.chip-total    { background: rgba(255,255,255,0.08); color: #94a3b8; }
-.chip-accepted { background: rgba(255,255,255,0.1); color: #d1d5db; }
-.chip-rejected { background: rgba(255,255,255,0.1); color: #d1d5db; }
-.chip-pending  { background: rgba(255,255,255,0.1); color: #d1d5db; }
-.chip-failed   { background: rgba(255,255,255,0.1); color: #9ca3af; }
+.chip-total    { background: rgba(255,255,255,0.07); color: #94a3b8; }
+.chip-accepted { background: rgba(34,197,94,0.12); color: #22c55e; }
+.chip-rejected { background: rgba(239,68,68,0.12); color: #ef4444; }
+.chip-pending  { background: rgba(245,158,11,0.12); color: #f59e0b; }
+.chip-failed   { background: rgba(239,68,68,0.08); color: #94a3b8; border: 1px solid rgba(239,68,68,0.2); }
 
 .error-subtext {
   font-size: 0.76rem;
@@ -362,11 +362,11 @@ onMounted(async () => {
   gap: 8px;
 }
 
-.tl-accepted { border-left-color: #ffffff; }
-.tl-rejected { border-left-color: #ffffff; }
-.tl-pending  { border-left-color: #ffffff; }
-.tl-skipped  { border-left-color: #94a3b8; }
-.tl-validation_failed { border-left-color: #ffffff; }
+.tl-accepted { border-left-color: #22c55e; }
+.tl-rejected { border-left-color: #ef4444; }
+.tl-pending  { border-left-color: #f59e0b; }
+.tl-skipped  { border-left-color: #64748b; }
+.tl-validation_failed { border-left-color: #ef4444; }
 
 /* ── Badges ── */
 .badge {
@@ -380,11 +380,11 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
-.badge-accepted { background: rgba(255,255,255,0.1); color: #d1d5db; }
-.badge-rejected { background: rgba(255,255,255,0.1); color: #d1d5db; }
-.badge-pending  { background: rgba(255,255,255,0.1); color: #d1d5db; }
-.badge-skipped  { background: rgba(255,255,255,0.07); color: #64748b; }
-.badge-failed   { background: rgba(255,255,255,0.1); color: #9ca3af; border: 1px solid rgba(255,255,255,0.1); }
+.badge-accepted { background: rgba(34,197,94,0.15); color: #22c55e; }
+.badge-rejected { background: rgba(239,68,68,0.15); color: #ef4444; }
+.badge-pending  { background: rgba(245,158,11,0.12); color: #f59e0b; }
+.badge-skipped  { background: rgba(148,163,184,0.1); color: #94a3b8; }
+.badge-failed   { background: rgba(239,68,68,0.1); color: #f87171; border: 1px solid rgba(239,68,68,0.2); }
 
 /* ── Segmented Control ── */
 .toggle-bar {
@@ -515,6 +515,7 @@ onMounted(async () => {
 .user-table-wrap {
   overflow-x: auto;
   border-top: 1px solid rgba(255,255,255,0.06);
+  -webkit-overflow-scrolling: touch;
 }
 
 .user-table {
@@ -570,10 +571,10 @@ onMounted(async () => {
   box-shadow: 0 4px 16px rgba(0,0,0,0.4);
 }
 
-.tl-accepted { border-left-color: #ffffff; }
-.tl-rejected { border-left-color: #ffffff; }
-.tl-pending  { border-left-color: #ffffff; }
-.tl-skipped  { border-left-color: #94a3b8; }
+.tl-accepted { border-left-color: #22c55e; }
+.tl-rejected { border-left-color: #ef4444; }
+.tl-pending  { border-left-color: #f59e0b; }
+.tl-skipped  { border-left-color: #64748b; }
 
 .tl-header {
   display: flex;
@@ -666,8 +667,19 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
-.badge-accepted { background: rgba(255,255,255,0.1); color: #d1d5db; }
-.badge-rejected { background: rgba(255,255,255,0.1); color: #d1d5db; }
-.badge-pending  { background: rgba(255,255,255,0.1); color: #d1d5db; }
-.badge-skipped  { background: rgba(255,255,255,0.07); color: #64748b; }
+.badge-accepted { background: rgba(34,197,94,0.15); color: #22c55e; }
+.badge-rejected { background: rgba(239,68,68,0.15); color: #ef4444; }
+.badge-pending  { background: rgba(245,158,11,0.12); color: #f59e0b; }
+.badge-skipped  { background: rgba(148,163,184,0.1); color: #94a3b8; }
+
+/* Mobile table responsiveness */
+@media (max-width: 640px) {
+  .log-root { padding: 16px; }
+  .stats-bar { gap: 6px; }
+  .stat-chip { padding: 5px 10px; font-size: 0.75rem; }
+  .user-header { flex-wrap: wrap; gap: 8px; padding: 14px 16px; }
+  .user-table th, .user-table td { padding: 8px 12px; font-size: 0.8rem; }
+  .td-date { display: none; }
+  .timeline-card { padding: 14px 16px 12px 18px; }
+}
 </style>

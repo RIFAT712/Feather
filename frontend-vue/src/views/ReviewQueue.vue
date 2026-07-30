@@ -13,10 +13,13 @@ const currentArticle = ref(null);
 const comment = ref('');
 const isLoading = ref(true);
 const isSubmitting = ref(false);
-const showSidebar = ref(true);
+const isLoadingPreview = ref(false);
+
+// Mobile tab: 'list' | 'review'
+const mobileTab = ref('list');
+
 const showNewArticles = ref(true);
 const showJudgedArticles = ref(false);
-const isLoadingPreview = ref(false);
 
 const roles = ref({ is_jury: false, is_owner: false });
 const isAuthorized = computed(() => roles.value.is_jury || roles.value.is_owner);
@@ -29,13 +32,13 @@ const WIKI_BASE = 'https://bn.wiktionary.org/wiki/';
 const DARK_CSS = `
   :root { color-scheme: dark; }
   html, body {
-    background: #12141f !important;
+    background: #0d0f1c !important;
     color: #e2e8f0 !important;
     font-family: 'Linux Libertine', Georgia, Times, serif;
     font-size: 15px;
     line-height: 1.6;
     margin: 0;
-    padding: 20px 32px 64px;
+    padding: 20px 24px 64px;
     max-width: 860px;
   }
   a { color: #d1d5db !important; }
@@ -55,7 +58,7 @@ const DARK_CSS = `
   .wikitable > * > tr > th { background: rgba(255,255,255,0.1) !important; color: #e5e7eb !important; }
   .wikitable > * > tr > td { background: transparent !important; }
 
-  /* NavFrame — Bengali conjugation/inflection boxes */
+  /* NavFrame */
   .NavFrame {
     border: 1px solid rgba(255,255,255,0.15) !important;
     border-radius: 6px;
@@ -80,7 +83,7 @@ const DARK_CSS = `
   .NavContent { background: #12141f !important; }
   .NavContent td, .NavContent th { border-color: rgba(255,255,255,0.09) !important; }
 
-  /* vsToggle — verb conjugation tables */
+  /* vsToggle */
   .vsToggleElement[style*='background'] { background: rgba(255,255,255,0.1) !important; color: #e5e7eb !important; }
   th[class~='vsToggleElement'] { background: rgba(255,255,255,0.1) !important; color: #e5e7eb !important; cursor: pointer !important; }
 
@@ -133,15 +136,12 @@ const DARK_CSS = `
 // JS injected into preview iframe for full collapsible support
 const COLLAPSIBLE_JS = `
   (function() {
-    // ── NavFrame ───────────────────────────────────────────────────────
     function initNavFrames() {
       document.querySelectorAll('.NavFrame').forEach(function(frame) {
         var head = frame.querySelector('.NavHead');
         var content = frame.querySelector('.NavContent');
         if (!head || !content) return;
-        
-        content.style.display = 'none'; // Collapsed by default
-        
+        content.style.display = 'none';
         var toggle = head.querySelector('.NavToggle a');
         if (!toggle) {
           var wrapper = document.createElement('span');
@@ -153,7 +153,6 @@ const COLLAPSIBLE_JS = `
           head.appendChild(wrapper);
         }
         toggle.textContent = '▶';
-        
         head.style.cursor = 'pointer';
         head.addEventListener('click', function(e) {
           e.preventDefault();
@@ -164,12 +163,10 @@ const COLLAPSIBLE_JS = `
       });
     }
 
-    // ── vsToggle (verb/inflection tables) ─────────────────────────────
     function initVsToggles() {
       document.querySelectorAll('.vsToggleElement').forEach(function(el) {
         var table = el.closest('table');
         if (!table) return;
-        
         var anchor = el.querySelector('.NavToggle a');
         if (!anchor) {
           var wrapper = document.createElement('span');
@@ -180,15 +177,11 @@ const COLLAPSIBLE_JS = `
           wrapper.appendChild(anchor);
           el.appendChild(wrapper);
         }
-        
         var shows = table.querySelectorAll('.vsShow');
         var hides = table.querySelectorAll('.vsHide');
-        
-        // Collapsed by default
         shows.forEach(function(r){ r.style.display = 'none'; });
         hides.forEach(function(r){ r.style.display = ''; });
         anchor.textContent = '▶';
-        
         el.style.cursor = 'pointer';
         el.addEventListener('click', function(e) {
           e.preventDefault();
@@ -206,13 +199,11 @@ const COLLAPSIBLE_JS = `
       });
     }
 
-    // ── mw-collapsible standard & tables ──────────────────────────────
     function initMwCollapsibles() {
       document.querySelectorAll('.mw-collapsible, table.collapsed, table.mw-collapsed').forEach(function(el) {
         var isTable = el.tagName === 'TABLE';
         var head = isTable ? el.querySelector('tr') : el.firstElementChild;
         if (!head) return;
-        
         var toggler = el.querySelector('.mw-collapsible-toggle');
         if (!toggler) {
           toggler = document.createElement('span');
@@ -221,60 +212,37 @@ const COLLAPSIBLE_JS = `
           var th = head.querySelector('th') || head.querySelector('td') || head;
           if(th) th.appendChild(toggler);
         }
-        
-        // Collapsed by default
         toggler.textContent = '▶';
         if (isTable) {
           var rows = el.querySelectorAll('tr');
-          rows.forEach(function(row, idx) {
-            if (idx > 0) row.style.display = 'none';
-          });
+          rows.forEach(function(row, idx) { if (idx > 0) row.style.display = 'none'; });
         } else {
           var content = el.querySelector('.mw-collapsible-content');
-          if (content) {
-             content.style.display = 'none';
-          } else {
-             Array.from(el.children).forEach(function(child, idx) {
-               if (idx > 0) child.style.display = 'none';
-             });
-          }
+          if (content) { content.style.display = 'none'; }
+          else { Array.from(el.children).forEach(function(child, idx) { if (idx > 0) child.style.display = 'none'; }); }
         }
-        
         head.style.cursor = 'pointer';
         head.addEventListener('click', function(e) {
           e.preventDefault();
           var isCollapsed = toggler.textContent.includes('▶');
           toggler.textContent = isCollapsed ? '▼' : '▶';
-          
           if (isTable) {
             var rows = el.querySelectorAll('tr');
-            rows.forEach(function(row, idx) {
-              if (idx > 0) row.style.display = isCollapsed ? '' : 'none';
-            });
+            rows.forEach(function(row, idx) { if (idx > 0) row.style.display = isCollapsed ? '' : 'none'; });
           } else {
             var content = el.querySelector('.mw-collapsible-content');
-            if (content) {
-               content.style.display = isCollapsed ? '' : 'none';
-            } else {
-               Array.from(el.children).forEach(function(child, idx) {
-                 if (idx > 0) child.style.display = isCollapsed ? '' : 'none';
-               });
-            }
+            if (content) { content.style.display = isCollapsed ? '' : 'none'; }
+            else { Array.from(el.children).forEach(function(child, idx) { if (idx > 0) child.style.display = isCollapsed ? '' : 'none'; }); }
           }
         });
       });
     }
 
     document.addEventListener('DOMContentLoaded', function() {
-      initNavFrames();
-      initVsToggles();
-      initMwCollapsibles();
+      initNavFrames(); initVsToggles(); initMwCollapsibles();
     });
-    // also run immediately in case DOM is already ready
     if (document.readyState !== 'loading') {
-      initNavFrames();
-      initVsToggles();
-      initMwCollapsibles();
+      initNavFrames(); initVsToggles(); initMwCollapsibles();
     }
   })();
 `;
@@ -302,7 +270,7 @@ ${body}
 </html>`;
   } catch (e) {
     console.error(e);
-    previewSrcdoc.value = `<!DOCTYPE html><html><body style="color:#d1d5db;background:#12141f;padding:24px">Error loading preview.</body></html>`;
+    previewSrcdoc.value = `<!DOCTYPE html><html><body style="color:#d1d5db;background:#0d0f1c;padding:24px">Error loading preview.</body></html>`;
   } finally {
     isLoadingPreview.value = false;
   }
@@ -313,7 +281,7 @@ const fetchArticles = async () => {
   try {
     const roleRes = await fetch(`/api/contests/${route.params.code}/my-role`);
     if (roleRes.ok) roles.value = await roleRes.json();
-    
+
     if (!isAuthorized.value) {
       isLoading.value = false;
       return;
@@ -357,6 +325,8 @@ const selectArticle = (article) => {
   comment.value = '';
   fetchPreview(article.title);
   fetch(`/api/articles/${article.article_id}/lock`, { method: 'POST' }).catch(() => {});
+  // On mobile, auto-switch to review tab
+  mobileTab.value = 'review';
 };
 
 onMounted(async () => {
@@ -396,6 +366,7 @@ const handleDecision = async (decision) => {
       selectArticle(newArticles.value[0]);
     } else {
       currentArticle.value = articles.value.find(a => a.article_id === currentArticle.value.article_id);
+      mobileTab.value = 'list';
     }
   } catch (error) {
     console.error("Error submitting review", error);
@@ -427,14 +398,13 @@ const handleBulkDecision = async (decision) => {
     }
     selectedForBulk.value = [];
     await fetchArticles();
-    
-    // Auto-select if current article was among the bulk reviewed
     if (!currentArticle.value || !availableNewArticles.value.find(a => a.article_id === currentArticle.value.article_id)) {
       if (availableNewArticles.value.length > 0) {
         const randomIdx = Math.floor(Math.random() * availableNewArticles.value.length);
         selectArticle(availableNewArticles.value[randomIdx]);
       } else {
         currentArticle.value = null;
+        mobileTab.value = 'list';
       }
     }
   } catch (err) {
@@ -474,84 +444,182 @@ const copyTalkSnippet = () => {
 
 <template>
   <div class="review-queue">
-    <div v-if="!isLoading && !isAuthorized" class="unauthorized-banner">
-      <div class="unauthorized-content">
-        <span class="icon">⛔</span>
+    <!-- Unauthorized -->
+    <div v-if="!isLoading && !isAuthorized" class="center-state">
+      <div class="unauth-card">
+        <span class="unauth-icon">⛔</span>
         <h2>Access Denied</h2>
-        <p>You are not authorized to view this page. This area is restricted to Contest Jury and Owners.</p>
+        <p>This area is restricted to Contest Jury members and Owners.</p>
       </div>
     </div>
 
-    <div v-else-if="isLoading" class="status-state">
-      <p>⏳ Loading articles...</p>
+    <!-- Loading -->
+    <div v-else-if="isLoading" class="center-state">
+      <div class="loading-spinner"></div>
+      <p class="loading-text">Loading review queue…</p>
     </div>
 
-    <div v-else class="dashboard-layout">
-      <!-- Left Sidebar: Lists -->
-      <div class="sidebar" :class="{ 'is-collapsed': !showSidebar }">
-        <div class="panel-header" @click="showSidebar = !showSidebar">
-          <span v-if="showSidebar">Articles List</span>
-          <span class="collapse-icon" title="Toggle Sidebar">{{ showSidebar ? '◀' : '▶' }}</span>
+    <!-- Main Layout -->
+    <div v-else class="main-layout">
+      <!-- ═══════════════ SIDEBAR ═══════════════ -->
+      <aside class="sidebar" :class="{ 'mobile-hidden': mobileTab !== 'list' }">
+        <!-- Stats row -->
+        <div class="sidebar-stats">
+          <div class="stat-pill pending">
+            <span class="stat-num">{{ newArticles.length }}</span>
+            <span class="stat-lbl">Pending</span>
+          </div>
+          <div class="stat-pill done">
+            <span class="stat-num">{{ judgedArticles.length }}</span>
+            <span class="stat-lbl">Judged</span>
+          </div>
+          <div class="stat-pill total">
+            <span class="stat-num">{{ articles.length }}</span>
+            <span class="stat-lbl">Total</span>
+          </div>
         </div>
-        
-        <div class="sidebar-content" v-show="showSidebar">
-          <!-- Bulk Actions Panel -->
-          <div v-if="selectedForBulk.length > 0" class="bulk-actions-panel">
-            <div class="bulk-count">{{ selectedForBulk.length }} selected</div>
-            <div class="bulk-buttons">
-              <button class="bulk-btn accept" @click="handleBulkDecision('accepted')" :disabled="isSubmitting">Accept</button>
-              <button class="bulk-btn reject" @click="handleBulkDecision('rejected')" :disabled="isSubmitting">Reject</button>
+
+        <!-- Bulk Actions Banner -->
+        <div v-if="selectedForBulk.length > 0" class="bulk-banner">
+          <span class="bulk-label">{{ selectedForBulk.length }} selected</span>
+          <div class="bulk-btns">
+            <button class="bbtn accept" @click="handleBulkDecision('accepted')" :disabled="isSubmitting">✓ Accept</button>
+            <button class="bbtn reject" @click="handleBulkDecision('rejected')" :disabled="isSubmitting">✕ Reject</button>
+            <button class="bbtn clear" @click="selectedForBulk = []">Clear</button>
+          </div>
+        </div>
+
+        <!-- New Articles section -->
+        <div class="section-head" @click="showNewArticles = !showNewArticles">
+          <span class="section-title">
+            <span class="section-dot pending-dot"></span>
+            Pending Review
+          </span>
+          <span class="section-count">{{ newArticles.length }}</span>
+          <span class="section-chevron">{{ showNewArticles ? '▾' : '▸' }}</span>
+        </div>
+        <transition name="section-slide">
+          <ul v-show="showNewArticles" class="article-list">
+            <li
+              v-for="a in newArticles"
+              :key="a.article_id"
+              class="article-item"
+              :class="{ active: currentArticle?.article_id === a.article_id, locked: a.locked_by && a.locked_by !== myUsername }"
+              @click="selectArticle(a)"
+            >
+              <label class="cb-wrap" @click.stop>
+                <input type="checkbox" :checked="selectedForBulk.includes(a.article_id)" @change="toggleBulkSelection(a.article_id, $event)" class="bulk-cb" />
+              </label>
+              <div class="item-body">
+                <span class="item-title">{{ a.title }}</span>
+                <span class="item-sub">by {{ a.submitted_by }}</span>
+              </div>
+              <span v-if="a.locked_by && a.locked_by !== myUsername" class="lock-badge" title="Being reviewed by someone">🔒</span>
+            </li>
+            <li v-if="!newArticles.length" class="empty-item">
+              <span>🎉 All articles reviewed!</span>
+            </li>
+          </ul>
+        </transition>
+
+        <!-- Judged Articles section -->
+        <div class="section-head" @click="showJudgedArticles = !showJudgedArticles">
+          <span class="section-title">
+            <span class="section-dot judged-dot"></span>
+            My Judged
+          </span>
+          <span class="section-count">{{ judgedArticles.length }}</span>
+          <span class="section-chevron">{{ showJudgedArticles ? '▾' : '▸' }}</span>
+        </div>
+        <transition name="section-slide">
+          <ul v-show="showJudgedArticles" class="article-list">
+            <li
+              v-for="a in judgedArticles"
+              :key="a.article_id"
+              class="article-item judged"
+              :class="{ active: currentArticle?.article_id === a.article_id }"
+              @click="selectArticle(a)"
+            >
+              <div class="item-body">
+                <span class="item-title">{{ a.title }}</span>
+                <span class="item-sub">by {{ a.submitted_by }}</span>
+              </div>
+              <span
+                class="verdict-badge"
+                :class="getMyLatestDecision(a)"
+              >
+                {{ getMyLatestDecision(a) === 'accepted' ? '✓' : getMyLatestDecision(a) === 'rejected' ? '✕' : '→' }}
+              </span>
+            </li>
+            <li v-if="!judgedArticles.length" class="empty-item">
+              <span>Nothing judged yet</span>
+            </li>
+          </ul>
+        </transition>
+      </aside>
+
+      <!-- ═══════════════ REVIEW AREA ═══════════════ -->
+      <div class="review-area" :class="{ 'mobile-hidden': mobileTab !== 'review' }">
+        <!-- Empty state -->
+        <div v-if="!currentArticle" class="center-state full">
+          <div class="done-state">
+            <div class="done-icon">🎉</div>
+            <h3>All Caught Up!</h3>
+            <p>You have reviewed all available articles.</p>
+          </div>
+        </div>
+
+        <template v-else>
+          <!-- Article Header Bar -->
+          <div class="article-header">
+            <!-- Mobile back button -->
+            <button class="back-btn mobile-only" @click="mobileTab = 'list'">
+              ← Back
+            </button>
+            <div class="article-header-info">
+              <a :href="articleUrl(currentArticle.title)" target="_blank" class="article-title-link" :title="currentArticle.title">
+                {{ currentArticle.title }}
+              </a>
+              <div class="article-meta">
+                <span class="meta-chip">by {{ currentArticle.submitted_by }}</span>
+                <span v-if="currentArticle.wiki_creation_date" class="meta-chip">
+                  {{ new Date(currentArticle.wiki_creation_date).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) }}
+                </span>
+                <span v-if="currentArticle.locked_by && currentArticle.locked_by !== myUsername" class="lock-chip">
+                  🔒 {{ currentArticle.locked_by }} reviewing
+                </span>
+                <span v-if="getMyLatestDecision(currentArticle)" class="verdict-chip" :class="getMyLatestDecision(currentArticle)">
+                  {{ getMyLatestDecision(currentArticle) === 'accepted' ? '✓ Accepted' : getMyLatestDecision(currentArticle) === 'rejected' ? '✕ Rejected' : '→ Skipped' }}
+                </span>
+              </div>
+            </div>
+            <a :href="articleUrl(currentArticle.title)" target="_blank" class="open-wiki-btn" title="Open on Wiktionary">
+              ↗ Wiki
+            </a>
+          </div>
+
+          <!-- Talk Template Card -->
+          <div v-if="props.contest?.add_talk_template && talkPageSnippet" class="talk-card">
+            <span class="talk-icon">💬</span>
+            <div class="talk-info">
+              <span class="talk-label">Talk Template</span>
+              <code class="talk-code">{{ talkPageSnippet.replace(/\n\n/g, '  |  ') }}</code>
+            </div>
+            <div class="talk-actions">
+              <button class="talk-copy-btn" @click="copyTalkSnippet">
+                {{ isCopiedTalkSnippet ? '✅ Copied!' : '📋 Copy' }}
+              </button>
+              <a :href="'https://bn.wiktionary.org/wiki/আলাপ:' + encodeURIComponent(currentArticle.title)" target="_blank" class="talk-open-btn">
+                Talk ↗
+              </a>
             </div>
           </div>
 
-          <h3 @click="showNewArticles = !showNewArticles" class="section-toggle">
-            <span class="toggle-icon">{{ showNewArticles ? '▼' : '▶' }}</span>
-            New Articles ({{ newArticles.length }})
-          </h3>
-          <ul class="article-list" v-show="showNewArticles">
-            <li v-for="a in newArticles" :key="a.article_id" 
-                :class="{ active: currentArticle?.article_id === a.article_id }"
-                @click="selectArticle(a)">
-              <div class="li-left">
-                <input type="checkbox" :checked="selectedForBulk.includes(a.article_id)" @click="toggleBulkSelection(a.article_id, $event)" class="bulk-checkbox" />
-                <span>{{ a.title }}</span>
-              </div>
-            </li>
-            <li v-if="!newArticles.length" class="empty-list">No new articles</li>
-          </ul>
-
-          <h3 @click="showJudgedArticles = !showJudgedArticles" class="section-toggle">
-            <span class="toggle-icon">{{ showJudgedArticles ? '▼' : '▶' }}</span>
-            My Judged Articles ({{ judgedArticles.length }})
-          </h3>
-          <ul class="article-list" v-show="showJudgedArticles">
-            <li v-for="a in judgedArticles" :key="a.article_id" 
-                :class="{ active: currentArticle?.article_id === a.article_id }"
-                @click="selectArticle(a)">
-              {{ a.title }}
-              <span :class="['decision-badge', getMyLatestDecision(a)]">
-                {{ getMyLatestDecision(a) === 'accepted' ? '✅' : getMyLatestDecision(a) === 'rejected' ? '❌' : '⏭' }}
-              </span>
-            </li>
-            <li v-if="!judgedArticles.length" class="empty-list">You haven't judged any articles yet</li>
-          </ul>
-        </div>
-      </div>
-
-      <!-- Right Panel: Review Area -->
-      <div class="review-area" v-if="currentArticle">
-        <div v-if="currentArticle.locked_by && currentArticle.locked_by !== myUsername" class="lock-banner">
-          ⚠️ <strong>{{ currentArticle.locked_by }}</strong> is probably reviewing this page right now.
-        </div>
-        <!-- Top: preview -->
-        <div class="preview-pane">
-          <div class="preview-header">
-            <span>Live Preview</span>
-            <a :href="articleUrl(currentArticle.title)" target="_blank" class="open-link">Open in new tab ↗</a>
-          </div>
-          <div class="preview-content-wrapper">
-            <div v-if="isLoadingPreview" class="status-state">
-              <p>⏳ Loading preview...</p>
+          <!-- Preview Area -->
+          <div class="preview-wrap">
+            <div v-if="isLoadingPreview" class="preview-loading">
+              <div class="loading-spinner small"></div>
+              <span>Loading preview…</span>
             </div>
             <iframe
               v-else
@@ -561,359 +629,648 @@ const copyTalkSnippet = () => {
               referrerpolicy="no-referrer"
             ></iframe>
           </div>
-        </div>
 
-        <!-- Talk Page Template Helper Card -->
-        <div v-if="props.contest?.add_talk_template && talkPageSnippet" class="talk-template-card">
-          <div class="talk-card-left">
-            <span class="talk-card-icon">💬</span>
-            <div class="talk-card-text">
-              <span class="talk-card-label">Talk Page Template Code:</span>
-              <code class="talk-code-inline">{{ talkPageSnippet.replace(/\n\n/g, '  |  ') }}</code>
+          <!-- Review Action Bar (sticky at bottom) -->
+          <div class="review-bar">
+            <div class="review-bar-inner">
+              <div class="review-comment">
+                <cdx-text-input
+                  v-model="comment"
+                  placeholder="Leave a note (optional)…"
+                />
+              </div>
+              <div class="review-actions">
+                <button
+                  class="action-btn accept-btn"
+                  :disabled="isSubmitting"
+                  @click="handleDecision('accepted')"
+                >
+                  <span class="action-icon">✓</span>
+                  <span class="action-label">Accept</span>
+                </button>
+                <button
+                  class="action-btn reject-btn"
+                  :disabled="isSubmitting"
+                  @click="handleDecision('rejected')"
+                >
+                  <span class="action-icon">✕</span>
+                  <span class="action-label">Reject</span>
+                </button>
+                <button
+                  class="action-btn skip-btn"
+                  :disabled="isSubmitting"
+                  @click="skipArticle"
+                >
+                  <span class="action-icon">→</span>
+                  <span class="action-label">Skip</span>
+                </button>
+              </div>
             </div>
           </div>
-          <div class="talk-card-actions">
-            <button class="copy-talk-btn" @click="copyTalkSnippet" :title="talkPageSnippet">
-              {{ isCopiedTalkSnippet ? '✅ Copied Code!' : '📋 Copy Talk Page Code' }}
-            </button>
-            <a :href="'https://bn.wiktionary.org/wiki/আলাপ:' + encodeURIComponent(currentArticle.title)" target="_blank" class="open-talk-link">
-              Open Talk Page ↗
-            </a>
-          </div>
-        </div>
-
-        <!-- Bottom: Review Ribbon -->
-        <div class="review-ribbon">
-          <div class="ribbon-meta">
-            <a :href="articleUrl(currentArticle.title)" target="_blank" class="article-title-link" :title="currentArticle.title">
-              {{ currentArticle.title }}
-            </a>
-            <div class="meta-sub">
-              by {{ currentArticle.submitted_by }}
-              <span v-if="currentArticle.wiki_creation_date">
-                • {{ new Date(currentArticle.wiki_creation_date).toLocaleDateString() }}
-              </span>
-            </div>
-          </div>
-
-          <div class="ribbon-comment">
-            <cdx-text-input
-              v-model="comment"
-              placeholder="Leave a note (optional)..."
-            />
-          </div>
-
-          <div class="ribbon-actions">
-            <cdx-button action="progressive" weight="primary" :disabled="isSubmitting" @click="handleDecision('accepted')">
-              <cdx-icon :icon="cdxIconCheck" /> Accept
-            </cdx-button>
-            <cdx-button action="destructive" weight="primary" :disabled="isSubmitting" @click="handleDecision('rejected')">
-              <cdx-icon :icon="cdxIconClear" /> Reject
-            </cdx-button>
-            <cdx-button action="default" weight="quiet" :disabled="isSubmitting" @click="skipArticle">
-              <cdx-icon :icon="cdxIconNext" /> Skip
-            </cdx-button>
-          </div>
-          
-          <div v-if="getMyLatestDecision(currentArticle)" class="ribbon-status">
-            <span :class="['decision-badge', getMyLatestDecision(currentArticle)]">
-              {{ getMyLatestDecision(currentArticle) === 'accepted' ? '✅ Accepted' : getMyLatestDecision(currentArticle) === 'rejected' ? '❌ Rejected' : '⏭ Skipped' }}
-            </span>
-          </div>
-        </div>
-      </div>
-      <div v-else class="status-state empty">
-        <p>🎉 You have reviewed all available articles!</p>
+        </template>
       </div>
     </div>
+
+    <!-- ═══════════════ MOBILE BOTTOM NAV ═══════════════ -->
+    <nav class="mobile-bottom-nav mobile-only">
+      <button
+        class="mob-nav-btn"
+        :class="{ active: mobileTab === 'list' }"
+        @click="mobileTab = 'list'"
+      >
+        <span class="mob-nav-icon">☰</span>
+        <span class="mob-nav-lbl">Articles <span class="mob-badge">{{ newArticles.length }}</span></span>
+      </button>
+      <button
+        class="mob-nav-btn"
+        :class="{ active: mobileTab === 'review' }"
+        @click="mobileTab = 'review'"
+        :disabled="!currentArticle"
+      >
+        <span class="mob-nav-icon">📝</span>
+        <span class="mob-nav-lbl">Review</span>
+      </button>
+    </nav>
   </div>
 </template>
 
 <style scoped>
-/* Unauthorized Banner */
-.unauthorized-banner {
+/* ─── Base ─────────────────────────────────────────── */
+.review-queue {
   display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: #0d0f1c;
+  position: relative;
+}
+
+.center-state {
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
   flex: 1;
+  padding: 40px 24px;
+  gap: 16px;
+  color: #9ca3af;
 }
-.unauthorized-content {
+
+.unauth-card {
   text-align: center;
-  background: #1e293b;
-  padding: 40px 60px;
-  border-radius: 12px;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-  max-width: 500px;
+  background: #1a1d30;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 16px;
+  padding: 40px 48px;
+  max-width: 440px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
 }
-.unauthorized-content .icon { font-size: 3rem; margin-bottom: 16px; display: block; }
-.unauthorized-content h2 { color: #ffffff; margin: 0 0 12px 0; font-size: 1.5rem; font-weight: 700; }
-.unauthorized-content p { color: #9ca3af; margin: 0; font-size: 0.95rem; line-height: 1.5; }
+.unauth-icon { font-size: 3rem; display: block; margin-bottom: 12px; }
+.unauth-card h2 { color: #f1f5f9; margin: 0 0 8px; font-size: 1.4rem; }
+.unauth-card p { color: #94a3b8; margin: 0; font-size: 0.9rem; line-height: 1.6; }
 
-/* Lock Banner */
-.lock-banner {
-  background: rgba(255,255,255,0.1);
-  color: #d1d5db;
-  padding: 10px 16px;
-  border-bottom: 2px solid rgba(255,255,255,0.1);
-  font-size: 0.85rem;
-  flex-shrink: 0;
+.loading-spinner {
+  width: 36px; height: 36px;
+  border: 3px solid rgba(255,255,255,0.1);
+  border-top-color: #4f46e5;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.loading-spinner.small { width: 20px; height: 20px; border-width: 2px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { color: #94a3b8; font-size: 0.9rem; margin: 0; }
+
+/* ─── Main Layout (desktop: sidebar + panel) ────────── */
+.main-layout {
   display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* Layout */
-.review-queue { display: flex; flex-direction: column; height: 100%; min-height: 0; background: #0d0f1c; }
-.status-state { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; color: #9ca3af; font-size: 1rem; padding: 64px 32px; gap: 12px; }
-.status-state p { margin: 0; }
-.status-state.empty::before { content: '🎉'; font-size: 2.5rem; }
-.dashboard-layout { display: flex; flex: 1; height: 100%; overflow: hidden; min-height: 0; }
-
-/* Sidebar */
-.sidebar {
-  width: 280px;
-  background: #1e293b;
-  display: flex;
-  flex-direction: column;
-  transition: width 0.2s ease;
-  flex-shrink: 0;
-}
-.sidebar.is-collapsed { width: 44px; cursor: pointer; }
-
-.panel-header {
-  padding: 14px 16px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: #0f172a;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
-  font-weight: 700;
-  font-size: 0.8rem;
-  color: rgba(255,255,255,0.5);
-  cursor: pointer;
-  user-select: none;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-}
-.panel-header:hover { background: #1e293b; color: rgba(255,255,255,0.8); }
-.collapse-icon { font-size: 0.7rem; color: rgba(255,255,255,0.4); margin: 0; }
-
-.sidebar-content { flex: 1; overflow-y: auto; }
-.sidebar-content::-webkit-scrollbar { width: 4px; }
-.sidebar-content::-webkit-scrollbar-track { background: transparent; }
-.sidebar-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
-
-/* Bulk Actions */
-.bulk-actions-panel {
-  padding: 12px 16px;
-  background: #0f172a;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.bulk-count {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #94a3b8;
-  text-transform: uppercase;
-}
-.bulk-buttons {
-  display: flex;
-  gap: 8px;
-}
-.bulk-btn {
   flex: 1;
-  padding: 6px 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ─── Sidebar ───────────────────────────────────────── */
+.sidebar {
+  width: 288px;
+  flex-shrink: 0;
+  background: #131520;
+  border-right: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Stats Row */
+.sidebar-stats {
+  display: flex;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.stat-pill {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.04);
+}
+.stat-pill.pending { background: rgba(245, 158, 11, 0.1); }
+.stat-pill.done { background: rgba(34, 197, 94, 0.1); }
+.stat-pill.total { background: rgba(99, 102, 241, 0.1); }
+.stat-num {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  line-height: 1;
+}
+.stat-lbl { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; }
+
+/* Bulk Banner */
+.bulk-banner {
+  padding: 10px 14px;
+  background: rgba(79, 70, 229, 0.15);
+  border-bottom: 1px solid rgba(79, 70, 229, 0.25);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.bulk-label { font-size: 0.78rem; font-weight: 600; color: #a5b4fc; white-space: nowrap; }
+.bulk-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.bbtn {
+  padding: 4px 12px;
   border: none;
   border-radius: 6px;
   font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
   color: #fff;
-  transition: opacity 0.15s, transform 0.1s;
+  transition: filter 0.15s, transform 0.1s;
 }
-.bulk-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.bulk-btn:active:not(:disabled) { transform: translateY(1px); }
-.bulk-btn.accept { background: #2563eb; }
-.bulk-btn.accept:hover:not(:disabled) { background: #1d4ed8; }
-.bulk-btn.reject { background: #dc2626; }
-.bulk-btn.reject:hover:not(:disabled) { background: #b91c1c; }
+.bbtn:disabled { opacity: 0.5; cursor: not-allowed; }
+.bbtn:active:not(:disabled) { transform: scale(0.96); }
+.bbtn.accept { background: #16a34a; }
+.bbtn.accept:hover:not(:disabled) { filter: brightness(1.1); }
+.bbtn.reject { background: #dc2626; }
+.bbtn.reject:hover:not(:disabled) { filter: brightness(1.1); }
+.bbtn.clear { background: rgba(255,255,255,0.1); }
+.bbtn.clear:hover { background: rgba(255,255,255,0.15); }
 
-.sidebar h3 {
-  margin: 0;
+/* Section Headers */
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 10px 16px;
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  color: rgba(255,255,255,0.35);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
   position: sticky;
   top: 0;
   z-index: 2;
-  background: #1e293b;
+  background: #131520;
+  transition: background 0.15s;
 }
-.sidebar h3.section-toggle { cursor: pointer; display: flex; align-items: center; gap: 8px; }
-.sidebar h3.section-toggle:hover { color: rgba(255,255,255,0.7); }
-.toggle-icon { font-size: 0.65rem; }
-
-.article-list { list-style: none; margin: 0; padding: 4px 0; }
-.article-list li {
-  padding: 9px 16px;
-  cursor: pointer;
-  font-size: 0.82rem;
-  color: rgba(255,255,255,0.65);
+.section-head:hover { background: rgba(255,255,255,0.04); }
+.section-title {
+  flex: 1;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #64748b;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  transition: background 0.1s, color 0.1s;
-  border-radius: 0;
-  line-height: 1.4;
+  gap: 7px;
 }
-.article-list li:hover { background: rgba(255,255,255,0.07); color: #fff; }
-.article-list li.active { background: #2563eb; color: #fff; font-weight: 600; }
-.article-list li.empty-list { color: rgba(255,255,255,0.25); font-style: italic; cursor: default; font-size: 0.8rem; }
-.article-list li.empty-list:hover { background: transparent; color: rgba(255,255,255,0.25); }
-.li-left {
+.section-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.pending-dot { background: #f59e0b; }
+.judged-dot { background: #22c55e; }
+.section-count {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #475569;
+  background: rgba(255,255,255,0.07);
+  border-radius: 10px;
+  padding: 1px 7px;
+}
+.section-chevron { font-size: 0.72rem; color: #475569; }
+
+/* Article List */
+.article-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  flex: 1;
+}
+.article-list::-webkit-scrollbar { width: 3px; }
+.article-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+.article-item {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-.bulk-checkbox {
+  padding: 9px 14px;
   cursor: pointer;
-  accent-color: #ffffff;
-  width: 14px;
-  height: 14px;
+  transition: background 0.12s;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+.article-item:hover { background: rgba(255,255,255,0.05); }
+.article-item.active {
+  background: rgba(79, 70, 229, 0.18);
+  border-left: 3px solid #4f46e5;
+}
+.article-item.locked { opacity: 0.6; }
+
+.cb-wrap { flex-shrink: 0; display: flex; align-items: center; }
+.bulk-cb {
+  width: 14px; height: 14px;
+  cursor: pointer;
+  accent-color: #4f46e5;
 }
 
-/* Review Area */
-.review-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #12141f; }
-
-/* Preview Pane */
-.preview-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.preview-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 20px;
-  background: #161829;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: #64748b;
-  flex-shrink: 0;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-.open-link {
+.item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.item-title {
+  font-size: 0.83rem;
   font-weight: 500;
-  color: #ffffff;
-  text-decoration: none;
-  font-size: 0.78rem;
-  text-transform: none;
-  letter-spacing: 0;
-}
-.open-link:hover { text-decoration: underline; }
-.preview-content-wrapper {
-  flex: 1;
+  color: #e2e8f0;
+  white-space: nowrap;
   overflow: hidden;
-  background: #12141f;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+.article-item.active .item-title { color: #a5b4fc; }
+.item-sub { font-size: 0.7rem; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lock-badge { font-size: 0.75rem; flex-shrink: 0; }
+.verdict-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 5px;
+  flex-shrink: 0;
+}
+.verdict-badge.accepted { background: rgba(34,197,94,0.15); color: #22c55e; }
+.verdict-badge.rejected { background: rgba(239,68,68,0.15); color: #ef4444; }
+.verdict-badge.skipped { background: rgba(148,163,184,0.15); color: #94a3b8; }
+
+.empty-item {
+  padding: 20px 16px;
+  color: rgba(255,255,255,0.25);
+  font-size: 0.8rem;
+  font-style: italic;
+  text-align: center;
+}
+
+/* Section slide animation */
+.section-slide-enter-active,
+.section-slide-leave-active {
+  transition: opacity 0.18s ease;
+}
+.section-slide-enter-from,
+.section-slide-leave-to {
+  opacity: 0;
+}
+
+/* ─── Review Area ────────────────────────────────────── */
+.review-area {
+  flex: 1;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  background: #0d0f1c;
+  min-width: 0;
+}
+.review-area.full { flex: 1; }
+
+.done-state {
+  text-align: center;
+  background: #131520;
+  border: 1px solid rgba(99,102,241,0.2);
+  border-radius: 16px;
+  padding: 48px;
+  max-width: 360px;
+}
+.done-icon { font-size: 3rem; margin-bottom: 12px; }
+.done-state h3 { color: #e2e8f0; margin: 0 0 8px; font-size: 1.2rem; }
+.done-state p { color: #64748b; margin: 0; font-size: 0.9rem; }
+
+/* Article Header Bar */
+.article-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: #131520;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  min-height: 56px;
+}
+.article-header-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.article-title-link {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  text-decoration: none;
+  font-family: 'Linux Libertine', Georgia, Times, serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+.article-title-link:hover { color: #a5b4fc; }
+.article-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.meta-chip {
+  font-size: 0.72rem;
+  color: #64748b;
+  background: rgba(255,255,255,0.05);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+.lock-chip {
+  font-size: 0.72rem;
+  color: #f59e0b;
+  background: rgba(245,158,11,0.1);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+.verdict-chip {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 6px;
+}
+.verdict-chip.accepted { background: rgba(34,197,94,0.15); color: #22c55e; }
+.verdict-chip.rejected { background: rgba(239,68,68,0.15); color: #ef4444; }
+.verdict-chip.skipped { background: rgba(148,163,184,0.12); color: #94a3b8; }
+.open-wiki-btn {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #a5b4fc;
+  background: rgba(99,102,241,0.1);
+  border: 1px solid rgba(99,102,241,0.2);
+  padding: 5px 12px;
+  border-radius: 8px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.open-wiki-btn:hover { background: rgba(99,102,241,0.2); }
+
+/* Talk Template Card */
+.talk-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: rgba(99, 102, 241, 0.08);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.talk-icon { font-size: 1rem; flex-shrink: 0; }
+.talk-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.talk-label { font-size: 0.67rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #818cf8; }
+.talk-code { font-size: 0.8rem; color: #c7d2fe; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: monospace; }
+.talk-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.talk-copy-btn {
+  background: #4f46e5;
+  color: #fff;
+  border: none;
+  padding: 5px 12px;
+  border-radius: 7px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.talk-copy-btn:hover { background: #4338ca; }
+.talk-open-btn {
+  color: #a5b4fc;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.talk-open-btn:hover { text-decoration: underline; }
+
+/* Preview */
+.preview-wrap {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #0d0f1c;
+  min-height: 0;
+}
+.preview-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 12px;
+  color: #64748b;
+  font-size: 0.85rem;
 }
 .wiki-iframe {
   flex: 1;
   width: 100%;
   border: none;
-  background: #12141f;
+  background: #0d0f1c;
+  min-height: 0;
 }
 
-
-/* Review Ribbon */
-.review-ribbon {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 12px 20px;
-  background: #161829;
+/* Review Action Bar */
+.review-bar {
+  background: #131520;
   border-top: 1px solid rgba(255,255,255,0.07);
-  box-shadow: 0 -4px 16px rgba(0,0,0,0.3);
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.35);
   flex-shrink: 0;
+  padding: 12px 16px;
   z-index: 10;
 }
-.ribbon-meta {
-  display: flex;
-  flex-direction: column;
-  min-width: 140px;
-  max-width: 240px;
-}
-.article-title-link {
-  font-weight: 700;
-  font-size: 0.95rem;
-  color: #e2e8f0;
-  text-decoration: none;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: 'Linux Libertine', Georgia, Times, serif;
-}
-.article-title-link:hover { color: #d1d5db; }
-.meta-sub { font-size: 0.75rem; color: #9ca3af; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
-.ribbon-comment { flex: 1; }
-.ribbon-actions { display: flex; gap: 8px; align-items: center; }
-.ribbon-status {
-  padding-left: 16px;
-  border-left: 1px solid rgba(255,255,255,0.07);
+.review-bar-inner {
   display: flex;
   align-items: center;
-  font-size: 0.82rem;
-  font-weight: 600;
-}
-.decision-badge { font-size: 0.82rem; }
-/* Talk Template Helper Card */
-.talk-template-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: rgba(99, 102, 241, 0.12);
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  border-radius: 8px;
-  padding: 8px 16px;
-  margin-bottom: 12px;
   gap: 12px;
+  flex-wrap: wrap;
 }
-.talk-card-left {
+.review-comment { flex: 1; min-width: 180px; }
+.review-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.action-btn {
   display: flex;
   align-items: center;
-  gap: 10px;
-  overflow: hidden;
-}
-.talk-card-icon { font-size: 1.2rem; }
-.talk-card-text { display: flex; flex-direction: column; overflow: hidden; }
-.talk-card-label { font-size: 0.75rem; font-weight: 700; color: #e5e7eb; text-transform: uppercase; letter-spacing: 0.05em; }
-.talk-code-inline { font-family: monospace; color: #d1d5db; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.talk-card-actions { display: flex; align-items: center; gap: 8px; shrink: 0; }
-.copy-talk-btn {
-  background: #2563eb;
-  color: #fff;
+  gap: 6px;
+  padding: 9px 18px;
   border: none;
-  padding: 6px 12px;
-  border-radius: 6px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.1s;
+  color: #fff;
+}
+.action-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.action-btn:active:not(:disabled) { transform: scale(0.96); }
+.action-btn .action-icon { font-size: 1rem; }
+.accept-btn { background: linear-gradient(135deg, #16a34a, #15803d); box-shadow: 0 2px 12px rgba(22,163,74,0.3); }
+.accept-btn:hover:not(:disabled) { filter: brightness(1.1); }
+.reject-btn { background: linear-gradient(135deg, #dc2626, #b91c1c); box-shadow: 0 2px 12px rgba(220,38,38,0.3); }
+.reject-btn:hover:not(:disabled) { filter: brightness(1.1); }
+.skip-btn { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); color: #94a3b8; }
+.skip-btn:hover:not(:disabled) { background: rgba(255,255,255,0.12); color: #e2e8f0; }
+
+/* Back button (mobile) */
+.back-btn {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: #94a3b8;
+  padding: 5px 12px;
+  border-radius: 8px;
   font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  flex-shrink: 0;
+  white-space: nowrap;
+  transition: background 0.15s;
 }
-.copy-talk-btn:hover { background: #1d4ed8; }
-.open-talk-link {
-  color: #e5e7eb;
-  font-size: 0.8rem;
-  text-decoration: none;
-  font-weight: 500;
+.back-btn:hover { background: rgba(255,255,255,0.12); color: #e2e8f0; }
+
+/* ─── Mobile Bottom Nav ─────────────────────────────── */
+.mobile-bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0; right: 0;
+  background: #131520;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  z-index: 100;
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.5);
+  padding-bottom: env(safe-area-inset-bottom);
 }
-.open-talk-link:hover { text-decoration: underline; color: #e5e7eb; }
+.mob-nav-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 10px 8px;
+  background: none;
+  border: none;
+  color: #64748b;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.mob-nav-btn:disabled { opacity: 0.35; cursor: default; }
+.mob-nav-btn.active { color: #818cf8; }
+.mob-nav-icon { font-size: 1.2rem; }
+.mob-nav-lbl { display: flex; align-items: center; gap: 4px; }
+.mob-badge {
+  background: #4f46e5;
+  color: #fff;
+  font-size: 0.6rem;
+  padding: 1px 5px;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+/* ─── Responsive Breakpoints ────────────────────────── */
+.mobile-only { display: none; }
+
+@media (max-width: 768px) {
+  .mobile-only { display: flex; }
+
+  .main-layout {
+    flex-direction: column;
+  }
+
+  /* On mobile, sidebar and review area each take full space,
+     and toggled by mobileTab */
+  .sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: none;
+    /* when shown, take full height minus nav */
+    height: calc(100% - 58px);
+    flex-shrink: 0;
+  }
+
+  .review-area {
+    /* when shown, take full height minus nav */
+    height: calc(100% - 58px);
+    flex-shrink: 0;
+  }
+
+  .mobile-hidden {
+    display: none !important;
+  }
+
+  /* Mobile bottom nav: flex displayed */
+  .mobile-bottom-nav {
+    display: flex;
+  }
+
+  /* Adjust review queue bottom padding for nav */
+  .review-queue {
+    padding-bottom: 58px;
+  }
+
+  /* Review bar adapts */
+  .review-bar-inner {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .review-comment { min-width: unset; }
+  .review-actions {
+    justify-content: stretch;
+    gap: 8px;
+  }
+  .action-btn {
+    flex: 1;
+    justify-content: center;
+    padding: 10px 8px;
+    font-size: 0.82rem;
+  }
+  .action-btn .action-label { display: none; }
+  .action-btn .action-icon { font-size: 1.1rem; }
+
+  /* Article header adapts */
+  .article-header {
+    padding: 10px 14px;
+    gap: 8px;
+  }
+  .article-title-link { font-size: 0.9rem; }
+}
+
+@media (max-width: 480px) {
+  .unauth-card { padding: 28px 24px; }
+  .sidebar-stats { gap: 6px; padding: 10px 12px; }
+  .action-btn { padding: 10px 6px; }
+}
 </style>

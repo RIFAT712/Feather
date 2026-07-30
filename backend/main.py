@@ -38,6 +38,44 @@ app.add_middleware(
     https_only=is_prod
 )
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    tb_str = traceback.format_exc()
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        username = None
+        token = request.cookies.get("session_token")
+        if token:
+            try:
+                payload_data = jwt.decode(token, SESSION_SECRET, algorithms=["HS256"])
+                username = payload_data.get("sub")
+            except Exception:
+                pass
+        log_entry = models.SystemLog(
+            level="error",
+            source="backend",
+            message=f"HTTP 500: {str(exc)}"[:2000],
+            stack_trace=tb_str[:4000],
+            url=str(request.url)[:500],
+            user_agent=request.headers.get("user-agent", "")[:500],
+            username=username,
+            timestamp=datetime.utcnow()
+        )
+        db.add(log_entry)
+        db.commit()
+    except Exception as e:
+        print(f"[ErrorLog] Failed saving exception log: {e}")
+    finally:
+        db.close()
+        
+    return Response(
+        content=f'{{"detail": "Internal Server Error: {str(exc)}"}}',
+        status_code=500,
+        media_type="application/json"
+    )
+
 WIKI_DB_USER = os.getenv("WIKI_DB_USER", "")
 WIKI_DB_PASSWORD = os.getenv("WIKI_DB_PASSWORD", "")
 WIKI_BOT_USERNAME = os.getenv("WIKI_BOT_USERNAME", "")
@@ -946,57 +984,122 @@ def get_contest_log(code: str, db: Session = Depends(get_db)):
 
     return log
 
+class ClientErrorLog(BaseModel):
+    message: str
+    stack_trace: Optional[str] = None
+    url: Optional[str] = None
+    user_agent: Optional[str] = None
+    level: Optional[str] = "error"
+
+SESSION_SECRET = os.getenv("SESSION_SECRET", "super-secret")
+
+@app.post("/api/logs/client-error")
+def log_client_error(
+    payload: ClientErrorLog,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    username = None
+    token = request.cookies.get("session_token")
+    if token:
+        try:
+            payload_data = jwt.decode(token, SESSION_SECRET, algorithms=["HS256"])
+            username = payload_data.get("sub")
+        except Exception:
+            pass
+
+    log_entry = models.SystemLog(
+        level=payload.level or "error",
+        source="frontend",
+        message=payload.message[:2000],
+        stack_trace=payload.stack_trace[:4000] if payload.stack_trace else None,
+        url=payload.url[:500] if payload.url else None,
+        user_agent=(payload.user_agent or request.headers.get("user-agent", ""))[:500],
+        username=username,
+        timestamp=datetime.utcnow()
+    )
+    db.add(log_entry)
+    db.commit()
+    return {"status": "ok"}
+
 @app.get("/api/logs")
 def get_global_logs(
     contest_code: Optional[str] = None,
     status: Optional[str] = None,
+    source: Optional[str] = None,
     limit: int = 200,
     db: Session = Depends(get_db)
 ):
     """
-    Returns global activity and error logs across contests.
-    Allows filtering by contest_code and status (e.g., status=validation_failed or status=error).
+    Returns global activity, error, and system runtime logs (frontend JS, button errors, backend 500 errors).
     """
-    query = db.query(models.Article).options(
-        joinedload(models.Article.submitter),
-        joinedload(models.Article.contest)
-    )
-
-    if contest_code:
-        contest = db.query(models.Contest).filter_by(code=contest_code).first()
-        if contest:
-            query = query.filter(models.Article.contest_id == contest.id)
-        else:
-            return []
-
-    if status:
-        if status.lower() in ("error", "validation_failed"):
-            query = query.filter(models.Article.status == models.ArticleStatus.validation_failed)
-        else:
-            try:
-                enum_status = models.ArticleStatus(status.lower())
-                query = query.filter(models.Article.status == enum_status)
-            except ValueError:
-                pass
-
-    articles = query.order_by(models.Article.submitted_at.desc()).limit(limit).all()
-
     logs = []
-    for a in articles:
+
+    # 1. System runtime error logs (Frontend JS errors, Button click errors, Backend 500 errors)
+    sys_query = db.query(models.SystemLog)
+    if source:
+        sys_query = sys_query.filter(models.SystemLog.source == source)
+    sys_logs = sys_query.order_by(models.SystemLog.timestamp.desc()).limit(limit).all()
+
+    for s in sys_logs:
         logs.append({
-            "id": a.id,
-            "title": a.title,
-            "contest_code": a.contest.code if a.contest else None,
-            "contest_name": a.contest.name if a.contest else None,
-            "submitted_by": a.submitter.wiki_username if a.submitter else "Unknown",
-            "submitted_at": a.submitted_at.isoformat() if a.submitted_at else None,
-            "status": a.status.value,
-            "validation_error": a.validation_error,
-            "wiki_creator": a.wiki_creator,
-            "wiki_creation_date": a.wiki_creation_date.isoformat() if a.wiki_creation_date else None
+            "type": "system",
+            "id": s.id,
+            "source": s.source,
+            "level": s.level,
+            "message": s.message,
+            "stack_trace": s.stack_trace,
+            "url": s.url,
+            "user_agent": s.user_agent,
+            "username": s.username or "Anonymous",
+            "timestamp": s.timestamp.isoformat() if s.timestamp else None,
+            "status": "error"
         })
 
-    return logs
+    # 2. Article validation & submission logs
+    if not (source and source == "frontend"):
+        art_query = db.query(models.Article).options(
+            joinedload(models.Article.submitter),
+            joinedload(models.Article.contest)
+        )
+
+        if contest_code:
+            contest = db.query(models.Contest).filter_by(code=contest_code).first()
+            if contest:
+                art_query = art_query.filter(models.Article.contest_id == contest.id)
+            else:
+                art_query = None
+
+        if art_query:
+            if status:
+                if status.lower() in ("error", "validation_failed"):
+                    art_query = art_query.filter(models.Article.status == models.ArticleStatus.validation_failed)
+                else:
+                    try:
+                        enum_status = models.ArticleStatus(status.lower())
+                        art_query = art_query.filter(models.Article.status == enum_status)
+                    except ValueError:
+                        pass
+
+            articles = art_query.order_by(models.Article.submitted_at.desc()).limit(limit).all()
+            for a in articles:
+                logs.append({
+                    "type": "article_submission",
+                    "id": a.id,
+                    "title": a.title,
+                    "contest_code": a.contest.code if a.contest else None,
+                    "contest_name": a.contest.name if a.contest else None,
+                    "submitted_by": a.submitter.wiki_username if a.submitter else "Unknown",
+                    "submitted_at": a.submitted_at.isoformat() if a.submitted_at else None,
+                    "status": a.status.value,
+                    "validation_error": a.validation_error,
+                    "wiki_creator": a.wiki_creator,
+                    "wiki_creation_date": a.wiki_creation_date.isoformat() if a.wiki_creation_date else None,
+                    "timestamp": a.submitted_at.isoformat() if a.submitted_at else None
+                })
+
+    logs.sort(key=lambda x: x.get("timestamp") or "", reverse=True)
+    return logs[:limit]
 
 @app.get("/api/contests/{code}/my-submissions")
 def get_my_submissions(code: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):

@@ -253,4 +253,16 @@ onUnmounted(() => {
 .log-section {
   flex: 1;
 }
+
+@media (max-width: 768px) {
+  .hero-banner { padding: 28px 20px; }
+  .hero-title { font-size: 1.6rem; }
+  .stats-row { grid-template-columns: repeat(2, 1fr); }
+  .stat-card { padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.07); }
+}
+@media (max-width: 480px) {
+  .stats-row { grid-template-columns: 1fr; }
+  .hero-actions { flex-direction: column; }
+  .action-btn { width: 100%; justify-content: center; }
+}
 </style>

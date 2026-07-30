@@ -481,21 +481,21 @@ const handleExportWikitable = () => {
   height: 100%;
   transition: width 0.9s cubic-bezier(0.4,0,0.2,1);
 }
-.kpi-blue .kpi-value { color: #d1d5db; }
-.kpi-green .kpi-value { color: #d1d5db; }
-.kpi-red .kpi-value { color: #d1d5db; }
-.kpi-amber .kpi-value { color: #d1d5db; }
-.kpi-purple .kpi-value { color: #d1d5db; }
+.kpi-blue .kpi-value { color: #60a5fa; }
+.kpi-green .kpi-value { color: #4ade80; }
+.kpi-red .kpi-value { color: #f87171; }
+.kpi-amber .kpi-value { color: #fbbf24; }
+.kpi-purple .kpi-value { color: #a78bfa; }
 
-/* Charts row */
-.charts-row {
-  display: grid;
-  grid-template-columns: 340px 1fr;
-  gap: 16px;
-  padding: 0 32px 24px;
-}
-@media (max-width: 900px) {
-  .charts-row { grid-template-columns: 1fr; }
+/* Mobile layout adjustments */
+@media (max-width: 768px) {
+  .page-header { padding: 16px 16px 0; flex-direction: column; align-items: flex-start !important; gap: 12px; }
+  .kpi-grid { padding: 16px; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .charts-row { padding: 0 16px 16px; }
+  .jury-section { margin: 0 16px 24px; }
+  .judge-hero-banner { margin: 16px 16px 0; padding: 24px 20px; }
+  .judge-hero-inner { flex-direction: column; align-items: flex-start; }
+  .judge-hero-btn { width: 100%; justify-content: center; }
 }
 
 .chart-card {

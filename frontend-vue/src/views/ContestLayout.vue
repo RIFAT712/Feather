@@ -80,30 +80,35 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   padding: 0 20px;
-  height: 48px;
+  min-height: 48px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .contest-title-link {
   display: flex; align-items: center; gap: 8px;
   text-decoration: none; color: inherit; transition: opacity 0.15s;
+  min-width: 0;
 }
 .contest-title-link:hover { opacity: 0.7; }
-.home-icon { color: #4b5563; }
-.contest-title-info { display: flex; align-items: baseline; gap: 8px; }
-.contest-name { font-weight: 600; font-size: 0.9rem; color: #d1d5db; }
+.home-icon { color: #4b5563; flex-shrink: 0; }
+.contest-title-info { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.contest-name { font-weight: 600; font-size: 0.9rem; color: #d1d5db; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .contest-dates-chip {
   font-size: 0.7rem; color: #4b5563;
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 20px; padding: 2px 8px; font-weight: 500;
+  white-space: nowrap;
 }
 
-.contest-nav { display: flex; align-items: center; gap: 2px; }
+.contest-nav { display: flex; align-items: center; gap: 2px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .nav-link {
   padding: 5px 12px; border-radius: 5px;
   font-size: 0.84rem; font-weight: 500;
-  color: #4b5563; text-decoration: none;
+  color: #6b7280; text-decoration: none;
   transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
 }
 .nav-link:hover { background: rgba(255,255,255,0.05); color: #d1d5db; }
 .nav-link--active { background: rgba(255,255,255,0.07); color: #f9fafb; font-weight: 600; }
@@ -111,5 +116,12 @@ onMounted(async () => {
 .contest-content {
   flex: 1; display: flex; flex-direction: column;
   overflow-y: auto; min-height: 0;
+}
+
+@media (max-width: 640px) {
+  .contest-layout { height: auto; min-height: calc(100vh - 54px); }
+  .contest-header-inner { padding: 8px 12px; }
+  .contest-dates-chip { display: none; }
+  .contest-nav { width: 100%; justify-content: flex-start; }
 }
 </style>

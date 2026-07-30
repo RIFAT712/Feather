@@ -239,4 +239,12 @@ const handleLogout = async () => {
   padding: 10px; font-weight: 600; font-size: 0.9rem;
   z-index: 1000; position: sticky; top: 0;
 }
+
+@media (max-width: 640px) {
+  .header-inner { padding: 0 12px; gap: 8px; }
+  .brand-name { display: none; }
+  .user-info { display: none; }
+  .user-pill { padding: 3px; border: none; background: transparent; }
+  .logout-btn span, .logout-btn { padding: 4px 6px; font-size: 0.72rem; }
+}
 </style>
