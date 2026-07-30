@@ -334,6 +334,9 @@ onMounted(async () => {
   if (availableNewArticles.value.length > 0 && !currentArticle.value) {
     const randomIdx = Math.floor(Math.random() * availableNewArticles.value.length);
     selectArticle(availableNewArticles.value[randomIdx]);
+    if (window.innerWidth <= 768) {
+      mobileTab.value = 'list';
+    }
   }
 });
 
@@ -672,7 +675,7 @@ const copyTalkSnippet = () => {
     </div>
 
     <!-- ═══════════════ MOBILE BOTTOM NAV ═══════════════ -->
-    <nav class="mobile-bottom-nav mobile-only">
+    <nav v-if="mobileTab === 'list'" class="mobile-bottom-nav mobile-only">
       <button
         class="mob-nav-btn"
         :class="{ active: mobileTab === 'list' }"

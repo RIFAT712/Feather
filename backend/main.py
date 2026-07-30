@@ -9,6 +9,7 @@ import psutil
 import threading
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import List, Optional
 
 article_locks = {}  # { article_id: { "user": "wiki_username", "time": datetime } }
@@ -306,7 +307,9 @@ _is_restarting = False
 
 # ── Shared backup helper ──────────────────────────────────────────────────────
 def _write_backup_files(dest_dir: str, label: str):
-    """Dump articles, users, reviews, and contests to CSV files in dest_dir."""
+    """Dump articles, users, reviews, and contests to CSV files in dest_dir.
+    Also writes a SystemLog entry so the event appears in /api/logs.
+    """
     os.makedirs(dest_dir, exist_ok=True)
     timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
     db = next(get_db())
@@ -345,11 +348,68 @@ def _write_backup_files(dest_dir: str, label: str):
             for c in contests:
                 writer.writerow([c.id, c.code, c.name, c.start_date, c.end_date])
 
-        print(f"[Backup] {label} backup written to {dest_dir} at {timestamp}")
+        msg = (
+            f"{label} backup completed — {len(articles)} articles, {len(users)} users, "
+            f"{len(reviews)} reviews, {len(contests)} contests → {dest_dir} [{timestamp}]"
+        )
+        print(f"[Backup] {msg}")
+        db.add(models.SystemLog(
+            level="info",
+            source="backup",
+            message=msg,
+            timestamp=datetime.utcnow(),
+        ))
+        db.commit()
     except Exception as e:
-        print(f"[Backup] {label} backup failed:", e)
+        err_msg = f"{label} backup FAILED: {e} (dest={dest_dir})"
+        print(f"[Backup] {err_msg}")
+        try:
+            db.add(models.SystemLog(
+                level="error",
+                source="backup",
+                message=err_msg[:2000],
+                timestamp=datetime.utcnow(),
+            ))
+            db.commit()
+        except Exception:
+            pass  # Don't let a logging failure mask the original error
     finally:
         db.close()
+
+# ── Backup root resolution ────────────────────────────────────────────────────
+def _resolve_backup_root() -> str:
+    """
+    Resolve where ~/backup/ should live.
+    Priority:
+      1. BACKUP_ROOT env var (explicit override)
+      2. Path.home()  — works on Toolforge Kubernetes (HOME=/data/project/<tool>/)
+      3. Fallback: directory two levels above main.py (project root)
+    Always verifies the chosen path is writable before returning it.
+    """
+    candidates = []
+    if os.environ.get("BACKUP_ROOT"):
+        candidates.append(("BACKUP_ROOT env var", os.environ["BACKUP_ROOT"]))
+    try:
+        candidates.append(("Path.home()", str(Path.home())))
+    except Exception:
+        pass
+    candidates.append(("project root fallback", os.path.dirname(os.path.dirname(__file__))))
+
+    for label, base in candidates:
+        probe = os.path.join(base, "backup")
+        try:
+            os.makedirs(probe, exist_ok=True)
+            # Verify write access
+            test_file = os.path.join(probe, ".write_test")
+            with open(test_file, "w") as f:
+                f.write("ok")
+            os.remove(test_file)
+            print(f"[Backup] Using backup root via {label}: {base}")
+            return base
+        except Exception as e:
+            print(f"[Backup] Cannot write to {probe} ({label}): {e} — trying next candidate")
+
+    raise RuntimeError("[Backup] No writable backup root found!")
 
 # ── Emergency backup (triggered on server overload) ───────────────────────────
 # Always creates NEW files — never overwrites (timestamp in filename).
@@ -359,8 +419,8 @@ def do_emergency_backup_and_restart():
         return
     _is_restarting = True
 
-    root = os.path.dirname(os.path.dirname(__file__))
-    emergency_dir = os.path.join(root, 'backup', 'emergency')
+    home = _resolve_backup_root()
+    emergency_dir = os.path.join(home, 'backup', 'emergency')
     _write_backup_files(emergency_dir, "EMERGENCY")
 
     time.sleep(2)   # Give FastAPI time to send the response
@@ -371,10 +431,14 @@ HOURLY_BACKUP_INTERVAL_SECONDS = 3600  # 1 hour
 
 def _hourly_backup_loop():
     """Runs in a daemon thread; takes a backup every hour."""
+    # Resolve writable backup root and pre-create both subdirectories at startup
+    home = _resolve_backup_root()
+    os.makedirs(os.path.join(home, 'backup', 'hourly'), exist_ok=True)
+    os.makedirs(os.path.join(home, 'backup', 'emergency'), exist_ok=True)
+    print(f"[Backup] Directories ready: {home}/backup/{{hourly,emergency}}/")
     while True:
         time.sleep(HOURLY_BACKUP_INTERVAL_SECONDS)
-        root = os.path.dirname(os.path.dirname(__file__))
-        hourly_dir = os.path.join(root, 'backup', 'hourly')
+        hourly_dir = os.path.join(home, 'backup', 'hourly')
         _write_backup_files(hourly_dir, "HOURLY")
 
 # Start the hourly backup daemon thread when the module loads
@@ -1031,7 +1095,9 @@ def get_global_logs(
     db: Session = Depends(get_db)
 ):
     """
-    Returns global activity, error, and system runtime logs (frontend JS, button errors, backend 500 errors).
+    Returns global activity, error, and system runtime logs.
+    Includes: frontend JS errors, backend 500 errors, and backup events (source=backup).
+    Filter with ?source=backup to see only backup history.
     """
     logs = []
 
@@ -1053,11 +1119,11 @@ def get_global_logs(
             "user_agent": s.user_agent,
             "username": s.username or "Anonymous",
             "timestamp": s.timestamp.isoformat() if s.timestamp else None,
-            "status": "error"
+            "status": s.level,  # info | error | warning
         })
 
-    # 2. Article validation & submission logs
-    if not (source and source == "frontend"):
+    # 2. Article validation & submission logs (skip when filtering by backup source)
+    if not (source and source in ("frontend", "backup")):
         art_query = db.query(models.Article).options(
             joinedload(models.Article.submitter),
             joinedload(models.Article.contest)
