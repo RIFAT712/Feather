@@ -369,21 +369,23 @@ const selectedJuryContest = computed(() => {
   return contests.value.find(c => c.code === selectedJuryContestCode.value) || null;
 });
 
-// --- Jury Command Center (existing contest) ---
+// ----- Native jury username search (replaces CdxLookup) -----
+// Jury Command Center
 const jurySearchValue = ref('');
-const juryUsername = ref('');
 const juryMenuItems = ref([]);
+const juryMenuVisible = ref(false);
 const juryTags = ref([]);
 
-// --- Create-form jury (new contest) ---
+// Create-form jury
 const createJurySearchValue = ref('');
-const createJuryUsername = ref('');
 const createJuryMenuItems = ref([]);
+const createJuryMenuVisible = ref(false);
 const createJuryTags = ref([]);
 
-const fetchJuryUsers = async (prefix, menuItemsRef, tagsRef, existingFn) => {
+const fetchJuryUsers = async (prefix, menuItemsRef, menuVisibleRef, tagsRef, existingFn) => {
   if (!prefix || prefix.trim().length < 2) {
     menuItemsRef.value = [];
+    menuVisibleRef.value = false;
     return;
   }
   const cleanPrefix = prefix.trim();
@@ -396,6 +398,7 @@ const fetchJuryUsers = async (prefix, menuItemsRef, tagsRef, existingFn) => {
       menuItemsRef.value = data.query.allusers
         .map(u => ({ value: u.name, label: u.name }))
         .filter(u => !existing.includes(u.value) && !tagsRef.value.includes(u.value));
+      menuVisibleRef.value = menuItemsRef.value.length > 0;
     }
   } catch (e) {}
 };
@@ -404,7 +407,7 @@ let juryTimeout;
 watch(jurySearchValue, (newVal) => {
   clearTimeout(juryTimeout);
   juryTimeout = setTimeout(() => {
-    fetchJuryUsers(newVal, juryMenuItems, juryTags, () => selectedJuryContest.value?.juries || []);
+    fetchJuryUsers(newVal, juryMenuItems, juryMenuVisible, juryTags, () => selectedJuryContest.value?.juries || []);
   }, 300);
 });
 
@@ -412,18 +415,23 @@ let createJuryTimeout;
 watch(createJurySearchValue, (newVal) => {
   clearTimeout(createJuryTimeout);
   createJuryTimeout = setTimeout(() => {
-    fetchJuryUsers(newVal, createJuryMenuItems, createJuryTags, () => []);
+    fetchJuryUsers(newVal, createJuryMenuItems, createJuryMenuVisible, createJuryTags, () => []);
   }, 300);
 });
 
-watch(juryUsername, (newVal) => {
-  if (newVal && !juryTags.value.includes(newVal)) juryTags.value.push(newVal);
-  juryUsername.value = ''; jurySearchValue.value = ''; juryMenuItems.value = [];
-});
-watch(createJuryUsername, (newVal) => {
-  if (newVal && !createJuryTags.value.includes(newVal)) createJuryTags.value.push(newVal);
-  createJuryUsername.value = ''; createJurySearchValue.value = ''; createJuryMenuItems.value = [];
-});
+const selectJuryUser = (username) => {
+  if (username && !juryTags.value.includes(username)) juryTags.value.push(username);
+  jurySearchValue.value = '';
+  juryMenuItems.value = [];
+  juryMenuVisible.value = false;
+};
+
+const selectCreateJuryUser = (username) => {
+  if (username && !createJuryTags.value.includes(username)) createJuryTags.value.push(username);
+  createJurySearchValue.value = '';
+  createJuryMenuItems.value = [];
+  createJuryMenuVisible.value = false;
+};
 
 const removeJuryTag = (tag) => {
   juryTags.value = juryTags.value.filter(t => t !== tag);
@@ -979,14 +987,23 @@ const formatDate = (iso) => {
               <h3 class="jury-section-title">👥 Add Jury Members</h3>
               <p class="toggle-desc mb-3">Search and add jury members now. They will be assigned automatically when the contest is created.</p>
 
-              <div class="jury-lookup-row">
-                <cdx-lookup
-                  v-model:selected="createJuryUsername"
-                  v-model:input-value="createJurySearchValue"
-                  :menu-items="createJuryMenuItems"
+              <div class="jury-lookup-row" style="position:relative">
+                <input
+                  v-model="createJurySearchValue"
+                  type="text"
+                  class="native-picker w-full"
                   placeholder="Search wiki username..."
-                  class="jury-lookup"
+                  autocomplete="off"
+                  @blur="setTimeout(() => { createJuryMenuVisible = false }, 200)"
                 />
+                <ul v-if="createJuryMenuVisible && createJuryMenuItems.length" class="jury-suggest-dropdown">
+                  <li
+                    v-for="item in createJuryMenuItems"
+                    :key="item.value"
+                    @mousedown.prevent="selectCreateJuryUser(item.value)"
+                    class="jury-suggest-item"
+                  >{{ item.label }}</li>
+                </ul>
               </div>
 
               <div class="jury-tags-row mt-3" v-if="createJuryTags.length">
@@ -1051,18 +1068,28 @@ const formatDate = (iso) => {
             <div class="add-jury-section mt-6 border-t border-slate-700/50 pt-4">
               <label class="field-label">Add New Jury Members (Type username prefix)</label>
               
-              <div class="tag-input-wrapper mt-2">
+              <div class="tag-input-wrapper mt-2" style="position:relative">
                 <span v-for="tag in juryTags" :key="tag" class="jury-tag-new">
                   {{ tag }}
                   <button class="tag-remove" @click="removeJuryTag(tag)">&times;</button>
                 </span>
-                <cdx-lookup
-                  v-model:selected="juryUsername"
-                  v-model:input-value="jurySearchValue"
-                  :menu-items="juryMenuItems"
+                <input
+                  v-model="jurySearchValue"
+                  type="text"
+                  class="native-picker"
+                  style="min-width:220px;flex:1"
                   placeholder="Search Wiktionary username..."
-                  class="tag-lookup"
+                  autocomplete="off"
+                  @blur="setTimeout(() => { juryMenuVisible = false }, 200)"
                 />
+                <ul v-if="juryMenuVisible && juryMenuItems.length" class="jury-suggest-dropdown">
+                  <li
+                    v-for="item in juryMenuItems"
+                    :key="item.value"
+                    @mousedown.prevent="selectJuryUser(item.value)"
+                    class="jury-suggest-item"
+                  >{{ item.label }}</li>
+                </ul>
               </div>
               <p class="field-hint">Search by username prefix, select to add. Multiple users can be added at once.</p>
 
@@ -1744,4 +1771,10 @@ const formatDate = (iso) => {
 .modal-close-btn:hover { color: #d1d5db; }
 .modal-body { padding: 24px; }
 .modal-footer { padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; gap: 12px; justify-content: flex-end; }
+
+/* Jury username suggestion dropdown */
+.jury-suggest-dropdown { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: #1a1d30; border: 1px solid rgba(99,102,241,0.4); border-radius: 10px; list-style: none; margin: 0; padding: 4px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.5); max-height: 220px; overflow-y: auto; }
+.jury-suggest-item { padding: 9px 14px; color: #d1d5db; font-size: 0.92rem; cursor: pointer; transition: background 0.15s; }
+.jury-suggest-item:hover { background: rgba(99,102,241,0.25); color: #fff; }
+
 </style>

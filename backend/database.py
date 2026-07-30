@@ -158,12 +158,14 @@ def query_wiki_replica_batch(titles: list) -> dict:
         print(f"[Replica] Skipping: wiki_engine={wiki_engine is not None}, titles_count={len(titles) if titles else 0}")
         return None
 
-    title_map = {}
+    title_map = {}  # underscore_form -> original_title (preserves original casing)
+    lower_map = {}  # lower(original_title) -> original_title (for case-insensitive lookup)
     for t in titles:
         clean = t.strip()
         if clean:
             db_fmt = clean.replace(" ", "_")
             title_map[db_fmt] = clean
+            lower_map[clean.lower()] = clean
 
     db_titles = list(title_map.keys())
     if not db_titles:
@@ -204,7 +206,8 @@ def query_wiki_replica_batch(titles: list) -> dict:
                             iso_str = wiki_date.strftime("%Y-%m-%dT%H:%M:%SZ")
                         except Exception:
                             pass
-                    results[orig_title] = {
+                    # Store under lowercased key so main.py lookup is always case-insensitive
+                    results[orig_title.lower()] = {
                         "exists": True,
                         "wiki_creator": row.actor_name,
                         "wiki_creation_date": wiki_date,

@@ -266,52 +266,95 @@ def get_me(current_user: models.User = Depends(get_current_user)):
 
 _is_restarting = False
 
-def do_backup_and_restart():
-    global _is_restarting
-    if _is_restarting:
-        return
-    _is_restarting = True
-    
-    # Dump everything to CSV
+# ── Shared backup helper ──────────────────────────────────────────────────────
+def _write_backup_files(dest_dir: str, label: str):
+    """Dump articles, users, reviews, and contests to CSV files in dest_dir."""
+    os.makedirs(dest_dir, exist_ok=True)
+    timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
     db = next(get_db())
     try:
-        # Put backup in project root directory (one level above backend)
-        backup_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'backup')
-        os.makedirs(backup_dir, exist_ok=True)
-        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-        
-        # Backup Articles
+        # Articles
         articles = db.query(models.Article).all()
-        with open(os.path.join(backup_dir, f'articles_{timestamp}.csv'), 'w', newline='', encoding='utf-8') as f:
+        with open(os.path.join(dest_dir, f'articles_{timestamp}.csv'), 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(['id', 'title', 'submitter_id', 'contest_id', 'status'])
+            writer.writerow(['id', 'title', 'submitter_id', 'contest_id', 'status', 'validation_error',
+                             'wiki_creation_date', 'wiki_creator', 'submitted_at'])
             for a in articles:
-                writer.writerow([a.id, a.title, a.submitter_id, a.contest_id, a.status.value])
-                
-        # Backup Users
+                writer.writerow([a.id, a.title, a.submitter_id, a.contest_id, a.status.value,
+                                 a.validation_error, a.wiki_creation_date, a.wiki_creator, a.submitted_at])
+
+        # Users
         users = db.query(models.User).all()
-        with open(os.path.join(backup_dir, f'users_{timestamp}.csv'), 'w', newline='', encoding='utf-8') as f:
+        with open(os.path.join(dest_dir, f'users_{timestamp}.csv'), 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow(['id', 'wiki_username', 'role'])
             for u in users:
                 writer.writerow([u.id, u.wiki_username, u.role.value])
-    except Exception as e:
-        print("Backup failed:", e)
-    
-    time.sleep(2) # Give some time for response to be sent
-    os._exit(1) # Restart via process manager
 
+        # Reviews
+        reviews = db.query(models.Review).all()
+        with open(os.path.join(dest_dir, f'reviews_{timestamp}.csv'), 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['id', 'article_id', 'reviewer_id', 'status', 'comment', 'timestamp'])
+            for r in reviews:
+                writer.writerow([r.id, r.article_id, r.reviewer_id, r.status.value, r.comment, r.timestamp])
+
+        # Contests
+        contests = db.query(models.Contest).all()
+        with open(os.path.join(dest_dir, f'contests_{timestamp}.csv'), 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['id', 'code', 'name', 'start_date', 'end_date'])
+            for c in contests:
+                writer.writerow([c.id, c.code, c.name, c.start_date, c.end_date])
+
+        print(f"[Backup] {label} backup written to {dest_dir} at {timestamp}")
+    except Exception as e:
+        print(f"[Backup] {label} backup failed:", e)
+    finally:
+        db.close()
+
+# ── Emergency backup (triggered on server overload) ───────────────────────────
+# Always creates NEW files — never overwrites (timestamp in filename).
+def do_emergency_backup_and_restart():
+    global _is_restarting
+    if _is_restarting:
+        return
+    _is_restarting = True
+
+    root = os.path.dirname(os.path.dirname(__file__))
+    emergency_dir = os.path.join(root, 'backup', 'emergency')
+    _write_backup_files(emergency_dir, "EMERGENCY")
+
+    time.sleep(2)   # Give FastAPI time to send the response
+    os._exit(1)     # Restart via process manager (Procfile / systemd)
+
+# ── Hourly scheduled backup ───────────────────────────────────────────────────
+HOURLY_BACKUP_INTERVAL_SECONDS = 3600  # 1 hour
+
+def _hourly_backup_loop():
+    """Runs in a daemon thread; takes a backup every hour."""
+    while True:
+        time.sleep(HOURLY_BACKUP_INTERVAL_SECONDS)
+        root = os.path.dirname(os.path.dirname(__file__))
+        hourly_dir = os.path.join(root, 'backup', 'hourly')
+        _write_backup_files(hourly_dir, "HOURLY")
+
+# Start the hourly backup daemon thread when the module loads
+_hourly_thread = threading.Thread(target=_hourly_backup_loop, daemon=True, name="hourly-backup")
+_hourly_thread.start()
+
+# ── System status & overload detection ───────────────────────────────────────
 @app.get("/api/system/status")
 def system_status(background_tasks: BackgroundTasks):
     global _is_restarting
     cpu = psutil.cpu_percent(interval=None)
     mem = psutil.virtual_memory().percent
-    
+
     overloaded = cpu > 90 or mem > 90 or _is_restarting
-    
+
     if overloaded and not _is_restarting:
-        background_tasks.add_task(do_backup_and_restart)
-        
+        background_tasks.add_task(do_emergency_backup_and_restart)
+
     return {
         "cpu_percent": cpu,
         "mem_percent": mem,
@@ -535,7 +578,7 @@ async def process_articles_batch(
     db_replica_results = query_wiki_replica_batch(titles_to_check)
     if db_replica_results is not None:
         for t in titles_to_check:
-            info = db_replica_results.get(t)
+            info = db_replica_results.get(t.lower())  # keys are lowercased in query_wiki_replica_batch
             if not info:
                 results.append(ValidationResult(title=t, is_valid=False, error="Article does not exist"))
                 continue
