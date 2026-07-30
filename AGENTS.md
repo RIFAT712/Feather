@@ -229,3 +229,4 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-07-30 | Backup events now written to the `SystemLog` table (`source="backup"`) on every success (level=`info`, message includes article/user/review/contest counts and dest path) and failure (level=`error`). Events appear in `GET /api/logs` and can be isolated with `?source=backup`. Fixed `status` field in the `/api/logs` response to reflect actual `level` (`info`/`error`/`warning`) instead of hardcoding `"error"` for all `SystemLog` rows. |
 
 
+| 2026-07-30 | Modified _hourly_backup_loop in main.py so that it immediately performs a backup on server startup before sleeping, instead of sleeping for 1 hour first. |
