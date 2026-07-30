@@ -437,9 +437,9 @@ def _hourly_backup_loop():
     os.makedirs(os.path.join(home, 'backup', 'emergency'), exist_ok=True)
     print(f"[Backup] Directories ready: {home}/backup/{{hourly,emergency}}/")
     while True:
-        time.sleep(HOURLY_BACKUP_INTERVAL_SECONDS)
         hourly_dir = os.path.join(home, 'backup', 'hourly')
         _write_backup_files(hourly_dir, "HOURLY")
+        time.sleep(HOURLY_BACKUP_INTERVAL_SECONDS)
 
 # Start the hourly backup daemon thread when the module loads
 _hourly_thread = threading.Thread(target=_hourly_backup_loop, daemon=True, name="hourly-backup")
