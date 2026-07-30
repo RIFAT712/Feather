@@ -158,16 +158,20 @@ def query_wiki_replica_batch(titles: list) -> dict:
         print(f"[Replica] Skipping: wiki_engine={wiki_engine is not None}, titles_count={len(titles) if titles else 0}")
         return None
 
-    title_map = {}  # underscore_form -> original_title (preserves original casing)
-    lower_map = {}  # lower(original_title) -> original_title (for case-insensitive lookup)
+    title_map = {}  # db_fmt -> original_title
+    db_titles_set = set()
     for t in titles:
         clean = t.strip()
         if clean:
             db_fmt = clean.replace(" ", "_")
             title_map[db_fmt] = clean
-            lower_map[clean.lower()] = clean
+            db_titles_set.add(db_fmt)
+            # Add capitalized title variant (MediaWiki standard title capitalization)
+            db_fmt_cap = db_fmt[0].upper() + db_fmt[1:] if db_fmt else db_fmt
+            title_map[db_fmt_cap] = clean
+            db_titles_set.add(db_fmt_cap)
 
-    db_titles = list(title_map.keys())
+    db_titles = list(db_titles_set)
     if not db_titles:
         return {}
 
@@ -179,10 +183,6 @@ def query_wiki_replica_batch(titles: list) -> dict:
             from sqlalchemy import text, bindparam
             for i in range(0, len(db_titles), chunk_size):
                 chunk = db_titles[i:i + chunk_size]
-                # IMPORTANT: bindparam with expanding=True is required so SQLAlchemy
-                # expands the list into individual IN (?, ?, ?) placeholders.
-                # Without it, passing a tuple as a named param binds it as a single
-                # opaque value — IN clause matches nothing for 2+ titles.
                 query = text("""
                     SELECT 
                         CONVERT(p.page_title USING utf8mb4) as page_title,
@@ -192,15 +192,15 @@ def query_wiki_replica_batch(titles: list) -> dict:
                         CONVERT(r.rev_timestamp USING utf8mb4) as rev_timestamp,
                         CONVERT(a.actor_name USING utf8mb4) as actor_name
                     FROM page p
-                    JOIN revision r ON p.page_id = r.rev_page
+                    JOIN revision r ON (r.rev_page = p.page_id AND r.rev_parent_id = 0)
                     JOIN actor a ON r.rev_actor = a.actor_id
-                    WHERE r.rev_parent_id = 0
-                      AND p.page_title IN :titles
+                    WHERE p.page_namespace = 0
+                      AND (CONVERT(p.page_title USING utf8mb4) IN :titles OR p.page_title IN :titles)
                 """).bindparams(bindparam("titles", expanding=True))
                 res = conn.execute(query, {"titles": list(chunk)})
                 for row in res:
                     db_title = row.page_title
-                    orig_title = title_map.get(db_title, db_title.replace("_", " "))
+                    orig_title = title_map.get(db_title, title_map.get(db_title.replace("_", " "), db_title.replace("_", " ")))
                     ts_str = row.rev_timestamp
                     wiki_date = None
                     iso_str = None
@@ -210,8 +210,8 @@ def query_wiki_replica_batch(titles: list) -> dict:
                             iso_str = wiki_date.strftime("%Y-%m-%dT%H:%M:%SZ")
                         except Exception:
                             pass
-                    # Store under lowercased key so main.py lookup is always case-insensitive
-                    results[orig_title.lower()] = {
+                    
+                    entry = {
                         "exists": True,
                         "wiki_creator": row.actor_name,
                         "wiki_creation_date": wiki_date,
@@ -220,7 +220,10 @@ def query_wiki_replica_batch(titles: list) -> dict:
                         "page_is_redirect": bool(row.page_is_redirect),
                         "page_len": int(row.page_len) if row.page_len is not None else 0
                     }
-        print(f"[Replica] Query succeeded: {len(results)}/{len(db_titles)} articles found")
+                    results[orig_title.lower()] = entry
+                    results[db_title.lower()] = entry
+                    results[db_title.replace("_", " ").lower()] = entry
+        print(f"[Replica] Query succeeded: {len(results)}/{len(db_titles)} article keys mapped")
         return results
     except Exception as e:
         print(f"[Replica] Wiki replica query error, falling back to HTTP API: {e}")

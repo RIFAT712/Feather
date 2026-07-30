@@ -622,13 +622,11 @@ async def process_articles_batch(
     client = get_http_client()
     sem = get_global_semaphore()
     
-    async def fetch_batch_http(chunk_titles: List[str]) -> List[ValidationResult]:
-        batch_results = []
-        title_map = {t.lower(): t for t in chunk_titles}
+    async def fetch_single_http(t: str) -> ValidationResult:
         params = {
             "action": "query",
             "format": "json",
-            "titles": "|".join(chunk_titles),
+            "titles": t,
             "prop": "revisions|info|pageprops",
             "rvprop": "timestamp|user|size|content",
             "rvlimit": 1,
@@ -640,30 +638,15 @@ async def process_articles_batch(
                 response = await client.post(MEDIAWIKI_API_URL, data=params, headers=headers)
                 response.raise_for_status()
                 data = response.json()
-                
-                normalized_map = {}
-                for norm in data.get("query", {}).get("normalized", []):
-                    normalized_map[norm.get("to", "").lower()] = norm.get("from", "").lower()
-                    
                 pages = data.get("query", {}).get("pages", {})
-                processed_lowers = set()
-                
                 for page_id, page in pages.items():
-                    raw_title = page.get("title", "")
-                    raw_lower = raw_title.lower()
-                    
-                    orig_lower = normalized_map.get(raw_lower, raw_lower)
-                    orig_title = title_map.get(orig_lower, raw_title)
-                    processed_lowers.add(orig_lower)
-                    
+                    raw_title = page.get("title", t)
                     if "missing" in page:
-                        batch_results.append(ValidationResult(title=orig_title, is_valid=False, error="Article does not exist"))
-                        continue
+                        return ValidationResult(title=t, is_valid=False, error="Article does not exist")
                         
                     revisions = page.get("revisions", [])
                     if not revisions:
-                        batch_results.append(ValidationResult(title=orig_title, is_valid=False, error="No revisions found"))
-                        continue
+                        return ValidationResult(title=t, is_valid=False, error="No revisions found")
                         
                     first_rev = revisions[0]
                     creator = first_rev.get("user")
@@ -681,53 +664,34 @@ async def process_articles_batch(
                     
                     if not bypass_rules:
                         if getattr(contest, 'rule_mainspace_only', True) and page_ns != 0:
-                            batch_results.append(ValidationResult(title=orig_title, is_valid=False, error="Must be in Mainspace (Namespace 0)"))
-                            continue
+                            return ValidationResult(title=t, is_valid=False, error="Must be in Mainspace (Namespace 0)")
                         if getattr(contest, 'rule_no_redirect', True) and is_redirect:
-                            batch_results.append(ValidationResult(title=orig_title, is_valid=False, error="Article is a redirect page"))
-                            continue
+                            return ValidationResult(title=t, is_valid=False, error="Article is a redirect page")
                         if getattr(contest, 'rule_no_disambig', True) and is_disambig:
-                            batch_results.append(ValidationResult(title=orig_title, is_valid=False, error="Article is a disambiguation page"))
-                            continue
+                            return ValidationResult(title=t, is_valid=False, error="Article is a disambiguation page")
                         min_b = getattr(contest, 'min_bytes', 0)
                         if min_b > 0 and page_size < min_b:
-                            batch_results.append(ValidationResult(title=orig_title, is_valid=False, error=f"Article size too small ({page_size} B < min {min_b} B)"))
-                            continue
+                            return ValidationResult(title=t, is_valid=False, error=f"Article size too small ({page_size} B < min {min_b} B)")
                         min_w = getattr(contest, 'min_words', 0)
                         if min_w > 0 and word_count < min_w:
-                            batch_results.append(ValidationResult(title=orig_title, is_valid=False, error=f"Word count too low ({word_count} < min {min_w} words)"))
-                            continue
+                            return ValidationResult(title=t, is_valid=False, error=f"Word count too low ({word_count} < min {min_w} words)")
                         min_r = getattr(contest, 'min_refs', 0)
                         if min_r > 0 and ref_count < min_r:
-                            batch_results.append(ValidationResult(title=orig_title, is_valid=False, error=f"Insufficient references ({ref_count} < min {min_r} refs)"))
-                            continue
+                            return ValidationResult(title=t, is_valid=False, error=f"Insufficient references ({ref_count} < min {min_r} refs)")
                         if contest.rule_must_be_creator and creator != submitter_username:
-                            batch_results.append(ValidationResult(title=orig_title, is_valid=False, error=f"Author Mismatch: Creator is '{creator}'"))
-                            continue
+                            return ValidationResult(title=t, is_valid=False, error=f"Author Mismatch: Creator is '{creator}'")
                             
                         creation_time = datetime.strptime(timestamp_str, "%Y-%m-%dT%H:%M:%SZ")
                         if not (contest.start_date <= creation_time <= contest.end_date):
-                            batch_results.append(ValidationResult(title=orig_title, is_valid=False, error="Created outside contest timeframe"))
-                            continue
+                            return ValidationResult(title=t, is_valid=False, error="Created outside contest timeframe")
                             
-                    batch_results.append(ValidationResult(title=orig_title, is_valid=True, wiki_creator=creator, wiki_creation_date=timestamp_str))
-                    
-                for t in chunk_titles:
-                    if t.lower() not in processed_lowers:
-                        batch_results.append(ValidationResult(title=t, is_valid=False, error="Article does not exist"))
-                        
+                    return ValidationResult(title=t, is_valid=True, wiki_creator=creator, wiki_creation_date=timestamp_str)
+                return ValidationResult(title=t, is_valid=False, error="Article does not exist")
             except Exception as e:
-                for t in chunk_titles:
-                    batch_results.append(ValidationResult(title=t, is_valid=False, error=f"API Error: {str(e)}"))
-                    
-        return batch_results
+                return ValidationResult(title=t, is_valid=False, error=f"API Error: {str(e)}")
 
-    chunk_size = 50
-    chunks = [titles_to_check[i:i + chunk_size] for i in range(0, len(titles_to_check), chunk_size)]
-    batch_responses = await asyncio.gather(*(fetch_batch_http(c) for c in chunks))
-    for b_res in batch_responses:
-        results.extend(b_res)
-            
+    http_results = await asyncio.gather(*(fetch_single_http(t) for t in titles_to_check))
+    results.extend(http_results)
     return results
 
 @app.get("/api/contests/{code}/my-role")
@@ -981,6 +945,58 @@ def get_contest_log(code: str, db: Session = Depends(get_db)):
         log.append(entry)
 
     return log
+
+@app.get("/api/logs")
+def get_global_logs(
+    contest_code: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 200,
+    db: Session = Depends(get_db)
+):
+    """
+    Returns global activity and error logs across contests.
+    Allows filtering by contest_code and status (e.g., status=validation_failed or status=error).
+    """
+    query = db.query(models.Article).options(
+        joinedload(models.Article.submitter),
+        joinedload(models.Article.contest)
+    )
+
+    if contest_code:
+        contest = db.query(models.Contest).filter_by(code=contest_code).first()
+        if contest:
+            query = query.filter(models.Article.contest_id == contest.id)
+        else:
+            return []
+
+    if status:
+        if status.lower() in ("error", "validation_failed"):
+            query = query.filter(models.Article.status == models.ArticleStatus.validation_failed)
+        else:
+            try:
+                enum_status = models.ArticleStatus(status.lower())
+                query = query.filter(models.Article.status == enum_status)
+            except ValueError:
+                pass
+
+    articles = query.order_by(models.Article.submitted_at.desc()).limit(limit).all()
+
+    logs = []
+    for a in articles:
+        logs.append({
+            "id": a.id,
+            "title": a.title,
+            "contest_code": a.contest.code if a.contest else None,
+            "contest_name": a.contest.name if a.contest else None,
+            "submitted_by": a.submitter.wiki_username if a.submitter else "Unknown",
+            "submitted_at": a.submitted_at.isoformat() if a.submitted_at else None,
+            "status": a.status.value,
+            "validation_error": a.validation_error,
+            "wiki_creator": a.wiki_creator,
+            "wiki_creation_date": a.wiki_creation_date.isoformat() if a.wiki_creation_date else None
+        })
+
+    return logs
 
 @app.get("/api/contests/{code}/my-submissions")
 def get_my_submissions(code: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
