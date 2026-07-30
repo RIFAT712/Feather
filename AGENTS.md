@@ -230,3 +230,4 @@ npm run dev                  # Starts on http://localhost:3000
 
 
 | 2026-07-30 | Modified _hourly_backup_loop in main.py so that it immediately performs a backup on server startup before sleeping, instead of sleeping for 1 hour first. |
+| 2026-07-30 | Refactored \_write_backup_files\ to generate detailed CSV reports per contest (same format as /export/csv) instead of raw database dumps. Hourly backups overwrite \{contest_code}.csv\ while emergency backups append timestamps. |
