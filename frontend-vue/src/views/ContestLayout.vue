@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, inject } from 'vue';
+import { ref, onMounted, inject, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CdxIcon } from '@wikimedia/codex';
 import { cdxIconHome } from '@wikimedia/codex-icons';
@@ -11,6 +11,7 @@ const contest = ref(null);
 const isLoading = ref(true);
 const error = ref(null);
 const roles = ref({ is_jury: false, is_owner: false });
+const isReviewPage = computed(() => route.path.endsWith('/jury/review'));
 
 onMounted(async () => {
   try {
@@ -30,7 +31,7 @@ onMounted(async () => {
 <template>
   <div v-if="isLoading" class="loading-wrap">Loading contest...</div>
   <div v-else-if="error" class="error-state">{{ error }}</div>
-  <div v-else class="contest-layout">
+  <div v-else class="contest-layout" :class="{ 'review-layout': isReviewPage }">
     <div class="contest-header">
       <div class="contest-header-inner">
         <router-link :to="`/${contest.code}`" class="contest-title-link">
@@ -121,6 +122,8 @@ onMounted(async () => {
 @media (max-width: 640px) {
   .contest-layout { height: calc(100vh - 54px); min-height: 0; }
   .contest-content { min-height: 0; overflow: hidden; }
+  .review-layout .contest-header { display: none; }
+  .review-layout .contest-content { overflow: hidden; }
   .contest-header-inner { padding: 8px 12px; }
   .contest-dates-chip { display: none; }
   .contest-nav { width: 100%; justify-content: flex-start; }
