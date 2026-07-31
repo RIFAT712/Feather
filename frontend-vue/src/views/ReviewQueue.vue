@@ -1354,9 +1354,10 @@ const copyTalkSnippet = () => {
 
   .main-layout {
     flex-direction: column;
-    height: calc(100% - 58px);
-    flex: 0 0 calc(100% - 58px);
+    height: auto;
+    flex: 1 1 auto;
     min-height: 0;
+    overflow: hidden;
   }
 
   /* On mobile, sidebar and review area each take full space,
@@ -1374,8 +1375,21 @@ const copyTalkSnippet = () => {
   .sidebar.collapsed .sidebar-toggle { display: none !important; }
 
   .review-area {
+    height: auto;
+    flex: 1 1 0;
+    width: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .preview-wrap {
+    flex: 1 1 0;
+    min-height: 0;
+  }
+
+  .wiki-iframe {
+    display: block;
     height: 100%;
-    flex-shrink: 0;
     min-height: 0;
   }
 
