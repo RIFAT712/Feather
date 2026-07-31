@@ -89,13 +89,20 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
         
     async with httpx.AsyncClient() as client:
         # Get CSRF token via OAuth
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "User-Agent": "QuoteContestArticleTool/1.0 (https://github.com/RIFAT712/Feather)"
+        }
         res3 = await client.get(
             "https://bn.wiktionary.org/w/api.php",
             params={"action": "query", "meta": "tokens", "type": "csrf", "format": "json"},
-            headers={"Authorization": f"Bearer {access_token}"}
+            headers=headers
         )
-        csrf_token = res3.json().get("query", {}).get("tokens", {}).get("csrftoken")
-        if not csrf_token: return
+        token_data = res3.json()
+        csrf_token = token_data.get("query", {}).get("tokens", {}).get("csrftoken")
+        if not csrf_token:
+            print(f"[add_talk_pages] Failed to get CSRF token. Response: {token_data}")
+            return
         
         # Edit each talk page
         for title in titles:
@@ -113,13 +120,12 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
                 "summary": f"Adding contest template on behalf of {submitter}" if submitter else "Adding contest template"
             }
                 
-            headers = {"Authorization": f"Bearer {access_token}"}
-                
-            await client.post(
+            edit_res = await client.post(
                 "https://bn.wiktionary.org/w/api.php",
                 data=edit_data,
                 headers=headers
             )
+            print(f"[add_talk_pages] Edit response for {talk_title}: {edit_res.text}")
 
 
 oauth = OAuth()
