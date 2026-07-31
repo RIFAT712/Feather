@@ -81,6 +81,7 @@ WIKI_DB_USER = os.getenv("WIKI_DB_USER", "")
 WIKI_DB_PASSWORD = os.getenv("WIKI_DB_PASSWORD", "")
 async def add_talk_pages(titles: list[str], template_name: str, include_header: bool, access_token: str = None, submitter: str = None):
     if not access_token:
+        print(f"[add_talk_pages] Skipped — no OAuth access token stored for user. They need to log out and back in.")
         return
             
     template_text = template_name.strip()
