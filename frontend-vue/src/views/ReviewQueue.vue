@@ -26,6 +26,8 @@ const roles = ref({ is_jury: false, is_owner: false });
 const isAuthorized = computed(() => roles.value.is_jury || roles.value.is_owner);
 
 const selectedForBulk = ref([]);
+// Accepted/rejected articles retain their lock permanently to prevent double review.
+const permanentlyLockedArticleIds = new Set();
 
 const WIKI_BASE = 'https://bn.wiktionary.org/wiki/';
 
@@ -314,7 +316,7 @@ const availableNewArticles = computed(() => {
 });
 
 const releaseArticleLock = (articleId) => {
-  if (!articleId) return;
+  if (!articleId || permanentlyLockedArticleIds.has(articleId)) return;
   fetch(`/api/articles/${articleId}/lock`, { method: 'DELETE' }).catch(() => {});
 };
 
@@ -384,6 +386,9 @@ const handleDecision = async (decision) => {
       body: JSON.stringify({ decision, comment: comment.value }),
     });
     if (!res.ok) throw new Error('Review failed');
+    if (decision === 'accepted' || decision === 'rejected') {
+      permanentlyLockedArticleIds.add(currentArticle.value.article_id);
+    }
     comment.value = '';
     await fetchArticles();
     if (availableNewArticles.value.length > 0) {
@@ -445,6 +450,8 @@ const handleBulkDecision = async (decision) => {
       });
       if (!res.ok) {
         errors.push(article_id);
+      } else if (decision === 'accepted' || decision === 'rejected') {
+        permanentlyLockedArticleIds.add(article_id);
       }
     }
     selectedForBulk.value = [];

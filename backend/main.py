@@ -1518,6 +1518,8 @@ def lock_article(article_id: int, current_user: models.User = Depends(get_curren
     article = db.query(models.Article).filter_by(id=article_id).first()
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
+    if article.status != models.ArticleStatus.pending:
+        raise HTTPException(status_code=409, detail="Article has already been permanently reviewed.")
         
     contest = article.contest
     is_owner = current_user.role == models.RoleEnum.owner
@@ -1601,6 +1603,9 @@ def review_article(
     if is_jury and not is_owner and article.submitter_id == current_user.id:
         raise HTTPException(status_code=403, detail="Jury members cannot review their own articles.")
 
+    if article.status != models.ArticleStatus.pending:
+        raise HTTPException(status_code=409, detail="Article has already been permanently reviewed.")
+
     active_lock = db.query(models.ArticleLock).filter_by(article_id=article_id).first()
     if active_lock and active_lock.locked_at < datetime.utcnow() - timedelta(minutes=15):
         db.delete(active_lock)
@@ -1623,8 +1628,9 @@ def review_article(
         comment=data.comment
     )
     db.add(review)
-    # A review decision, including Skip, ends this reviewer's temporary lock.
-    if active_lock and active_lock.locked_by == current_user.wiki_username:
+    # Skip ends the temporary lock. Accept/Reject deliberately retain it so a
+    # finalized article cannot be reviewed again by another jury member.
+    if data.decision == "skipped" and active_lock and active_lock.locked_by == current_user.wiki_username:
         db.delete(active_lock)
     db.commit()
     return {"status": "success", "decision": data.decision}
