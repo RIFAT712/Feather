@@ -247,3 +247,4 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-08-01 | Updated `ReviewQueue.vue`: removed the talk-template ribbon from the judge view, neutralized its related colors, and added an arrow-only collapsible article sidebar control. |
 | 2026-08-01 | Prevented jury members from reviewing their own submissions in both backend and queue filtering; enforced active review-lock conflicts; protected admin migration/log endpoints with owner authentication, changed forced migration to POST, and made migration execution idempotent. |
 | 2026-08-01 | Adjusted the ReviewQueue sidebar arrow to use the dark panel theme instead of a bright white control. |
+| 2026-08-01 | Corrected `JuryStats.vue` to count distinct articles judged per jury member, using the latest decision per article instead of counting repeated review actions. Updated table and export labels accordingly. |

@@ -61,13 +61,24 @@ const juryStats = computed(() => {
   const stats = {};
   for (const a of articles.value) {
     for (const r of a.reviews) {
-      if (!stats[r.reviewer]) stats[r.reviewer] = { accepted: 0, rejected: 0, total: 0 };
-      if (r.decision === 'accepted') stats[r.reviewer].accepted++;
-      else if (r.decision === 'rejected') stats[r.reviewer].rejected++;
-      stats[r.reviewer].total++;
+      if (!stats[r.reviewer]) stats[r.reviewer] = { articles: {} };
+      const previous = stats[r.reviewer].articles[a.article_id];
+      const previousTime = previous?.reviewed_at ? new Date(previous.reviewed_at).getTime() : -1;
+      const reviewTime = r.reviewed_at ? new Date(r.reviewed_at).getTime() : 0;
+      if (!previous || reviewTime >= previousTime) {
+        stats[r.reviewer].articles[a.article_id] = r;
+      }
     }
   }
-  return Object.keys(stats).map(name => ({ name, ...stats[name] })).sort((a, b) => b.total - a.total);
+  return Object.keys(stats).map(name => {
+    const latestReviews = Object.values(stats[name].articles);
+    return {
+      name,
+      total: latestReviews.length,
+      accepted: latestReviews.filter(r => r.decision === 'accepted').length,
+      rejected: latestReviews.filter(r => r.decision === 'rejected').length,
+    };
+  }).sort((a, b) => b.total - a.total);
 });
 
 // ── Doughnut chart data ──
@@ -162,7 +173,7 @@ const barOptions = {
 };
 
 const handleExportCSV = () => {
-  const headers = ['Jury Member', 'Total Reviews', 'Accepted', 'Rejected', 'Acceptance Rate'];
+  const headers = ['Jury Member', 'Articles Judged', 'Accepted Articles', 'Rejected Articles', 'Acceptance Rate'];
   const rows = juryStats.value.map(j => [
     j.name, j.total, j.accepted, j.rejected, j.total ? Math.round((j.accepted/j.total)*100) + '%' : '0%'
   ]);
@@ -185,7 +196,7 @@ const handleExportJSON = () => {
 };
 
 const handleExportWikitable = () => {
-  let wt = '{| class="wikitable sortable"\\n! Jury Member !! Total Reviews !! Accepted !! Rejected !! Acceptance Rate\\n';
+  let wt = '{| class="wikitable sortable"\\n! Jury Member !! Articles Judged !! Accepted Articles !! Rejected Articles !! Acceptance Rate\\n';
   juryStats.value.forEach(j => {
     wt += `|-\\n| ${j.name} || ${j.total} || ${j.accepted} || ${j.rejected} || ${j.total ? Math.round((j.accepted/j.total)*100) : 0}%\\n`;
   });
@@ -320,7 +331,7 @@ const handleExportWikitable = () => {
         <div class="chart-card chart-card-wide">
           <div class="chart-card-header">
             <span class="chart-title">Jury Activity</span>
-            <span class="chart-subtitle">Reviews per member</span>
+          <span class="chart-subtitle">Articles judged per member</span>
           </div>
           <div class="bar-wrap" :style="{ height: `${Math.max(200, juryStats.length * 52 + 60)}px` }">
             <Bar v-if="juryStats.length" :data="barData" :options="barOptions" />
@@ -336,9 +347,9 @@ const handleExportWikitable = () => {
           <thead>
             <tr>
               <th>Jury Member</th>
-              <th>Total Reviews</th>
-              <th>Accepted</th>
-              <th>Rejected</th>
+              <th>Articles Judged</th>
+              <th>Accepted Articles</th>
+              <th>Rejected Articles</th>
               <th>Acceptance Rate</th>
             </tr>
           </thead>
