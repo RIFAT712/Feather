@@ -114,6 +114,17 @@ def run_auto_migrations(db_engine):
                             print(f"[Migration] Added column '{col_name}' to contests table.")
                         except Exception as ex:
                             print(f"[Migration] Failed adding {col_name}: {ex}")
+
+        if 'users' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('users')]
+            if 'oauth_access_token' not in columns:
+                with db_engine.connect() as conn:
+                    try:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN oauth_access_token VARCHAR(1000)"))
+                        conn.commit()
+                        print("[Migration] Added column 'oauth_access_token' to users table.")
+                    except Exception as ex:
+                        print(f"[Migration] Failed adding oauth_access_token: {ex}")
     except Exception as e:
         print(f"[Migration] Error inspecting database: {e}")
 

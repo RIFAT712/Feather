@@ -1423,9 +1423,17 @@ def delete_article(article_id: int, current_user: models.User = Depends(get_curr
         raise HTTPException(status_code=403, detail="Not authorized to delete articles in this contest")
         
     try:
+        title_for_log = article.title
+        contest_code = article.contest.code if article.contest else "unknown"
         db.query(models.Review).filter_by(article_id=article.id).delete()
         db.query(models.ArticleLock).filter_by(article_id=article.id).delete()
         db.delete(article)
+        db.add(models.SystemLog(
+            level="info",
+            source="backend",
+            message=f"User {current_user.wiki_username} removed article '{title_for_log}' from contest '{contest_code}'.",
+            username=current_user.wiki_username
+        ))
         db.commit()
     except Exception as e:
         db.rollback()

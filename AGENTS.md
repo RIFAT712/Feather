@@ -234,3 +234,4 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-07-31 | Added Jury Members display underneath the countdown timer in `ContestDashboard.vue`. |
 | 2026-07-31 | Added `oauth_access_token` column to `users` table to store MediaWiki OAuth 2.0 access token upon login. Updated `bot_edit_talk_pages` to use the submitter's (or jury's, if acting on behalf of someone) OAuth token instead of the bot account, effectively creating the talk page template on behalf of the submitter with proper attribution in the edit summary. |
 | 2026-07-31 | Added `DELETE /api/articles/{article_id}` endpoint to allow contest jury or owner to completely remove articles from a contest (cascading to reviews and locks). Added "Remove" buttons (both single and bulk) in the `ReviewQueue.vue` UI. |
+| 2026-07-31 | Added auto-migration in `database.py` for `oauth_access_token` column on the `users` table to fix internal server error during query execution on Toolforge. |
