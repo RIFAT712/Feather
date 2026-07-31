@@ -103,8 +103,8 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
         if not csrf_token:
             print(f"[add_talk_pages] Failed to get CSRF token. Response: {token_data}")
             try:
-                from backend.database import SessionLocal
-                from backend import models
+                from database import SessionLocal
+                import models
                 db = SessionLocal()
                 db.add(models.SystemLog(
                     level="error", 
@@ -154,8 +154,8 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
                 
         # Write to SystemLog
         try:
-            from backend.database import SessionLocal
-            from backend import models
+            from database import SessionLocal
+            import models
             db = SessionLocal()
             msg = f"Talk page template added for {len(successes)} articles."
             if failures:
@@ -1177,7 +1177,7 @@ SESSION_SECRET = os.getenv("SESSION_SECRET", "super-secret")
 def force_migration():
     try:
         from sqlalchemy import text
-        from backend.database import engine
+        from database import engine
         with engine.connect() as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN oauth_access_token TEXT"))
             conn.commit()
