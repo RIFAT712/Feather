@@ -243,3 +243,4 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-08-01 | Translated the talk-page edit summary in `backend/main.py` to the exact Bengali text `প্রতিযোগিতার টেমপ্লেট যোগ করা হচ্ছে`. |
 | 2026-08-01 | Removed extra leading and blank-line spacing from talk-page template output and synchronized the backend and frontend previews to render `{{আলাপ পাতা}}` immediately followed by the contest template. |
 | 2026-08-01 | Fixed contest timezone handling: admin contest date/time inputs now use Bangladesh Standard Time (UTC+06:00) and convert to UTC before storage, so BST midnight matches Wikimedia revision timestamps correctly. |
+| 2026-08-01 | Added an idempotent startup migration in `backend/database.py` that shifts existing contest start/end dates six hours earlier once, preserving their intended BST windows after the timezone fix. |

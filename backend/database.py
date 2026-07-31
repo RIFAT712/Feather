@@ -140,6 +140,52 @@ def run_auto_migrations(db_engine):
             print("[Migration] 'contests' table not found — create_all will handle it.")
 
         # ── article_locks table ──────────────────────────────────────────
+        # Existing contest dates were entered as Bangladesh time but stored as UTC
+        # by the old form. Shift them once by -6 hours for BST-correct UTC windows.
+        migration_table_sql = """
+            CREATE TABLE IF NOT EXISTS contest_timezone_migrations (
+                migration_key VARCHAR(100) PRIMARY KEY,
+                applied_at DATETIME NOT NULL
+            )
+        """
+        with db_engine.connect() as conn:
+            conn.execute(text(migration_table_sql))
+            conn.commit()
+
+        migration_key = "contest_dates_bst_to_utc_20260801"
+        with db_engine.connect() as conn:
+            already_applied = conn.execute(
+                text("SELECT 1 FROM contest_timezone_migrations WHERE migration_key = :key"),
+                {"key": migration_key}
+            ).first()
+
+            if not already_applied and 'contests' in existing_tables:
+                if is_mysql:
+                    conn.execute(text(
+                        "UPDATE contests SET start_date = DATE_SUB(start_date, INTERVAL 6 HOUR), "
+                        "end_date = DATE_SUB(end_date, INTERVAL 6 HOUR)"
+                    ))
+                else:
+                    conn.execute(text(
+                        "UPDATE contests SET start_date = datetime(start_date, '-6 hours'), "
+                        "end_date = datetime(end_date, '-6 hours')"
+                    ))
+                conn.execute(text(
+                    "INSERT INTO contest_timezone_migrations (migration_key, applied_at) "
+                    "VALUES (:key, :applied_at)"
+                ), {"key": migration_key, "applied_at": datetime.utcnow()})
+                conn.commit()
+                print("[Migration] Shifted existing contest windows from legacy UTC storage to BST-correct UTC.")
+            elif not already_applied:
+                conn.execute(text(
+                    "INSERT INTO contest_timezone_migrations (migration_key, applied_at) "
+                    "VALUES (:key, :applied_at)"
+                ), {"key": migration_key, "applied_at": datetime.utcnow()})
+                conn.commit()
+                print("[Migration] Recorded contest timezone migration; no existing contests to shift.")
+            else:
+                print("[Migration] Contest timezone migration already applied.")
+
         if 'article_locks' not in existing_tables:
             with db_engine.connect() as conn:
                 try:
