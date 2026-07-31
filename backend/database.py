@@ -120,7 +120,7 @@ def run_auto_migrations(db_engine):
             if 'oauth_access_token' not in columns:
                 with db_engine.connect() as conn:
                     try:
-                        conn.execute(text("ALTER TABLE users ADD COLUMN oauth_access_token VARCHAR(1000)"))
+                        conn.execute(text("ALTER TABLE users ADD COLUMN oauth_access_token TEXT"))
                         conn.commit()
                         print("[Migration] Added column 'oauth_access_token' to users table.")
                     except Exception as ex:

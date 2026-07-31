@@ -1173,6 +1173,17 @@ class ClientErrorLog(BaseModel):
 
 SESSION_SECRET = os.getenv("SESSION_SECRET", "super-secret")
 
+@app.get("/api/admin/force-migration")
+def force_migration():
+    try:
+        from sqlalchemy import text
+        from backend.database import engine
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN oauth_access_token TEXT"))
+            conn.commit()
+        return {"status": "success", "message": "Migration forced successfully"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 @app.post("/api/logs/client-error")
 def log_client_error(
     payload: ClientErrorLog,
