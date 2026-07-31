@@ -254,3 +254,4 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-08-01 | Changed the desktop collapsed review sidebar to zero width, leaving only a high-contrast floating arrow instead of a thick sidebar strip. |
 | 2026-08-01 | Fixed ReviewQueue layering and mobile action placement: the desktop sidebar arrow now stays above the article header, while the mobile review bar is pinned to the bottom with reserved preview space. |
 | 2026-08-01 | Changed the ReviewQueue collapse control to an X/☰ hamburger toggle and fixed the mobile review bar to the viewport above the bottom navigation. |
+| 2026-08-01 | Corrected the mobile ReviewQueue height calculation to prevent an oversized black container from occupying part of the screen behind the fixed bottom navigation. |

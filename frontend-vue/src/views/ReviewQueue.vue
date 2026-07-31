@@ -1324,7 +1324,8 @@ const copyTalkSnippet = () => {
 
   .main-layout {
     flex-direction: column;
-    height: 100%;
+    height: calc(100% - 58px);
+    flex: 0 0 calc(100% - 58px);
     min-height: 0;
   }
 
@@ -1371,7 +1372,7 @@ const copyTalkSnippet = () => {
 
   /* Adjust review queue bottom padding for nav */
   .review-queue {
-    padding-bottom: 58px;
+    padding-bottom: 0;
   }
 
   /* Review bar adapts */
