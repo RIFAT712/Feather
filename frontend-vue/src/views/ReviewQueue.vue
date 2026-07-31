@@ -830,6 +830,7 @@ const copyTalkSnippet = () => {
   overflow-x: hidden;
   box-sizing: border-box;
   transition: width 0.2s ease;
+  z-index: 20;
 }
 .sidebar.collapsed {
   width: 0;
@@ -841,7 +842,7 @@ const copyTalkSnippet = () => {
   position: absolute;
   top: 12px;
   right: -12px;
-  z-index: 4;
+  z-index: 50;
   width: 28px;
   height: 30px;
   padding: 0;
@@ -1228,6 +1229,7 @@ const copyTalkSnippet = () => {
   flex-wrap: wrap;
   width: 100%;
   min-width: 0;
+  position: relative;
 }
 .review-comment { flex: 1; min-width: 180px; }
 .review-actions { display: flex; gap: 8px; flex-shrink: 0; }
@@ -1342,6 +1344,18 @@ const copyTalkSnippet = () => {
     height: 100%;
     flex-shrink: 0;
     min-height: 0;
+  }
+
+  .preview-wrap {
+    padding-bottom: 112px;
+    box-sizing: border-box;
+  }
+
+  .review-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
   }
 
   .mobile-hidden {
