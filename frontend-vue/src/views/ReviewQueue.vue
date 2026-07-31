@@ -1433,6 +1433,8 @@ const copyTalkSnippet = () => {
     min-height: 0;
     overflow: hidden;
     background: #080a10;
+    padding-bottom: 110px;
+    box-sizing: border-box;
   }
   .review-area.mobile-hidden,
   .sidebar.mobile-hidden {
@@ -1486,9 +1488,13 @@ const copyTalkSnippet = () => {
   }
 
   .review-bar {
-    flex: 0 0 auto;
-    position: relative;
-    inset: auto;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 60px;
+    width: 100%;
+    z-index: 40;
+    flex: none;
     margin: 0;
     padding: 9px 10px 10px;
     background: #111522;
@@ -1522,7 +1528,11 @@ const copyTalkSnippet = () => {
 
   .mobile-bottom-nav {
     display: flex;
-    flex: 0 0 60px;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    flex: none;
     height: 60px;
     min-height: 60px;
     padding: 5px 10px calc(5px + env(safe-area-inset-bottom));

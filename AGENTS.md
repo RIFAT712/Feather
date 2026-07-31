@@ -262,3 +262,4 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-08-01 | Redesigned the ReviewQueue mobile experience as a dedicated Articles/Review two-screen workflow with card-based article lists, compact stats, a stable preview viewport, compact review actions, safe-area-aware bottom navigation, and no desktop sidebar controls on mobile. |
 | 2026-08-01 | On mobile jury review, removed the contest title/navigation header and locked the page shell against scrolling; only the wiki preview iframe remains scrollable. |
 | 2026-08-01 | Fixed the remaining mobile review black-space issue by removing competing 100% flex heights from `.main-layout` and `.review-area`; the preview now uses only the available flexible height above the review bar and bottom navigation. |
+| 2026-08-01 | Made mobile review tools a fixed bottom dock directly above the Articles/Review navigation, with reserved panel space so the dock never covers the wiki preview. |
