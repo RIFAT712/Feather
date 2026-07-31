@@ -173,7 +173,7 @@ const createWikitextPreview = computed(() => {
   }
   let text = '';
   if (includeTalkHeader.value) {
-    text += '{{আলাপ পাতা}}\n\n';
+    text += '{{আলাপ পাতা}}\n';
   }
   text += tName;
   return text;
@@ -329,7 +329,7 @@ const editWikitextPreview = computed(() => {
   }
   let text = '';
   if (editIncludeTalkHeader.value) {
-    text += '{{আলাপ পাতা}}\n\n';
+    text += '{{আলাপ পাতা}}\n';
   }
   text += tName;
   return text;

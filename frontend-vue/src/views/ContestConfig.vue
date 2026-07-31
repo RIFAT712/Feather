@@ -208,7 +208,7 @@ const wikitextPreview = computed(() => {
   }
   let text = '';
   if (editIncludeTalkHeader.value) {
-    text += '{{আলাপ পাতা}}\n\n';
+    text += '{{আলাপ পাতা}}\n';
   }
   text += tName;
   return text;

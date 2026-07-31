@@ -127,9 +127,10 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
         failures = []
         for title in titles:
             talk_title = f"Talk:{title}" if not title.startswith("Talk:") else title
-            append_text = f"\n{template_text}\n"
             if include_header:
-                append_text = f"\n{{{{আলাপ পাতা}}}}\n{append_text}"
+                append_text = f"{{{{আলাপ পাতা}}}}\n{template_text}"
+            else:
+                append_text = template_text
                 
             edit_data = {
                 "action": "edit",
