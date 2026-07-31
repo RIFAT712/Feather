@@ -60,8 +60,8 @@ const fetchUserArticles = async () => {
   userCreatedArticles.value = [];
   selectedArticles.value = [];
   const targetUser = (isOnBehalf.value && onBehalfUsername.value) ? onBehalfUsername.value : user.value.wiki_username;
-  const start = new Date(props.contest.start_date).toISOString();
-  const end = new Date(props.contest.end_date).toISOString();
+  const start = new Date(props.contest.start_date + (!props.contest.start_date.endsWith('Z') ? 'Z' : '')).toISOString();
+  const end = new Date(props.contest.end_date + (!props.contest.end_date.endsWith('Z') ? 'Z' : '')).toISOString();
   
   try {
     // 1. Fetch target user's already submitted articles for this contest

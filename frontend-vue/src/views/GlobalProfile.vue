@@ -48,11 +48,13 @@ const goToContest = (code) => router.push(`/${code}`);
 
 const formatDate = (d) => {
   if (!d) return 'N/A';
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const dStr = String(d);
+  return new Date(dStr + (!dStr.endsWith('Z') ? 'Z' : '')).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 const formatDateTime = (d) => {
   if (!d) return 'N/A';
-  return new Date(d).toLocaleString('en-US', {
+  const dStr = String(d);
+  return new Date(dStr + (!dStr.endsWith('Z') ? 'Z' : '')).toLocaleString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
     hour: '2-digit', minute: '2-digit'
   });

@@ -25,11 +25,15 @@ const getAccent = (i) => accentPalette[i % accentPalette.length];
 
 const isContestActive = (contest) => {
   const now = new Date();
-  return now >= new Date(contest.start_date) && now <= new Date(contest.end_date);
+  const startStr = String(contest.start_date);
+  const endStr = String(contest.end_date);
+  return now >= new Date(startStr + (!startStr.endsWith('Z') ? 'Z' : '')) && now <= new Date(endStr + (!endStr.endsWith('Z') ? 'Z' : ''));
 };
 
-const formatDate = (iso) =>
-  new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+const formatDate = (iso) => {
+  const isoStr = String(iso);
+  return new Date(isoStr + (!isoStr.endsWith('Z') ? 'Z' : '')).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
 
 const greeting = computed(() => {
   const h = new Date().getHours();

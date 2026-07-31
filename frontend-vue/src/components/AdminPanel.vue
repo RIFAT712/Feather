@@ -15,8 +15,8 @@ const handleCreateContest = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: name.value,
-        start_date: new Date(startDate.value).toISOString(),
-        end_date: new Date(endDate.value).toISOString()
+        start_date: new Date(startDate.value + (!startDate.value.includes('T') ? 'T00:00Z' : 'Z')).toISOString(),
+        end_date: new Date(endDate.value + (!endDate.value.includes('T') ? 'T23:59Z' : 'Z')).toISOString()
       })
     });
     if (!res.ok) throw new Error("Failed to create contest");

@@ -29,7 +29,8 @@ onMounted(() => {
 
 const formatDate = (dateStr) => {
   if (!dateStr) return 'N/A';
-  return new Date(dateStr).toLocaleString();
+  const dStr = String(dateStr);
+  return new Date(dStr + (!dStr.endsWith('Z') ? 'Z' : '')).toLocaleString();
 };
 </script>
 

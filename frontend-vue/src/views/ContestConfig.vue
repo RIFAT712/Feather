@@ -91,12 +91,12 @@ const fetchContest = async () => {
       juries.value = c.juries || [];
       
       editName.value = c.name;
-      const start = new Date(c.start_date);
+      const start = new Date(c.start_date + (!c.start_date.endsWith('Z') ? 'Z' : ''));
       editStartDate.value = start.toISOString().split('T')[0];
-      editStartTime.value = start.toTimeString().slice(0,5);
-      const end = new Date(c.end_date);
+      editStartTime.value = start.toISOString().split('T')[1].slice(0,5);
+      const end = new Date(c.end_date + (!c.end_date.endsWith('Z') ? 'Z' : ''));
       editEndDate.value = end.toISOString().split('T')[0];
-      editEndTime.value = end.toTimeString().slice(0,5);
+      editEndTime.value = end.toISOString().split('T')[1].slice(0,5);
       
       editMustBeCreator.value = c.rule_must_be_creator ?? true;
       editMinBytes.value = c.min_bytes ?? 0;
@@ -133,8 +133,8 @@ const saveSettings = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: editName.value,
-        start_date: new Date(`${editStartDate.value}T${editStartTime.value}`).toISOString(),
-        end_date: new Date(`${editEndDate.value}T${editEndTime.value}`).toISOString(),
+        start_date: new Date(`${editStartDate.value}T${editStartTime.value}Z`).toISOString(),
+        end_date: new Date(`${editEndDate.value}T${editEndTime.value}Z`).toISOString(),
         rule_must_be_creator: editMustBeCreator.value,
         min_bytes: Number(editMinBytes.value) || 0,
         min_words: Number(editMinWords.value) || 0,

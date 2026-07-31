@@ -161,8 +161,8 @@ const handleCreate = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: name.value,
-        start_date: new Date(`${startDate.value}T${startTime.value}`).toISOString(),
-        end_date: new Date(`${endDate.value}T${endTime.value}`).toISOString(),
+        start_date: new Date(`${startDate.value}T${startTime.value}Z`).toISOString(),
+        end_date: new Date(`${endDate.value}T${endTime.value}Z`).toISOString(),
         rule_must_be_creator: mustBeCreator.value,
         min_bytes: Number(minBytes.value) || 0,
         min_words: Number(minWords.value) || 0,
@@ -210,12 +210,12 @@ const resetCreateForm = () => {
 // Clone Contest Settings
 const handleCloneContest = (c) => {
   name.value = `Copy of ${c.name}`;
-  const start = new Date(c.start_date);
+  const start = new Date(c.start_date + (!c.start_date.endsWith('Z') ? 'Z' : ''));
   startDate.value = start.toISOString().split('T')[0];
-  startTime.value = start.toTimeString().slice(0,5);
-  const end = new Date(c.end_date);
+  startTime.value = start.toISOString().split('T')[1].slice(0,5);
+  const end = new Date(c.end_date + (!c.end_date.endsWith('Z') ? 'Z' : ''));
   endDate.value = end.toISOString().split('T')[0];
-  endTime.value = end.toTimeString().slice(0,5);
+  endTime.value = end.toISOString().split('T')[1].slice(0,5);
   
   mustBeCreator.value = c.rule_must_be_creator ?? true;
   minBytes.value = c.min_bytes ?? 0;
@@ -308,13 +308,13 @@ const openEditModal = (c) => {
   editingContest.value = c;
   editName.value = c.name;
   
-  const start = new Date(c.start_date);
+  const start = new Date(c.start_date + (!c.start_date.endsWith('Z') ? 'Z' : ''));
   editStartDate.value = start.toISOString().split('T')[0];
-  editStartTime.value = start.toTimeString().slice(0,5);
+  editStartTime.value = start.toISOString().split('T')[1].slice(0,5);
   
-  const end = new Date(c.end_date);
+  const end = new Date(c.end_date + (!c.end_date.endsWith('Z') ? 'Z' : ''));
   editEndDate.value = end.toISOString().split('T')[0];
-  editEndTime.value = end.toTimeString().slice(0,5);
+  editEndTime.value = end.toISOString().split('T')[1].slice(0,5);
   
   editMustBeCreator.value = c.rule_must_be_creator ?? true;
   editMinBytes.value = c.min_bytes ?? 0;
@@ -339,8 +339,8 @@ const saveEdit = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: editName.value,
-        start_date: new Date(`${editStartDate.value}T${editStartTime.value}`).toISOString(),
-        end_date: new Date(`${editEndDate.value}T${editEndTime.value}`).toISOString(),
+        start_date: new Date(`${editStartDate.value}T${editStartTime.value}Z`).toISOString(),
+        end_date: new Date(`${editEndDate.value}T${editEndTime.value}Z`).toISOString(),
         rule_must_be_creator: editMustBeCreator.value,
         min_bytes: Number(editMinBytes.value) || 0,
         min_words: Number(editMinWords.value) || 0,
@@ -492,7 +492,8 @@ const openJuryHubForContest = (code) => {
 
 const formatDate = (iso) => {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const isoStr = String(iso);
+  return new Date(isoStr + (!isoStr.endsWith('Z') ? 'Z' : '')).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 </script>
 
