@@ -259,4 +259,5 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-08-01 | Kept a transparent 28px desktop sidebar rail so the hamburger control remains visible after collapsing instead of being clipped by the zero-width panel. |
 | 2026-08-01 | Removed the artificial mobile preview bottom padding and fixed-position review bar that created a large black block; the review bar now stays in normal flex flow at the bottom of the review panel. |
 | 2026-08-01 | Restored a definite mobile contest viewport height so the ReviewQueue flex chain can size the preview iframe instead of collapsing it to zero height. |
+| 2026-08-01 | Redesigned the ReviewQueue mobile experience as a dedicated Articles/Review two-screen workflow with card-based article lists, compact stats, a stable preview viewport, compact review actions, safe-area-aware bottom navigation, and no desktop sidebar controls on mobile. |
 | 2026-08-01 | Fixed the remaining mobile review black-space issue by removing competing 100% flex heights from `.main-layout` and `.review-area`; the preview now uses only the available flexible height above the review bar and bottom navigation. |
