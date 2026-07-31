@@ -303,7 +303,10 @@ const myUsername = computed(() => user.value?.wiki_username);
 
 const newArticles = computed(() => {
   if (!myUsername.value) return [];
-  return articles.value.filter(a => !a.reviews.some(r => r.reviewer === myUsername.value));
+  return articles.value.filter(a =>
+    !(roles.value.is_jury && !roles.value.is_owner && a.submitted_by === myUsername.value) &&
+    !a.reviews.some(r => r.reviewer === myUsername.value)
+  );
 });
 
 const availableNewArticles = computed(() => {
@@ -822,7 +825,7 @@ const copyTalkSnippet = () => {
   border-right: 1px solid rgba(255,255,255,0.06);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   position: relative;
   transition: width 0.2s ease;
 }
@@ -831,20 +834,24 @@ const copyTalkSnippet = () => {
 .sidebar-toggle {
   position: absolute;
   top: 10px;
-  right: 7px;
+  right: -12px;
   z-index: 4;
-  width: 20px;
+  width: 24px;
   height: 24px;
   padding: 0;
   border: 1px solid rgba(255,255,255,0.16);
   border-radius: 4px;
-  background: #111;
-  color: #fff;
+  background: #fff;
+  color: #111;
   font-size: 1.1rem;
   line-height: 20px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.45);
 }
-.sidebar-toggle:hover { background: #2a2a2a; }
+.sidebar-toggle:hover { background: #e5e5e5; }
 
 /* Stats Row */
 .sidebar-stats {
@@ -1312,6 +1319,7 @@ const copyTalkSnippet = () => {
     height: calc(100% - 58px);
     flex-shrink: 0;
   }
+  .sidebar-toggle { right: 10px; }
 
   .review-area {
     /* when shown, take full height minus nav */

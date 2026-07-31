@@ -1180,14 +1180,11 @@ class ClientErrorLog(BaseModel):
 
 SESSION_SECRET = os.getenv("SESSION_SECRET", "super-secret")
 
-@app.get("/api/admin/force-migration")
-def force_migration():
+@app.post("/api/admin/force-migration")
+def force_migration(_: models.User = Depends(get_owner_user)):
     try:
-        from sqlalchemy import text
-        from database import engine
-        with engine.connect() as conn:
-            conn.execute(text("ALTER TABLE users ADD COLUMN oauth_access_token TEXT"))
-            conn.commit()
+        from database import run_auto_migrations
+        run_auto_migrations(engine)
         return {"status": "success", "message": "Migration forced successfully"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -1226,6 +1223,7 @@ def get_global_logs(
     status: Optional[str] = None,
     source: Optional[str] = None,
     limit: int = 200,
+    _: models.User = Depends(get_owner_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -1527,8 +1525,13 @@ def lock_article(article_id: int, current_user: models.User = Depends(get_curren
     if not (is_owner or is_jury):
         raise HTTPException(status_code=403, detail="Not authorized to lock articles in this contest")
 
-    # Upsert: delete old lock (if any) then insert fresh one
-    db.query(models.ArticleLock).filter_by(article_id=article_id).delete()
+    # Do not steal an active lock from another reviewer.
+    existing_lock = db.query(models.ArticleLock).filter_by(article_id=article_id).first()
+    if existing_lock and existing_lock.locked_at >= datetime.utcnow() - timedelta(minutes=15) \
+            and existing_lock.locked_by != current_user.wiki_username:
+        raise HTTPException(status_code=409, detail=f"Article is locked by {existing_lock.locked_by}.")
+    if existing_lock:
+        db.delete(existing_lock)
     db.add(models.ArticleLock(
         article_id=article_id,
         locked_by=current_user.wiki_username,
@@ -1574,8 +1577,16 @@ def review_article(
     if not (is_owner or is_jury):
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    if not getattr(contest, 'allow_self_review', False) and article.submitter_id == current_user.id and not is_owner:
-        raise HTTPException(status_code=403, detail="Self-review is disabled for this contest.")
+    if is_jury and not is_owner and article.submitter_id == current_user.id:
+        raise HTTPException(status_code=403, detail="Jury members cannot review their own articles.")
+
+    active_lock = db.query(models.ArticleLock).filter_by(article_id=article_id).first()
+    if active_lock and active_lock.locked_at < datetime.utcnow() - timedelta(minutes=15):
+        db.delete(active_lock)
+        db.commit()
+        active_lock = None
+    if active_lock and active_lock.locked_by != current_user.wiki_username:
+        raise HTTPException(status_code=409, detail=f"Article is locked by {active_lock.locked_by}.")
 
     if data.decision not in ("accepted", "rejected", "skipped"):
         raise HTTPException(status_code=400, detail="Invalid decision")
