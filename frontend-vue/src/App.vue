@@ -25,7 +25,7 @@ onMounted(async () => {
 });
 provide('user', user);
 
-const handleLogin = () => { window.location.href = '/auth/login'; };
+const handleLogin = () => { window.location.href = `/auth/login?next=${encodeURIComponent(window.location.pathname)}`; };
 const handleLogout = async () => {
   await fetch('/auth/logout', { method: 'POST' });
   window.location.href = '/';

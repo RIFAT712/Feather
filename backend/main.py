@@ -242,10 +242,13 @@ def get_owner_user(current_user: models.User = Depends(get_current_user)):
 
 # Routes
 @app.get("/auth/login")
-async def login(request: Request):
+async def login(request: Request, next: Optional[str] = None):
     host = request.headers.get("x-forwarded-host", request.url.hostname)
     proto = request.headers.get("x-forwarded-proto", request.url.scheme)
     
+    if next:
+        request.session['next_url'] = next
+        
     # Dynamically set the callback URL if running on Toolforge
     if host and "toolforge.org" in host:
         redirect_uri = f"https://{host}/auth/callback"
@@ -279,7 +282,8 @@ async def auth_callback(request: Request, response: Response, db: Session = Depe
         auth_token = jwt.encode(jwt_payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
         
         is_secure = request.headers.get("x-forwarded-proto") == "https" or request.url.scheme == "https"
-        redirect_res = RedirectResponse(url="/")
+        next_url = request.session.pop('next_url', '/')
+        redirect_res = RedirectResponse(url=next_url)
         redirect_res.set_cookie(
             key="auth_token", 
             value=auth_token, 
