@@ -185,7 +185,7 @@ oauth.register(
     access_token_url='https://meta.wikimedia.org/w/rest.php/oauth2/access_token',
     authorize_url='https://meta.wikimedia.org/w/rest.php/oauth2/authorize',
     api_base_url='https://meta.wikimedia.org/w/rest.php/oauth2/resource/',
-    client_kwargs={'scope': 'basic editpage'}
+    client_kwargs={'scope': 'basic createeditmovepage'}
 )
 
 MEDIAWIKI_API_URL = os.getenv("MEDIAWIKI_API_URL", "https://bn.wiktionary.org/w/api.php")
