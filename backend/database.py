@@ -107,7 +107,17 @@ def run_auto_migrations(db_engine):
 
         # ── users table ──────────────────────────────────────────────────
         if 'users' in existing_tables:
-            add_col_if_missing('users', 'oauth_access_token', 'VARCHAR(1000)')
+            # Add column if missing (new installs)
+            add_col_if_missing('users', 'oauth_access_token', 'TEXT')
+            # Widen existing VARCHAR(1000) → TEXT (Wikimedia OAuth2 JWTs exceed 1000 chars)
+            if is_mysql:
+                with db_engine.connect() as conn:
+                    try:
+                        conn.execute(text("ALTER TABLE `users` MODIFY COLUMN `oauth_access_token` TEXT"))
+                        conn.commit()
+                        print("[Migration] OK: MODIFY COLUMN users.oauth_access_token → TEXT")
+                    except Exception as ex:
+                        print(f"[Migration] WARN modifying oauth_access_token type: {ex}")
         else:
             print("[Migration] 'users' table not found — create_all will handle it.")
 
