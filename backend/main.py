@@ -1029,6 +1029,7 @@ async def submit_bulk(
         raise HTTPException(status_code=500, detail=f"Database concurrency issue during bulk submit: {str(e)}")
         
     valid_titles = [r.title for r in results if r.is_valid]
+    print(f"[submit-bulk] Talk Template Debug: valid_titles_count={len(valid_titles)}, add_talk_template={contest.add_talk_template}, template_name='{contest.talk_template_name}'")
     if valid_titles and contest.add_talk_template and contest.talk_template_name:
         background_tasks.add_task(
             add_talk_pages, 
