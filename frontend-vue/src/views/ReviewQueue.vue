@@ -17,6 +17,7 @@ const isLoadingPreview = ref(false);
 
 // Mobile tab: 'list' | 'review'
 const mobileTab = ref('list');
+const sidebarCollapsed = ref(false);
 
 const showNewArticles = ref(true);
 const showJudgedArticles = ref(false);
@@ -512,7 +513,13 @@ const copyTalkSnippet = () => {
     <!-- Main Layout -->
     <div v-else class="main-layout">
       <!-- ═══════════════ SIDEBAR ═══════════════ -->
-      <aside class="sidebar" :class="{ 'mobile-hidden': mobileTab !== 'list' }">
+      <aside class="sidebar" :class="{ 'mobile-hidden': mobileTab !== 'list', collapsed: sidebarCollapsed }">
+        <button
+          class="sidebar-toggle"
+          @click="sidebarCollapsed = !sidebarCollapsed"
+          :aria-label="sidebarCollapsed ? 'Expand article panel' : 'Collapse article panel'"
+          :title="sidebarCollapsed ? 'Expand article panel' : 'Collapse article panel'"
+        >{{ sidebarCollapsed ? '›' : '‹' }}</button>
         <!-- Stats row -->
         <div class="sidebar-stats">
           <div class="stat-pill pending">
@@ -650,7 +657,7 @@ const copyTalkSnippet = () => {
           </div>
 
           <!-- Talk Template Card -->
-          <div v-if="props.contest?.add_talk_template && talkPageSnippet" class="talk-card">
+          <div v-if="false && props.contest?.add_talk_template && talkPageSnippet" class="talk-card">
             <span class="talk-icon">💬</span>
             <div class="talk-info">
               <span class="talk-label">Talk Template</span>
@@ -816,7 +823,28 @@ const copyTalkSnippet = () => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
+  transition: width 0.2s ease;
 }
+.sidebar.collapsed { width: 34px; }
+.sidebar.collapsed > :not(.sidebar-toggle) { display: none; }
+.sidebar-toggle {
+  position: absolute;
+  top: 10px;
+  right: 7px;
+  z-index: 4;
+  width: 20px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 4px;
+  background: #111;
+  color: #fff;
+  font-size: 1.1rem;
+  line-height: 20px;
+  cursor: pointer;
+}
+.sidebar-toggle:hover { background: #2a2a2a; }
 
 /* Stats Row */
 .sidebar-stats {
@@ -1105,18 +1133,18 @@ const copyTalkSnippet = () => {
   align-items: center;
   gap: 10px;
   padding: 8px 16px;
-  background: rgba(99, 102, 241, 0.08);
-  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+  background: #111;
+  border-bottom: 1px solid rgba(255,255,255,0.12);
   flex-shrink: 0;
   flex-wrap: wrap;
 }
 .talk-icon { font-size: 1rem; flex-shrink: 0; }
 .talk-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.talk-label { font-size: 0.67rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #818cf8; }
-.talk-code { font-size: 0.8rem; color: #c7d2fe; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: monospace; }
+.talk-label { font-size: 0.67rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #fff; }
+.talk-code { font-size: 0.8rem; color: #e5e5e5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: monospace; }
 .talk-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
 .talk-copy-btn {
-  background: #4f46e5;
+  background: #222;
   color: #fff;
   border: none;
   padding: 5px 12px;
@@ -1127,9 +1155,9 @@ const copyTalkSnippet = () => {
   transition: background 0.15s;
   white-space: nowrap;
 }
-.talk-copy-btn:hover { background: #4338ca; }
+.talk-copy-btn:hover { background: #333; }
 .talk-open-btn {
-  color: #a5b4fc;
+  color: #e5e5e5;
   font-size: 0.75rem;
   font-weight: 500;
   text-decoration: none;
