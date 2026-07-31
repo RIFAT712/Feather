@@ -77,7 +77,7 @@ D:\Quote Contest\article-tool\
 
 | Model          | Table           | Key Fields                                                                |
 | -------------- | --------------- | ------------------------------------------------------------------------- |
-| **User**       | `users`         | `id`, `wiki_username` (unique), `role` (participant \| owner)             |
+| **User**       | `users`         | `id`, `wiki_username` (unique), `role` (participant \| owner), `oauth_access_token`             |
 | **Contest**     | `contests`      | `id`, `code` (6-char hex, unique), `name`, `start_date`, `end_date`, `rule_must_be_creator`, `min_bytes`, `min_words`, `min_refs`, `rule_no_redirect`, `rule_no_disambig`, `rule_mainspace_only`, `allow_self_review`, `add_talk_template`, `talk_template_name`, `include_talk_header` |
 | **ContestJury** | `contest_jury` | `id`, `contest_id` (FK), `user_id` (FK)                                  |
 | **Article**    | `articles`      | `id`, `title`, `submitter_id` (FK), `contest_id` (FK), `status` (pending/accepted/rejected/validation_failed), `validation_error`, `wiki_creation_date`, `wiki_creator`, `submitted_at` |
@@ -128,6 +128,7 @@ D:\Quote Contest\article-tool\
 | GET    | `/api/articles/{contest_code}/pending/next`   | Next pending article for review    | Jury/Owner |
 | POST   | `/api/articles/{article_id}/lock`             | Lock article for review            | Required   |
 | POST   | `/api/articles/{article_id}/review`           | Submit review decision             | Jury/Owner |
+| DELETE | `/api/articles/{article_id}`                  | Remove article from contest        | Jury/Owner |
 | GET    | `/api/proxy/article/{title}`                  | Proxy bn.wiktionary article HTML   | None       |
 
 ---
@@ -231,3 +232,5 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-07-30 | Refactored \_write_backup_files\ to generate detailed CSV reports per contest (same format as /export/csv) instead of raw database dumps. Hourly backups overwrite \{contest_code}.csv\ while emergency backups append timestamps. |
 | 2026-07-31 | Applied 12 bug fixes across backend and frontend: fixed wikitable newline export (`main.py`), replaced in-memory `article_locks` with DB-backed `ArticleLock` table for multi-worker support (`models.py`, `database.py`, `main.py`), fixed `ReviewQueue.vue` comment persistence, added error logging to bulk reviews, corrected cookie and JWT secret names in global exception handler, prevented `get_next_pending` from returning locked articles, fixed `on_behalf_of` payload construction in `SubmitArticles.vue`, fixed naive datetime comparison for article validation, removed `replica.my.cnf` fallback for app DB, fixed `title_map` overwriting issues, added `ContestUpdate` schema for PUT requests, and added monotonic fetch sequence guards to `SubmitArticles.vue`. |
 | 2026-07-31 | Added Jury Members display underneath the countdown timer in `ContestDashboard.vue`. |
+| 2026-07-31 | Added `oauth_access_token` column to `users` table to store MediaWiki OAuth 2.0 access token upon login. Updated `bot_edit_talk_pages` to use the submitter's (or jury's, if acting on behalf of someone) OAuth token instead of the bot account, effectively creating the talk page template on behalf of the submitter with proper attribution in the edit summary. |
+| 2026-07-31 | Added `DELETE /api/articles/{article_id}` endpoint to allow contest jury or owner to completely remove articles from a contest (cascading to reviews and locks). Added "Remove" buttons (both single and bulk) in the `ReviewQueue.vue` UI. |

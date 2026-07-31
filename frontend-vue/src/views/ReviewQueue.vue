@@ -379,6 +379,26 @@ const handleDecision = async (decision) => {
   }
 };
 
+const handleRemove = async () => {
+  if (!currentArticle.value || isSubmitting.value) return;
+  if (!confirm('Are you sure you want to permanently remove this article from the contest?')) return;
+  isSubmitting.value = true;
+  try {
+    const res = await fetch(`/api/articles/${currentArticle.value.article_id}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error('Remove failed');
+    currentArticle.value = null;
+    await fetchArticles();
+    mobileTab.value = 'list';
+  } catch (error) {
+    console.error("Error removing article", error);
+  } finally {
+    isSubmitting.value = false;
+  }
+};
+
+
 const toggleBulkSelection = (article_id, e) => {
   e.stopPropagation();
   const idx = selectedForBulk.value.indexOf(article_id);
@@ -421,6 +441,25 @@ const handleBulkDecision = async (decision) => {
     if (errors.length) {
       console.warn(`Bulk review: ${errors.length} article(s) failed to update:`, errors);
     }
+    isSubmitting.value = false;
+  }
+};
+
+const handleBulkRemove = async () => {
+  if (isSubmitting.value || !selectedForBulk.value.length) return;
+  if (!confirm(`Are you sure you want to permanently remove ${selectedForBulk.value.length} article(s) from the contest?`)) return;
+  isSubmitting.value = true;
+  try {
+    for (const article_id of selectedForBulk.value) {
+      await fetch(`/api/articles/${article_id}`, { method: 'DELETE' });
+    }
+    selectedForBulk.value = [];
+    currentArticle.value = null;
+    await fetchArticles();
+    mobileTab.value = 'list';
+  } catch (err) {
+    console.error("Bulk remove failed", err);
+  } finally {
     isSubmitting.value = false;
   }
 };
@@ -494,9 +533,10 @@ const copyTalkSnippet = () => {
         <div v-if="selectedForBulk.length > 0" class="bulk-banner">
           <span class="bulk-label">{{ selectedForBulk.length }} selected</span>
           <div class="bulk-btns">
-            <button class="bbtn accept" @click="handleBulkDecision('accepted')" :disabled="isSubmitting">✓ Accept</button>
-            <button class="bbtn reject" @click="handleBulkDecision('rejected')" :disabled="isSubmitting">✕ Reject</button>
-            <button class="bbtn clear" @click="selectedForBulk = []">Clear</button>
+            <button class="bbtn accept" @click="handleBulkDecision('accepted')" title="Accept Selected">✓</button>
+            <button class="bbtn reject" @click="handleBulkDecision('rejected')" title="Reject Selected">✕</button>
+            <button class="bbtn skip" @click="handleBulkDecision('skipped')" title="Skip Selected">→</button>
+            <button class="bbtn remove" @click="handleBulkRemove" title="Remove Selected">🗑️</button>
           </div>
         </div>
 
@@ -675,6 +715,14 @@ const copyTalkSnippet = () => {
                   <span class="action-icon">→</span>
                   <span class="action-label">Skip</span>
                 </button>
+                <button
+                  class="action-btn remove-btn"
+                  :disabled="isSubmitting"
+                  @click="handleRemove"
+                >
+                  <span class="action-icon">🗑️</span>
+                  <span class="action-label">Remove</span>
+                </button>
               </div>
             </div>
           </div>
@@ -828,6 +876,10 @@ const copyTalkSnippet = () => {
 .bbtn.reject:hover:not(:disabled) { filter: brightness(1.1); }
 .bbtn.clear { background: rgba(255,255,255,0.1); }
 .bbtn.clear:hover { background: rgba(255,255,255,0.15); }
+.bbtn.skip { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); }
+.bbtn.skip:hover:not(:disabled) { background: rgba(255,255,255,0.12); }
+.bbtn.remove { background: #991b1b; }
+.bbtn.remove:hover:not(:disabled) { filter: brightness(1.1); }
 
 /* Section Headers */
 .section-head {
@@ -1149,6 +1201,8 @@ const copyTalkSnippet = () => {
 .accept-btn:hover:not(:disabled) { filter: brightness(1.1); }
 .reject-btn { background: linear-gradient(135deg, #dc2626, #b91c1c); box-shadow: 0 2px 12px rgba(220,38,38,0.3); }
 .reject-btn:hover:not(:disabled) { filter: brightness(1.1); }
+.remove-btn { background: linear-gradient(135deg, #991b1b, #7f1d1d); box-shadow: 0 2px 12px rgba(153,27,27,0.3); }
+.remove-btn:hover:not(:disabled) { filter: brightness(1.1); }
 .skip-btn { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); color: #94a3b8; }
 .skip-btn:hover:not(:disabled) { background: rgba(255,255,255,0.12); color: #e2e8f0; }
 

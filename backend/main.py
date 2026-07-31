@@ -79,64 +79,48 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 WIKI_DB_USER = os.getenv("WIKI_DB_USER", "")
 WIKI_DB_PASSWORD = os.getenv("WIKI_DB_PASSWORD", "")
-WIKI_BOT_USERNAME = os.getenv("WIKI_BOT_USERNAME", "")
-WIKI_BOT_PASSWORD = os.getenv("WIKI_BOT_PASSWORD", "")
-
-async def bot_edit_talk_pages(titles: list[str], template_name: str, include_header: bool):
-    if not WIKI_BOT_USERNAME or not WIKI_BOT_PASSWORD:
+async def add_talk_pages(titles: list[str], template_name: str, include_header: bool, access_token: str = None, submitter: str = None):
+    if not access_token:
         return
-        
+            
     template_text = template_name.strip()
     if not template_text.startswith('{{'):
         template_text = f"{{{{{template_text}}}}}"
         
     async with httpx.AsyncClient() as client:
-        # 1. Get login token
-        res1 = await client.get(
-            "https://bn.wiktionary.org/w/api.php",
-            params={"action": "query", "meta": "tokens", "type": "login", "format": "json"}
-        )
-        login_token = res1.json().get("query", {}).get("tokens", {}).get("logintoken")
-        if not login_token: return
-        
-        # 2. Login
-        res2 = await client.post(
-            "https://bn.wiktionary.org/w/api.php",
-            data={
-                "action": "login",
-                "lgname": WIKI_BOT_USERNAME,
-                "lgpassword": WIKI_BOT_PASSWORD,
-                "lgtoken": login_token,
-                "format": "json"
-            }
-        )
-        # 3. Get CSRF token
+        # Get CSRF token via OAuth
         res3 = await client.get(
             "https://bn.wiktionary.org/w/api.php",
-            params={"action": "query", "meta": "tokens", "type": "csrf", "format": "json"}
+            params={"action": "query", "meta": "tokens", "type": "csrf", "format": "json"},
+            headers={"Authorization": f"Bearer {access_token}"}
         )
         csrf_token = res3.json().get("query", {}).get("tokens", {}).get("csrftoken")
         if not csrf_token: return
         
-        # 4. Edit each talk page
+        # Edit each talk page
         for title in titles:
             talk_title = f"Talk:{title}" if not title.startswith("Talk:") else title
             append_text = f"\n{template_text}\n"
             if include_header:
                 append_text = f"\n== Contest Submission ==\n{append_text}"
                 
+            edit_data = {
+                "action": "edit",
+                "title": talk_title,
+                "appendtext": append_text,
+                "token": csrf_token,
+                "format": "json",
+                "summary": f"Adding contest template on behalf of {submitter}" if submitter else "Adding contest template"
+            }
+                
+            headers = {"Authorization": f"Bearer {access_token}"}
+                
             await client.post(
                 "https://bn.wiktionary.org/w/api.php",
-                data={
-                    "action": "edit",
-                    "title": talk_title,
-                    "appendtext": append_text,
-                    "bot": 1,
-                    "token": csrf_token,
-                    "format": "json",
-                    "summary": "Adding contest template"
-                }
+                data=edit_data,
+                headers=headers
             )
+
 
 oauth = OAuth()
 oauth.register(
@@ -284,14 +268,15 @@ async def auth_callback(request: Request, response: Response, db: Session = Depe
         user = db.query(models.User).filter(models.User.wiki_username == username).first()
         if not user:
             role = models.RoleEnum.owner if username == "R1F4T" else models.RoleEnum.participant
-            user = models.User(wiki_username=username, role=role)
+            user = models.User(wiki_username=username, role=role, oauth_access_token=token.get('access_token'))
             db.add(user)
             db.commit()
             db.refresh(user)
         else:
             if username == "R1F4T" and user.role != models.RoleEnum.owner:
                 user.role = models.RoleEnum.owner
-                db.commit()
+            user.oauth_access_token = token.get('access_token')
+            db.commit()
                 
         expire = datetime.utcnow() + timedelta(days=7)
         jwt_payload = {"sub": user.wiki_username, "role": user.role.value, "exp": expire}
@@ -984,7 +969,14 @@ async def submit_bulk(
         
     valid_titles = [r.title for r in results if r.is_valid]
     if valid_titles and contest.add_talk_template and contest.talk_template_name:
-        background_tasks.add_task(bot_edit_talk_pages, valid_titles, contest.talk_template_name, contest.include_talk_header)
+        background_tasks.add_task(
+            add_talk_pages, 
+            valid_titles, 
+            contest.talk_template_name, 
+            contest.include_talk_header,
+            current_user.oauth_access_token,
+            data.on_behalf_of
+        )
         
     return results
 
@@ -1417,6 +1409,29 @@ def get_user_profile(username: str, db: Session = Depends(get_db)):
         "participated_contests": list(participated.values()),
         "judged_contests": judged
     }
+
+@app.delete("/api/articles/{article_id}")
+def delete_article(article_id: int, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    article = db.query(models.Article).filter_by(id=article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+        
+    is_owner = current_user.role == models.RoleEnum.owner
+    is_jury = db.query(models.ContestJury).filter_by(contest_id=article.contest_id, user_id=current_user.id).first() is not None
+    
+    if not (is_owner or is_jury):
+        raise HTTPException(status_code=403, detail="Not authorized to delete articles in this contest")
+        
+    try:
+        db.query(models.Review).filter_by(article_id=article.id).delete()
+        db.query(models.ArticleLock).filter_by(article_id=article.id).delete()
+        db.delete(article)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    return {"status": "deleted"}
 
 @app.post("/api/articles/{article_id}/lock")
 def lock_article(article_id: int, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):

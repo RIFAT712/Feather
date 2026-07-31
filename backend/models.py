@@ -15,6 +15,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     wiki_username = Column(String(255), unique=True, index=True, nullable=False)
     role = Column(Enum(RoleEnum), default=RoleEnum.participant, nullable=False)
+    oauth_access_token = Column(String(1000), nullable=True)
     
     articles = relationship("Article", back_populates="submitter")
     reviews = relationship("Review", back_populates="reviewer")
