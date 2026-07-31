@@ -255,3 +255,4 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-08-01 | Fixed ReviewQueue layering and mobile action placement: the desktop sidebar arrow now stays above the article header, while the mobile review bar is pinned to the bottom with reserved preview space. |
 | 2026-08-01 | Changed the ReviewQueue collapse control to an X/☰ hamburger toggle and fixed the mobile review bar to the viewport above the bottom navigation. |
 | 2026-08-01 | Corrected the mobile ReviewQueue height calculation to prevent an oversized black container from occupying part of the screen behind the fixed bottom navigation. |
+| 2026-08-01 | Kept a transparent 28px desktop sidebar rail so the hamburger control remains visible after collapsing instead of being clipped by the zero-width panel. |

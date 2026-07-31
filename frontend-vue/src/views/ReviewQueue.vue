@@ -833,9 +833,10 @@ const copyTalkSnippet = () => {
   z-index: 20;
 }
 .sidebar.collapsed {
-  width: 0;
+  width: 28px;
   border-right: none;
   background: transparent;
+  z-index: 100;
 }
 .sidebar.collapsed > :not(.sidebar-toggle) { display: none; }
 .sidebar-toggle {
@@ -862,6 +863,9 @@ const copyTalkSnippet = () => {
 .sidebar.collapsed .sidebar-toggle {
   left: 0;
   right: auto;
+  display: flex !important;
+  visibility: visible;
+  opacity: 1;
 }
 
 /* Stats Row */
@@ -1340,6 +1344,8 @@ const copyTalkSnippet = () => {
   }
   .sidebar-toggle { right: 10px; }
   .sidebar-toggle { display: none; }
+  .sidebar.collapsed { width: 100%; background: #131520; }
+  .sidebar.collapsed .sidebar-toggle { display: none !important; }
 
   .review-area {
     height: 100%;
