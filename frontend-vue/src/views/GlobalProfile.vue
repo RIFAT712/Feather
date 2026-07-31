@@ -610,7 +610,7 @@ const pctAccepted = (contest) => {
   text-transform: uppercase;
   letter-spacing: 0.07em;
 }
-.role-badge.owner { background: linear-gradient(90deg,#f59e0b,#d97706); color: #1a1b2e; }
+.role-badge.owner { background: linear-gradient(90deg,#f59e0b,#d97706); color: #111111; }
 .role-badge.participant { background: rgba(255,255,255,0.1); color: #e5e7eb; border: 1px solid rgba(255,255,255,0.1); }
 .wiki-ext-link {
   display: inline-flex; align-items: center; gap: 5px;
@@ -1023,7 +1023,7 @@ const pctAccepted = (contest) => {
 .art-row:hover { background: rgba(255,255,255,0.02); }
 
 .row-num {
-  color: #334155;
+  color: #333333;
   font-size: 0.75rem;
   font-weight: 600;
   width: 36px;

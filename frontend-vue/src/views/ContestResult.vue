@@ -137,7 +137,7 @@ onMounted(async () => {
 .page-header h2 { font-size: 1.8rem; margin-bottom: 8px; color: #ffffff; }
 .page-header p { color: #9ca3af; margin-bottom: 24px; }
 
-.card { background: #161829; padding: 24px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
+.card { background: #1a1a1a; padding: 24px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
 .card h3 { margin-top: 0; color: #ffffff; margin-bottom: 16px; font-size: 1.2rem; display: flex; align-items: center; gap: 8px; }
 .mt-4 { margin-top: 24px; }
 

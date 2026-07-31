@@ -86,8 +86,14 @@ onUnmounted(() => {
           &nbsp;→&nbsp;
           {{ new Date(contest.end_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) }}
         </p>
-        <p class="hero-timer" style="font-weight: bold; font-size: 1.1rem; margin-bottom: 20px; color: #d1d5db;">
+        <p class="hero-timer" style="font-weight: bold; font-size: 1.1rem; margin-bottom: 12px; color: #d1d5db;">
           {{ timerText }}
+        </p>
+        <p v-if="contest.juries && contest.juries.length > 0" class="hero-juries" style="color: rgba(255,255,255,0.7); font-size: 0.9rem; margin-bottom: 24px;">
+          <strong>Jury Members:</strong> 
+          <span v-for="(jury, index) in contest.juries" :key="jury">
+            {{ jury }}<span v-if="index < contest.juries.length - 1">, </span>
+          </span>
         </p>
         <div class="hero-actions">
           <button class="action-btn primary" @click="router.push(`/${contest.code}/submit`)">
@@ -142,7 +148,8 @@ onUnmounted(() => {
 
 /* Hero */
 .hero-banner {
-  background: linear-gradient(135deg, #1a1b2e 0%, #0f3460 60%, #1d4ed8 100%);
+  background: #111111;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
   padding: 48px 32px;
   position: relative;
   overflow: hidden;
@@ -216,7 +223,7 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   border-bottom: 1px solid rgba(255,255,255,0.07);
-  background: #12141f;
+  background: #111111;
 }
 .stat-card {
   padding: 20px 24px;

@@ -93,6 +93,18 @@ class Review(Base):
     article = relationship("Article", back_populates="reviews")
     reviewer = relationship("User", back_populates="reviews")
 
+class ArticleLock(Base):
+    """DB-backed per-article review lock. Replaces the in-memory article_locks dict.
+    Visible across all workers/processes. Auto-expires after 15 minutes (enforced in queries).
+    Uses article_id as primary key so only one lock row per article can exist.
+    """
+    __tablename__ = 'article_locks'
+    article_id = Column(Integer, ForeignKey('articles.id'), primary_key=True, nullable=False)
+    locked_by  = Column(String(255), nullable=False)   # wiki_username of the reviewer holding the lock
+    locked_at  = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    article = relationship("Article")
+
 class SystemLog(Base):
     __tablename__ = 'system_logs'
     id = Column(Integer, primary_key=True, index=True)

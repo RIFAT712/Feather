@@ -30,11 +30,8 @@ DB_USER = os.getenv("DB_USER", os.getenv("TOOL_TOOLSDB_USER"))
 DB_PASSWORD = os.getenv("DB_PASSWORD", os.getenv("TOOL_TOOLSDB_PASSWORD"))
 
 # Fallback to replica.my.cnf if toolforge env vars are missing
-if DB_NAME and not DB_USER:
-    user, password = get_toolforge_credentials()
-    if user and password:
-        DB_USER = user
-        DB_PASSWORD = password
+# NOTE: Do NOT fall back to replica.my.cnf for the app DB —
+# those are read-only replica credentials. App DB requires TOOL_TOOLSDB_USER/PASSWORD.
 
 if DB_NAME and DB_USER:
     # Use MySQL/MariaDB for Toolforge
@@ -77,6 +74,23 @@ def run_auto_migrations(db_engine):
     try:
         from sqlalchemy import inspect, text
         inspector = inspect(db_engine)
+        # Create article_locks table if it doesn't exist
+        if 'article_locks' not in inspector.get_table_names():
+            with db_engine.connect() as conn:
+                try:
+                    conn.execute(text("""
+                        CREATE TABLE article_locks (
+                            article_id INTEGER NOT NULL PRIMARY KEY,
+                            locked_by  VARCHAR(255) NOT NULL,
+                            locked_at  DATETIME NOT NULL,
+                            FOREIGN KEY(article_id) REFERENCES articles(id)
+                        )
+                    """))
+                    conn.commit()
+                    print("[Migration] Created 'article_locks' table.")
+                except Exception as ex:
+                    print(f"[Migration] Failed creating article_locks: {ex}")
+
         if 'contests' in inspector.get_table_names():
             columns = [c['name'] for c in inspector.get_columns('contests')]
             new_cols = [
@@ -164,11 +178,13 @@ def query_wiki_replica_batch(titles: list) -> dict:
         clean = t.strip()
         if clean:
             db_fmt = clean.replace(" ", "_")
-            title_map[db_fmt] = clean
+            if db_fmt not in title_map:
+                title_map[db_fmt] = clean
             db_titles_set.add(db_fmt)
             # Add capitalized title variant (MediaWiki standard title capitalization)
             db_fmt_cap = db_fmt[0].upper() + db_fmt[1:] if db_fmt else db_fmt
-            title_map[db_fmt_cap] = clean
+            if db_fmt_cap not in title_map:
+                title_map[db_fmt_cap] = clean
             db_titles_set.add(db_fmt_cap)
 
     db_titles = list(db_titles_set)

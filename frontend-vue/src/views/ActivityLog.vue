@@ -253,7 +253,7 @@ onMounted(async () => {
 }
 .unauthorized-content {
   text-align: center;
-  background: #1e293b;
+  background: #1a1a1a;
   padding: 40px 60px;
   border-radius: 12px;
   border: 1px solid rgba(239, 68, 68, 0.3);
@@ -267,7 +267,7 @@ onMounted(async () => {
 
 /* ── Root ── */
 .log-root {
-  background: #0d0f1c;
+  background: #0a0a0a;
   min-height: 100%;
   padding: 28px 32px;
   font-family: 'Inter', 'Segoe UI', sans-serif;
@@ -412,7 +412,7 @@ onMounted(async () => {
 }
 
 .seg-btn.active {
-  background: #1e2035;
+  background: #1a1a1a;
   color: #e5e7eb;
   font-weight: 600;
   box-shadow: 0 1px 6px rgba(0,0,0,0.3);
@@ -431,7 +431,7 @@ onMounted(async () => {
 
 /* ── User Card ── */
 .user-card {
-  background: #161829;
+  background: #1a1a1a;
   border: 1px solid rgba(255,255,255,0.07);
   border-radius: 14px;
   box-shadow: 0 1px 8px rgba(0,0,0,0.3);
@@ -558,7 +558,7 @@ onMounted(async () => {
 
 /* ── Timeline Card ── */
 .timeline-card {
-  background: #161829;
+  background: #1a1a1a;
   border: 1px solid rgba(255,255,255,0.07);
   border-radius: 14px;
   box-shadow: 0 1px 8px rgba(0,0,0,0.3);

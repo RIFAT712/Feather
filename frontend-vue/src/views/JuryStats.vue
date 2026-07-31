@@ -396,14 +396,14 @@ const handleExportWikitable = () => {
 .unauthorized-content h2 { color: #f3f4f6; font-size: 1.25rem; font-weight: 700; margin: 0 0 8px; }
 .unauthorized-content p { color: #9ca3af; margin: 0; font-size: 0.95rem; line-height: 1.5; }
 
-.stats-page { min-height: 100vh; background: #0d0f1c; }
+.stats-page { min-height: 100vh; background: #0a0a0a; }
 
 .stats-layout {
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow-y: auto;
-  background: #0d0f1c;
+  background: #0a0a0a;
   font-family: 'Inter', sans-serif;
 }
 
@@ -448,7 +448,7 @@ const handleExportWikitable = () => {
   padding: 24px 32px;
 }
 .kpi-card {
-  background: #161829;
+  background: #1a1a1a;
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.07);
   padding: 20px 20px 0;
@@ -499,7 +499,7 @@ const handleExportWikitable = () => {
 }
 
 .chart-card {
-  background: #161829;
+  background: #1a1a1a;
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.07);
   box-shadow: 0 1px 3px rgba(0,0,0,0.3);
@@ -566,7 +566,7 @@ const handleExportWikitable = () => {
 /* Jury Table */
 .jury-section {
   margin: 0 32px 32px;
-  background: #161829;
+  background: #1a1a1a;
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.07);
   overflow: hidden;
@@ -647,16 +647,16 @@ const handleExportWikitable = () => {
   border-radius: 16px;
   margin: 24px 32px 8px;
   padding: 36px 40px;
-  background: linear-gradient(135deg, #1e1b4b 0%, #1e3a8a 50%, #1e1b4b 100%);
-  border: 1px solid rgba(99,102,241,0.3);
-  box-shadow: 0 8px 32px rgba(37,99,235,0.2);
+  background: #111111;
+  border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
 .judge-hero-bg {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse at 20% 50%, rgba(99,102,241,0.3) 0%, transparent 60%),
-    radial-gradient(ellipse at 80% 50%, rgba(37,99,235,0.2) 0%, transparent 60%);
+    radial-gradient(ellipse at 20% 50%, rgba(255,255,255,0.05) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 50%, rgba(255,255,255,0.03) 0%, transparent 60%);
   pointer-events: none;
 }
 .judge-hero-inner {

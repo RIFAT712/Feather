@@ -53,8 +53,11 @@ watch([isOnBehalf, onBehalfUsername], () => {
 // Selection watcher - no upper limit needed with DB replica validation
 // selectedArticles can contain all user articles
 
+let fetchSeq = 0;
+
 const fetchUserArticles = async () => {
   if (!props.contest || !user.value) return;
+  const mySeq = ++fetchSeq;
   isFetchingArticles.value = true;
   fetchError.value = null;
   userCreatedArticles.value = [];
@@ -94,9 +97,16 @@ const fetchUserArticles = async () => {
         break;
       }
     }
+    if (mySeq !== fetchSeq) return;
     userCreatedArticles.value = [...new Set(allArticles)];
-  } catch (err) { fetchError.value = 'Failed to fetch articles from Wikipedia.'; }
-  finally { isFetchingArticles.value = false; }
+  } catch (err) { 
+    if (mySeq !== fetchSeq) return;
+    fetchError.value = 'Failed to fetch articles from Wikipedia.'; 
+  }
+  finally { 
+    if (mySeq !== fetchSeq) return;
+    isFetchingArticles.value = false; 
+  }
 };
 
 onMounted(async () => {
@@ -144,8 +154,8 @@ const handleSubmit = async () => {
   for (let i = 0; i < titlesToSubmit.length; i += chunkSize) {
     const chunk = titlesToSubmit.slice(i, i + chunkSize);
     const payload = { contest_code: contestCode, titles: chunk };
-    if (isOnBehalf.value && (onBehalfUsername.value || onBehalfSearch.value)) {
-      payload.on_behalf_of = onBehalfUsername.value || onBehalfSearch.value;
+    if (isOnBehalf.value && onBehalfUsername.value) {
+      payload.on_behalf_of = onBehalfUsername.value;
     }
     
     try {
@@ -428,7 +438,7 @@ const targetDisplayName = computed(() =>
 /* ── Base ── */
 .submit-page {
   font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
-  background: #0d0f1c;
+  background: #0a0a0a;
   min-height: 100%;
   padding: 32px 24px 64px;
   max-width: 860px;
@@ -516,7 +526,7 @@ const targetDisplayName = computed(() =>
 
 /* ── Card ── */
 .card {
-  background: #161829;
+  background: #1a1a1a;
   border-radius: 16px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 4px 16px rgba(0,0,0,0.2);
   border: 1px solid rgba(255,255,255,0.07);

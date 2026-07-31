@@ -379,7 +379,7 @@ const wikitextPreview = computed(() => {
 
 .jury-add-card, .jury-list { background: #0f0f0f; padding: 24px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); }
 .jury-add-card h3, .jury-list h3 { margin-top: 0; color: #ffffff; margin-bottom: 16px; font-size: 1.2rem; }
-.suggestions { background: #1e293b; border: 1px solid #334155; border-radius: 6px; max-height: 150px; overflow-y: auto; margin-bottom: 12px; }
+.suggestions { background: #1a1a1a; border: 1px solid #333333; border-radius: 6px; max-height: 150px; overflow-y: auto; margin-bottom: 12px; }
 .suggestion-item { padding: 8px 12px; cursor: pointer; transition: background 0.1s; }
 .suggestion-item:hover { background: rgba(255,255,255,0.07); }
 .tags { display: flex; flex-wrap: wrap; gap: 8px; }

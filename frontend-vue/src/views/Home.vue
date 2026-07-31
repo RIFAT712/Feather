@@ -88,7 +88,7 @@ const greeting = computed(() => {
       <!-- Animated wave divider -->
       <div class="hero-wave">
         <svg viewBox="0 0 1440 60" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M0,30 C360,60 1080,0 1440,30 L1440,60 L0,60 Z" fill="#0d0f1c"/>
+          <path d="M0,30 C360,60 1080,0 1440,30 L1440,60 L0,60 Z" fill="#0a0a0a"/>
         </svg>
       </div>
     </section>
@@ -177,7 +177,7 @@ const greeting = computed(() => {
 /* ── Root ── */
 .home-root {
   min-height: 100%;
-  background: #0d0f1c;
+  background: #0a0a0a;
   font-family: 'Inter', 'Segoe UI', sans-serif;
   position: relative;
   overflow-x: hidden;
@@ -221,10 +221,10 @@ const greeting = computed(() => {
   z-index: 1;
   padding: 72px 32px 0;
   background: linear-gradient(160deg,
-    #12142a 0%,
-    #0f1a3a 35%,
-    #0d1e3f 60%,
-    #0d0f1c 100%
+    #1a1a1a 0%,
+    #141414 35%,
+    #0f0f0f 60%,
+    #0a0a0a 100%
   );
   overflow: hidden;
 }
@@ -397,7 +397,7 @@ const greeting = computed(() => {
 .contests-section {
   position: relative;
   z-index: 1;
-  background: #0d0f1c;
+  background: #0a0a0a;
   padding-bottom: 64px;
 }
 .section-inner {
@@ -481,7 +481,7 @@ const greeting = computed(() => {
 /* ── Contest Card ── */
 .contest-card {
   position: relative;
-  background: #12141f;
+  background: #111111;
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 20px;
   overflow: hidden;

@@ -52,7 +52,7 @@ defineEmits(['update:modelValue']);
 
 <style scoped>
 .rule-input-card {
-  background: #16192c;
+  background: #1a1a1a;
   border: 1px solid rgba(255,255,255,0.07);
   border-radius: 12px;
   padding: 14px 18px;

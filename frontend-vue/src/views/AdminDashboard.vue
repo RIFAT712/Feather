@@ -1296,7 +1296,7 @@ const formatDate = (iso) => {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: #1e1b4b;
+  background: #1a1a1a;
   border: 1px solid #ffffff;
   color: #e5e7eb;
   padding: 12px 20px;
@@ -1446,7 +1446,7 @@ const formatDate = (iso) => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  background: #121422;
+  background: #111111;
   border: 1px solid rgba(255,255,255,0.07);
   padding: 14px 20px;
   border-radius: 14px;
@@ -1456,7 +1456,7 @@ const formatDate = (iso) => {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: #1a1d30;
+  background: #1f1f1f;
   border: 1px solid rgba(255,255,255,0.1);
   padding: 8px 14px;
   border-radius: 8px;
@@ -1474,7 +1474,7 @@ const formatDate = (iso) => {
 }
 .filter-group { display: flex; align-items: center; gap: 10px; }
 .filter-label { font-size: 0.85rem; color: #94a3b8; font-weight: 600; }
-.chip-filter { display: flex; gap: 4px; background: #1a1d30; padding: 3px; border-radius: 8px; }
+.chip-filter { display: flex; gap: 4px; background: #1f1f1f; padding: 3px; border-radius: 8px; }
 .chip-filter button {
   background: transparent;
   border: none;
@@ -1487,7 +1487,7 @@ const formatDate = (iso) => {
   transition: all 0.2s;
 }
 .chip-filter button.active { background: #2563eb; color: #fff; }
-.view-switch { display: flex; gap: 4px; background: #1a1d30; padding: 3px; border-radius: 8px; }
+.view-switch { display: flex; gap: 4px; background: #1f1f1f; padding: 3px; border-radius: 8px; }
 .view-switch button {
   background: transparent;
   border: none;
@@ -1507,7 +1507,7 @@ const formatDate = (iso) => {
   gap: 20px;
 }
 .contest-card {
-  background: #121422;
+  background: #111111;
   border: 1px solid rgba(255,255,255,0.07);
   border-radius: 16px;
   padding: 22px;
@@ -1532,7 +1532,7 @@ const formatDate = (iso) => {
 .card-status-badge.upcoming { background: rgba(255,255,255,0.1); color: #d1d5db; border: 1px solid rgba(255,255,255,0.1); }
 .card-status-badge.ended { background: rgba(148,163,184,0.12); color: #94a3b8; border: 1px solid rgba(148,163,184,0.2); }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.contest-code-badge { background: #1a1d30; color: #e5e7eb; font-family: monospace; font-size: 0.8rem; padding: 2px 8px; border-radius: 6px; }
+.contest-code-badge { background: #1f1f1f; color: #e5e7eb; font-family: monospace; font-size: 0.8rem; padding: 2px 8px; border-radius: 6px; }
 .card-title { font-size: 1.2rem; font-weight: 700; color: #f8fafc; margin: 0; line-height: 1.3; }
 .card-dates { display: flex; gap: 8px; font-size: 0.82rem; color: #94a3b8; font-weight: 500; }
 .progress-container { display: flex; flex-direction: column; gap: 4px; }
@@ -1553,7 +1553,7 @@ const formatDate = (iso) => {
 .card-metrics-row {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  background: #1a1d30;
+  background: #1f1f1f;
   border-radius: 10px;
   padding: 10px;
   text-align: center;
@@ -1583,9 +1583,9 @@ const formatDate = (iso) => {
 .card-btn.danger:hover { background: rgba(255,255,255,0.1); }
 
 /* Table View */
-.table-card { background: #121422; border: 1px solid rgba(255,255,255,0.07); border-radius: 14px; overflow: hidden; }
+.table-card { background: #111111; border: 1px solid rgba(255,255,255,0.07); border-radius: 14px; overflow: hidden; }
 .wikitable-modern { width: 100%; border-collapse: collapse; text-align: left; }
-.wikitable-modern th { background: #1a1d30; padding: 12px 16px; font-size: 0.8rem; text-transform: uppercase; color: #94a3b8; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.wikitable-modern th { background: #1f1f1f; padding: 12px 16px; font-size: 0.8rem; text-transform: uppercase; color: #94a3b8; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.08); }
 .wikitable-modern td { padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.9rem; color: #cbd5e1; }
 .table-name-cell { display: flex; flex-direction: column; gap: 4px; }
 .rule-badges { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -1602,7 +1602,7 @@ const formatDate = (iso) => {
 
 /* Form Wizard & Controls */
 .form-pane-card, .jury-hub-card {
-  background: #121422;
+  background: #111111;
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 18px;
   padding: 32px;
@@ -1653,7 +1653,7 @@ const formatDate = (iso) => {
 }
 
 .rule-card-toggle {
-  background: #16192c;
+  background: #1a1a1a;
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 12px;
   padding: 18px;
@@ -1665,7 +1665,7 @@ const formatDate = (iso) => {
 }
 
 .rule-input-card {
-  background: #16192c;
+  background: #1a1a1a;
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 12px;
   padding: 18px;
@@ -1716,7 +1716,7 @@ const formatDate = (iso) => {
   font-family: inherit;
   font-size: 0.92rem;
   color: #f8fafc;
-  background-color: #1a1d30;
+  background-color: #1f1f1f;
   color-scheme: dark;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
@@ -1752,20 +1752,20 @@ const formatDate = (iso) => {
 .submit-btn.quiet:hover { background: rgba(255,255,255,0.1); color: #fff; }
 
 /* Jury Hub */
-.assigned-jurors-grid { display: flex; flex-wrap: wrap; gap: 10px; min-height: 48px; padding: 12px; background: #1a1d30; border-radius: 10px; border: 1px solid rgba(255,255,255,0.07); align-items: center; }
+.assigned-jurors-grid { display: flex; flex-wrap: wrap; gap: 10px; min-height: 48px; padding: 12px; background: #1f1f1f; border-radius: 10px; border: 1px solid rgba(255,255,255,0.07); align-items: center; }
 .juror-chip { display: inline-flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1); color: #e5e7eb; padding: 4px 12px; border-radius: 20px; font-weight: 600; font-size: 0.88rem; }
 .juror-avatar { width: 22px; height: 22px; border-radius: 50%; background: linear-gradient(135deg, #4f46e5, #2563eb); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 800; }
 .unassign-btn { background: none; border: none; color: #e5e7eb; font-size: 1.1rem; cursor: pointer; padding: 0 2px; }
 .unassign-btn:hover { color: #d1d5db; }
 .no-jurors-notice { color: #64748b; font-size: 0.88rem; font-style: italic; }
-.tag-input-wrapper { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px; background: #1a1d30; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; }
+.tag-input-wrapper { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px; background: #1f1f1f; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; }
 .jury-tag-new { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1); color: #d1d5db; font-weight: 700; padding: 3px 10px; border-radius: 16px; font-size: 0.85rem; }
 .tag-remove { background: none; border: none; color: inherit; cursor: pointer; font-size: 1rem; }
 .tag-lookup { flex: 1; min-width: 200px; border: none !important; padding: 0 !important; }
 
 /* Modal */
 .modal-backdrop { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 999; padding: 20px; }
-.modal-card { background: #121422; border: 1px solid rgba(255,255,255,0.12); border-radius: 20px; width: 100%; max-width: 720px; max-height: 90vh; overflow-y: auto; box-shadow: 0 25px 50px rgba(0,0,0,0.6); }
+.modal-card { background: #111111; border: 1px solid rgba(255,255,255,0.12); border-radius: 20px; width: 100%; max-width: 720px; max-height: 90vh; overflow-y: auto; box-shadow: 0 25px 50px rgba(0,0,0,0.6); }
 .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid rgba(255,255,255,0.08); }
 .modal-header h3 { margin: 0; font-size: 1.25rem; font-weight: 700; color: #f8fafc; }
 .modal-close-btn { background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer; transition: color 0.2s; }
@@ -1774,7 +1774,7 @@ const formatDate = (iso) => {
 .modal-footer { padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; gap: 12px; justify-content: flex-end; }
 
 /* Jury username suggestion dropdown */
-.jury-suggest-dropdown { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: #1a1d30; border: 1px solid rgba(99,102,241,0.4); border-radius: 10px; list-style: none; margin: 0; padding: 4px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.5); max-height: 220px; overflow-y: auto; }
+.jury-suggest-dropdown { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: #1f1f1f; border: 1px solid rgba(99,102,241,0.4); border-radius: 10px; list-style: none; margin: 0; padding: 4px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.5); max-height: 220px; overflow-y: auto; }
 .jury-suggest-item { padding: 9px 14px; color: #d1d5db; font-size: 0.92rem; cursor: pointer; transition: background 0.15s; }
 .jury-suggest-item:hover { background: rgba(99,102,241,0.25); color: #fff; }
 

@@ -160,7 +160,7 @@ const formatDate = (dateStr) => {
   align-items: center;
   gap: 24px;
   margin-bottom: 40px;
-  background: #1e293b;
+  background: #1a1a1a;
   padding: 32px;
   border-radius: 16px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.2);
@@ -206,7 +206,7 @@ const formatDate = (dateStr) => {
 }
 
 .stat-card {
-  background: #1e293b;
+  background: #1a1a1a;
   padding: 24px;
   border-radius: 16px;
   text-align: center;
@@ -245,7 +245,7 @@ const formatDate = (dateStr) => {
 }
 
 .table-wrapper {
-  background: #1e293b;
+  background: #1a1a1a;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,0.05);

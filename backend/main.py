@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 
-article_locks = {}  # { article_id: { "user": "wiki_username", "time": datetime } }
+# article_locks moved to DB — see models.ArticleLock
 
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, BackgroundTasks
 from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse, FileResponse
@@ -47,10 +47,10 @@ async def global_exception_handler(request: Request, exc: Exception):
     db = SessionLocal()
     try:
         username = None
-        token = request.cookies.get("session_token")
+        token = request.cookies.get("auth_token")
         if token:
             try:
-                payload_data = jwt.decode(token, SESSION_SECRET, algorithms=["HS256"])
+                payload_data = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
                 username = payload_data.get("sub")
             except Exception:
                 pass
@@ -193,6 +193,22 @@ class ContestCreate(BaseModel):
     add_talk_template: bool = False
     talk_template_name: Optional[str] = None
     include_talk_header: bool = True
+
+class ContestUpdate(BaseModel):
+    name: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    rule_must_be_creator: Optional[bool] = None
+    min_bytes: Optional[int] = None
+    min_words: Optional[int] = None
+    min_refs: Optional[int] = None
+    rule_no_redirect: Optional[bool] = None
+    rule_no_disambig: Optional[bool] = None
+    rule_mainspace_only: Optional[bool] = None
+    allow_self_review: Optional[bool] = None
+    add_talk_template: Optional[bool] = None
+    talk_template_name: Optional[str] = None
+    include_talk_header: Optional[bool] = None
 
 class AssignJury(BaseModel):
     contest_code: str
@@ -609,24 +625,24 @@ def create_contest(data: ContestCreate, _: models.User = Depends(get_owner_user)
     return {"code": c.code, "name": c.name}
 
 @app.put("/api/admin/contests/{code}")
-def update_contest(code: str, data: ContestCreate, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
+def update_contest(code: str, data: ContestUpdate, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
     c = db.query(models.Contest).filter_by(code=code).first()
     if not c:
         raise HTTPException(status_code=404, detail="Not found")
-    c.name = data.name
-    c.start_date = data.start_date
-    c.end_date = data.end_date
-    c.rule_must_be_creator = data.rule_must_be_creator
-    c.min_bytes = data.min_bytes
-    c.min_words = data.min_words
-    c.min_refs = data.min_refs
-    c.rule_no_redirect = data.rule_no_redirect
-    c.rule_no_disambig = data.rule_no_disambig
-    c.rule_mainspace_only = data.rule_mainspace_only
-    c.allow_self_review = data.allow_self_review
-    c.add_talk_template = data.add_talk_template
-    c.talk_template_name = data.talk_template_name
-    c.include_talk_header = data.include_talk_header
+    if data.name is not None: c.name = data.name
+    if data.start_date is not None: c.start_date = data.start_date
+    if data.end_date is not None: c.end_date = data.end_date
+    if data.rule_must_be_creator is not None: c.rule_must_be_creator = data.rule_must_be_creator
+    if data.min_bytes is not None: c.min_bytes = data.min_bytes
+    if data.min_words is not None: c.min_words = data.min_words
+    if data.min_refs is not None: c.min_refs = data.min_refs
+    if data.rule_no_redirect is not None: c.rule_no_redirect = data.rule_no_redirect
+    if data.rule_no_disambig is not None: c.rule_no_disambig = data.rule_no_disambig
+    if data.rule_mainspace_only is not None: c.rule_mainspace_only = data.rule_mainspace_only
+    if data.allow_self_review is not None: c.allow_self_review = data.allow_self_review
+    if data.add_talk_template is not None: c.add_talk_template = data.add_talk_template
+    if data.talk_template_name is not None: c.talk_template_name = data.talk_template_name
+    if data.include_talk_header is not None: c.include_talk_header = data.include_talk_header
     db.commit()
     return {"status": "success"}
 
@@ -737,9 +753,13 @@ async def process_articles_batch(
                 if contest.rule_must_be_creator and creator != submitter_username:
                     results.append(ValidationResult(title=t, is_valid=False, error=f"Author Mismatch: Creator is '{creator}'"))
                     continue
-                if wiki_date and not (contest.start_date <= wiki_date <= contest.end_date):
-                    results.append(ValidationResult(title=t, is_valid=False, error="Created outside contest timeframe"))
-                    continue
+                if wiki_date:
+                    wd = wiki_date.replace(tzinfo=None) if hasattr(wiki_date, 'tzinfo') else wiki_date
+                    cs = contest.start_date.replace(tzinfo=None) if contest.start_date else None
+                    ce = contest.end_date.replace(tzinfo=None) if contest.end_date else None
+                    if cs and ce and not (cs <= wd <= ce):
+                        results.append(ValidationResult(title=t, is_valid=False, error="Created outside contest timeframe"))
+                        continue
                     
             results.append(ValidationResult(title=t, is_valid=True, wiki_creator=creator, wiki_creation_date=timestamp_str))
         return results
@@ -814,8 +834,10 @@ async def process_articles_batch(
                         if contest.rule_must_be_creator and creator != submitter_username:
                             return ValidationResult(title=t, is_valid=False, error=f"Author Mismatch: Creator is '{creator}'")
                             
-                        creation_time = datetime.strptime(timestamp_str, "%Y-%m-%dT%H:%M:%SZ")
-                        if not (contest.start_date <= creation_time <= contest.end_date):
+                        creation_time = datetime.strptime(timestamp_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=None)
+                        start = contest.start_date.replace(tzinfo=None) if contest.start_date else None
+                        end = contest.end_date.replace(tzinfo=None) if contest.end_date else None
+                        if start and end and not (start <= creation_time <= end):
                             return ValidationResult(title=t, is_valid=False, error="Created outside contest timeframe")
                             
                     return ValidationResult(title=t, is_valid=True, wiki_creator=creator, wiki_creation_date=timestamp_str)
@@ -978,9 +1000,17 @@ def get_next_pending(contest_code: str, current_user: models.User = Depends(get_
     if not (is_owner or is_jury):
         raise HTTPException(status_code=403, detail="Not authorized to review this contest")
     
-    article = db.query(models.Article).options(joinedload(models.Article.submitter)).filter_by(
-        contest_id=contest.id, 
-        status=models.ArticleStatus.pending
+    # Exclude articles actively locked by a different reviewer
+    lock_cutoff = datetime.utcnow() - timedelta(minutes=15)
+    locked_by_others = db.query(models.ArticleLock.article_id).filter(
+        models.ArticleLock.locked_at >= lock_cutoff,
+        models.ArticleLock.locked_by != current_user.wiki_username
+    ).subquery()
+
+    article = db.query(models.Article).options(joinedload(models.Article.submitter)).filter(
+        models.Article.contest_id == contest.id, 
+        models.Article.status == models.ArticleStatus.pending,
+        ~models.Article.id.in_(locked_by_others)
     ).first()
     
     if not article:
@@ -1046,13 +1076,20 @@ def get_contest_log(code: str, db: Session = Depends(get_db)):
 
     log = []
     now = datetime.utcnow()
+    lock_cutoff = now - timedelta(minutes=15)
+    # Load all active locks for this contest's articles in one query
+    article_ids = [a.id for a in articles]
+    active_locks = {}
+    if article_ids:
+        lock_rows = db.query(models.ArticleLock).filter(
+            models.ArticleLock.article_id.in_(article_ids),
+            models.ArticleLock.locked_at >= lock_cutoff
+        ).all()
+        active_locks = {row.article_id: row.locked_by for row in lock_rows}
+
     for a in articles:
         # Check lock
-        locked_by = None
-        if a.id in article_locks:
-            lock = article_locks[a.id]
-            if now - lock["time"] < timedelta(minutes=15):
-                locked_by = lock["user"]
+        locked_by = active_locks.get(a.id)
 
         entry = {
             "article_id": a.id,
@@ -1095,10 +1132,10 @@ def log_client_error(
     db: Session = Depends(get_db)
 ):
     username = None
-    token = request.cookies.get("session_token")
+    token = request.cookies.get("auth_token")
     if token:
         try:
-            payload_data = jwt.decode(token, SESSION_SECRET, algorithms=["HS256"])
+            payload_data = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
             username = payload_data.get("sub")
         except Exception:
             pass
@@ -1393,10 +1430,18 @@ def lock_article(article_id: int, current_user: models.User = Depends(get_curren
     if not (is_owner or is_jury):
         raise HTTPException(status_code=403, detail="Not authorized to lock articles in this contest")
 
-    article_locks[article_id] = {
-        "user": current_user.wiki_username,
-        "time": datetime.utcnow()
-    }
+    # Upsert: delete old lock (if any) then insert fresh one
+    db.query(models.ArticleLock).filter_by(article_id=article_id).delete()
+    db.add(models.ArticleLock(
+        article_id=article_id,
+        locked_by=current_user.wiki_username,
+        locked_at=datetime.utcnow()
+    ))
+    # Purge expired locks older than 15 min to keep the table small
+    db.query(models.ArticleLock).filter(
+        models.ArticleLock.locked_at < datetime.utcnow() - timedelta(minutes=15)
+    ).delete()
+    db.commit()
     return {"success": True, "locked_by": current_user.wiki_username}
 
 @app.get("/api/proxy/article/{title}")
@@ -1685,7 +1730,7 @@ def export_contest_wikitable(code: str, mode: str = "summary", _: models.User = 
             lines.append(f'| [[ব্যবহারকারী:{j}|{j}]] || {stats["total"]} || {stats["accepted"]} || {stats["rejected"]}')
         lines.append('|}')
         
-    output = "\\n".join(lines)
+    output = "\n".join(lines)
     filename = f"contest_{code}_export.txt"
     return StreamingResponse(
         io.BytesIO(output.encode('utf-8')),

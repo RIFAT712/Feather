@@ -32,7 +32,7 @@ const WIKI_BASE = 'https://bn.wiktionary.org/wiki/';
 const DARK_CSS = `
   :root { color-scheme: dark; }
   html, body {
-    background: #0d0f1c !important;
+    background: #0a0a0a !important;
     color: #e2e8f0 !important;
     font-family: 'Linux Libertine', Georgia, Times, serif;
     font-size: 15px;
@@ -48,13 +48,13 @@ const DARK_CSS = `
   * { background-color: unset !important; }
 
   /* tables */
-  table { border-collapse: collapse; background: #1a1d30 !important; color: #e2e8f0 !important; }
+  table { border-collapse: collapse; background: #1f1f1f !important; color: #e2e8f0 !important; }
   th, td { border: 1px solid rgba(255,255,255,0.12) !important; padding: 6px 10px; color: #e2e8f0 !important; }
   th { background: rgba(255,255,255,0.07) !important; }
   tr:nth-child(even) td { background: rgba(255,255,255,0.03) !important; }
 
   /* wikitable */
-  .wikitable { background: #1a1d30 !important; border: 1px solid rgba(255,255,255,0.15) !important; }
+  .wikitable { background: #1f1f1f !important; border: 1px solid rgba(255,255,255,0.15) !important; }
   .wikitable > * > tr > th { background: rgba(255,255,255,0.1) !important; color: #e5e7eb !important; }
   .wikitable > * > tr > td { background: transparent !important; }
 
@@ -62,7 +62,7 @@ const DARK_CSS = `
   .NavFrame {
     border: 1px solid rgba(255,255,255,0.15) !important;
     border-radius: 6px;
-    background: #1a1d30 !important;
+    background: #1f1f1f !important;
     margin: 12px 0;
     overflow: hidden;
   }
@@ -80,7 +80,7 @@ const DARK_CSS = `
   }
   .NavHead:hover { background: rgba(255,255,255,0.1) !important; }
   .NavToggle { color: #e5e7eb !important; font-size: 0.85em; }
-  .NavContent { background: #12141f !important; }
+  .NavContent { background: #111111 !important; }
   .NavContent td, .NavContent th { border-color: rgba(255,255,255,0.09) !important; }
 
   /* vsToggle */
@@ -102,7 +102,7 @@ const DARK_CSS = `
   h4 { font-size: 1em; border-bottom: none !important; }
 
   /* TOC */
-  #toc, .toc { background: #1a1d30 !important; border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 6px; padding: 12px 18px; }
+  #toc, .toc { background: #1f1f1f !important; border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 6px; padding: 12px 18px; }
   .toc a { color: #d1d5db !important; }
   .toctitle { color: #e5e7eb !important; }
 
@@ -110,7 +110,7 @@ const DARK_CSS = `
   .mw-editsection, .mw-editsection-bracket { display: none !important; }
 
   /* infobox */
-  .infobox { background: #1a1d30 !important; border: 1px solid rgba(255,255,255,0.12) !important; }
+  .infobox { background: #1f1f1f !important; border: 1px solid rgba(255,255,255,0.12) !important; }
   .infobox th { background: rgba(255,255,255,0.07) !important; }
 
   /* references */
@@ -118,7 +118,7 @@ const DARK_CSS = `
   .reflist a, .references a { color: #d1d5db !important; }
 
   /* categories */
-  .catlinks { background: #1a1d30 !important; border: 1px solid rgba(255,255,255,0.1) !important; color: #94a3b8 !important; margin-top: 24px; padding: 8px 14px; border-radius: 6px; }
+  .catlinks { background: #1f1f1f !important; border: 1px solid rgba(255,255,255,0.1) !important; color: #94a3b8 !important; margin-top: 24px; padding: 8px 14px; border-radius: 6px; }
   .catlinks a { color: #d1d5db !important; }
 
   /* hatnote/notices */
@@ -270,7 +270,7 @@ ${body}
 </html>`;
   } catch (e) {
     console.error(e);
-    previewSrcdoc.value = `<!DOCTYPE html><html><body style="color:#d1d5db;background:#0d0f1c;padding:24px">Error loading preview.</body></html>`;
+    previewSrcdoc.value = `<!DOCTYPE html><html><body style="color:#d1d5db;background:#0a0a0a;padding:24px">Error loading preview.</body></html>`;
   } finally {
     isLoadingPreview.value = false;
   }
@@ -362,6 +362,7 @@ const handleDecision = async (decision) => {
       body: JSON.stringify({ decision, comment: comment.value }),
     });
     if (!res.ok) throw new Error('Review failed');
+    comment.value = '';
     await fetchArticles();
     if (availableNewArticles.value.length > 0) {
       selectArticle(availableNewArticles.value[0]);
@@ -391,13 +392,17 @@ const toggleBulkSelection = (article_id, e) => {
 const handleBulkDecision = async (decision) => {
   if (isSubmitting.value || !selectedForBulk.value.length) return;
   isSubmitting.value = true;
+  const errors = [];
   try {
     for (const article_id of selectedForBulk.value) {
-      await fetch(`/api/articles/${article_id}/review`, {
+      const res = await fetch(`/api/articles/${article_id}/review`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ decision, comment: 'Bulk reviewed' }),
       });
+      if (!res.ok) {
+        errors.push(article_id);
+      }
     }
     selectedForBulk.value = [];
     await fetchArticles();
@@ -413,6 +418,9 @@ const handleBulkDecision = async (decision) => {
   } catch (err) {
     console.error("Bulk review failed", err);
   } finally {
+    if (errors.length) {
+      console.warn(`Bulk review: ${errors.length} article(s) failed to update:`, errors);
+    }
     isSubmitting.value = false;
   }
 };
@@ -704,7 +712,7 @@ const copyTalkSnippet = () => {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: #0d0f1c;
+  background: #0a0a0a;
   position: relative;
 }
 
@@ -721,7 +729,7 @@ const copyTalkSnippet = () => {
 
 .unauth-card {
   text-align: center;
-  background: #1a1d30;
+  background: #1f1f1f;
   border: 1px solid rgba(239, 68, 68, 0.25);
   border-radius: 16px;
   padding: 40px 48px;
@@ -793,14 +801,14 @@ const copyTalkSnippet = () => {
 /* Bulk Banner */
 .bulk-banner {
   padding: 10px 14px;
-  background: rgba(79, 70, 229, 0.15);
-  border-bottom: 1px solid rgba(79, 70, 229, 0.25);
+  background: #111111;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
-.bulk-label { font-size: 0.78rem; font-weight: 600; color: #a5b4fc; white-space: nowrap; }
+.bulk-label { font-size: 0.78rem; font-weight: 600; color: #e5e7eb; white-space: nowrap; }
 .bulk-btns { display: flex; gap: 6px; flex-wrap: wrap; }
 .bbtn {
   padding: 4px 12px;
@@ -947,7 +955,7 @@ const copyTalkSnippet = () => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #0d0f1c;
+  background: #0a0a0a;
   min-width: 0;
 }
 .review-area.full { flex: 1; }
@@ -1083,7 +1091,7 @@ const copyTalkSnippet = () => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: #0d0f1c;
+  background: #0a0a0a;
   min-height: 0;
 }
 .preview-loading {
@@ -1100,7 +1108,7 @@ const copyTalkSnippet = () => {
   flex: 1;
   width: 100%;
   border: none;
-  background: #0d0f1c;
+  background: #0a0a0a;
   min-height: 0;
 }
 
