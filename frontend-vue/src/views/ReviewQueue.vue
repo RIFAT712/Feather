@@ -1209,12 +1209,17 @@ const copyTalkSnippet = () => {
   flex-shrink: 0;
   padding: 12px 16px;
   z-index: 10;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .review-bar-inner {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
 }
 .review-comment { flex: 1; min-width: 180px; }
 .review-actions { display: flex; gap: 8px; flex-shrink: 0; }
@@ -1323,6 +1328,7 @@ const copyTalkSnippet = () => {
     flex-shrink: 0;
   }
   .sidebar-toggle { right: 10px; }
+  .sidebar-toggle { display: none; }
 
   .review-area {
     height: 100%;
@@ -1350,13 +1356,17 @@ const copyTalkSnippet = () => {
     align-items: stretch;
     gap: 10px;
   }
-  .review-comment { min-width: unset; }
+  .review-comment { min-width: 0; width: 100%; }
   .review-actions {
-    justify-content: stretch;
+    width: 100%;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 8px;
   }
   .action-btn {
-    flex: 1;
+    width: 100%;
+    min-width: 0;
     justify-content: center;
     padding: 10px 8px;
     font-size: 0.82rem;
