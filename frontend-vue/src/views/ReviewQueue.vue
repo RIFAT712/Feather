@@ -841,8 +841,8 @@ const copyTalkSnippet = () => {
   padding: 0;
   border: 1px solid rgba(255,255,255,0.16);
   border-radius: 4px;
-  background: #fff;
-  color: #111;
+  background: #131520;
+  color: #cbd5e1;
   font-size: 1.1rem;
   line-height: 20px;
   cursor: pointer;
@@ -851,7 +851,7 @@ const copyTalkSnippet = () => {
   justify-content: center;
   box-shadow: 0 2px 8px rgba(0,0,0,0.45);
 }
-.sidebar-toggle:hover { background: #e5e5e5; }
+.sidebar-toggle:hover { background: #1f2333; color: #fff; }
 
 /* Stats Row */
 .sidebar-stats {
