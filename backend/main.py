@@ -105,6 +105,8 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
             return
         
         # Edit each talk page
+        successes = []
+        failures = []
         for title in titles:
             talk_title = f"Talk:{title}" if not title.startswith("Talk:") else title
             append_text = f"\n{template_text}\n"
@@ -125,7 +127,35 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
                 data=edit_data,
                 headers=headers
             )
-            print(f"[add_talk_pages] Edit response for {talk_title}: {edit_res.text}")
+            res_json = {}
+            try:
+                res_json = edit_res.json()
+            except Exception:
+                pass
+                
+            if edit_res.status_code == 200 and "error" not in res_json:
+                successes.append(title)
+            else:
+                failures.append(f"{title}: {edit_res.text}")
+                
+        # Write to SystemLog
+        try:
+            from backend.database import SessionLocal
+            from backend import models
+            db = SessionLocal()
+            msg = f"Talk page template added for {len(successes)} articles."
+            if failures:
+                msg += f" Failures ({len(failures)}): " + ", ".join(failures)[:1500]
+            db.add(models.SystemLog(
+                level="info" if not failures else "warning", 
+                source="talk_template", 
+                message=msg,
+                timestamp=datetime.utcnow()
+            ))
+            db.commit()
+            db.close()
+        except Exception as e:
+            print(f"[add_talk_pages] Error writing to SystemLog: {e}")
 
 
 oauth = OAuth()
@@ -741,7 +771,10 @@ async def process_articles_batch(
                 if min_b > 0 and page_len < min_b:
                     results.append(ValidationResult(title=t, is_valid=False, error=f"Article size too small ({page_len} B < min {min_b} B)"))
                     continue
-                if contest.rule_must_be_creator and creator != submitter_username:
+                import unicodedata
+                creator_norm = unicodedata.normalize('NFC', creator or "").replace('_', ' ').strip()
+                sub_norm = unicodedata.normalize('NFC', submitter_username or "").replace('_', ' ').strip()
+                if contest.rule_must_be_creator and creator_norm != sub_norm:
                     results.append(ValidationResult(title=t, is_valid=False, error=f"Author Mismatch: Creator is '{creator}'"))
                     continue
                 if wiki_date:
@@ -822,7 +855,10 @@ async def process_articles_batch(
                         min_r = getattr(contest, 'min_refs', 0)
                         if min_r > 0 and ref_count < min_r:
                             return ValidationResult(title=t, is_valid=False, error=f"Insufficient references ({ref_count} < min {min_r} refs)")
-                        if contest.rule_must_be_creator and creator != submitter_username:
+                        import unicodedata
+                        creator_norm = unicodedata.normalize('NFC', creator or "").replace('_', ' ').strip()
+                        sub_norm = unicodedata.normalize('NFC', submitter_username or "").replace('_', ' ').strip()
+                        if contest.rule_must_be_creator and creator_norm != sub_norm:
                             return ValidationResult(title=t, is_valid=False, error=f"Author Mismatch: Creator is '{creator}'")
                             
                         creation_time = datetime.strptime(timestamp_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=None)

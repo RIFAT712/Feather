@@ -62,8 +62,16 @@ const fetchSystemStatus = async () => {
   } catch(e) {}
 };
 
+const systemLogs = ref([]);
+const fetchLogs = async () => {
+  try {
+    const res = await fetch('/api/logs?limit=50');
+    if (res.ok) systemLogs.value = await res.json();
+  } catch(e) {}
+};
+
 const refreshData = async () => {
-  await Promise.all([fetchContests(), fetchStats(), fetchSystemStatus()]);
+  await Promise.all([fetchContests(), fetchStats(), fetchSystemStatus(), fetchLogs()]);
 };
 
 watch(user, (newVal) => {
@@ -619,8 +627,12 @@ const formatDate = (iso) => {
         </button>
 
         <button class="nav-tab" :class="{ active: activeTab === 'jury' }" @click="activeTab = 'jury'">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-          Jury Command Center
+          <span class="icon">👥</span>
+          Jury Management
+        </button>
+        <button class="nav-tab" :class="{ active: activeTab === 'logs' }" @click="activeTab = 'logs'">
+          <span class="icon">📋</span>
+          System Logs
         </button>
       </div>
 
@@ -1098,6 +1110,50 @@ const formatDate = (iso) => {
                 Assign {{ juryTags.length }} New Juror{{ juryTags.length !== 1 ? 's' : '' }}
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+      <!-- TAB 4: SYSTEM LOGS -->
+      <div v-if="activeTab === 'logs'" class="tab-pane">
+        <div class="jury-hub-card">
+          <div class="form-pane-header">
+            <h2>System Logs</h2>
+            <p>View background task status, backups, and talk page template insertions.</p>
+          </div>
+          
+          <div class="flex justify-end mb-4 mt-2">
+            <button class="submit-btn quiet" @click="fetchLogs" style="padding: 0.5rem 1rem">
+              🔄 Refresh Logs
+            </button>
+          </div>
+
+          <div class="table-responsive">
+            <table class="w-full text-left" style="border-collapse: collapse;">
+              <thead>
+                <tr class="text-slate-400 border-b border-slate-700/50" style="font-size: 0.8rem; text-transform: uppercase;">
+                  <th class="pb-2 font-semibold">Timestamp</th>
+                  <th class="pb-2 font-semibold">Level</th>
+                  <th class="pb-2 font-semibold">Source</th>
+                  <th class="pb-2 font-semibold">Message</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="log in systemLogs" :key="log.id" class="border-b border-slate-700/30 hover:bg-slate-800/30 transition-colors">
+                  <td class="py-3 text-slate-300 text-sm whitespace-nowrap">{{ new Date(log.timestamp + 'Z').toLocaleString('en-GB') }}</td>
+                  <td class="py-3">
+                    <span class="px-2 py-0.5 rounded text-xs font-bold shadow-sm"
+                          :class="log.level === 'error' ? 'bg-red-900/30 text-red-400 border border-red-800' : (log.level === 'warning' ? 'bg-amber-900/30 text-amber-400 border border-amber-800' : 'bg-indigo-900/30 text-indigo-400 border border-indigo-800')">
+                      {{ log.level.toUpperCase() }}
+                    </span>
+                  </td>
+                  <td class="py-3 text-slate-400 text-sm whitespace-nowrap">{{ log.source }}</td>
+                  <td class="py-3 text-slate-200 text-sm" style="word-break: break-word;">{{ log.message }}</td>
+                </tr>
+                <tr v-if="!systemLogs.length">
+                  <td colspan="4" class="py-6 text-center text-slate-500 italic">No logs found in the database.</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
