@@ -741,7 +741,7 @@ const copyTalkSnippet = () => {
     </div>
 
     <!-- ═══════════════ MOBILE BOTTOM NAV ═══════════════ -->
-    <nav v-if="mobileTab === 'list'" class="mobile-bottom-nav mobile-only">
+    <nav class="mobile-bottom-nav mobile-only">
       <button
         class="mob-nav-btn"
         :class="{ active: mobileTab === 'list' }"
@@ -827,6 +827,8 @@ const copyTalkSnippet = () => {
   flex-direction: column;
   overflow: visible;
   position: relative;
+  overflow-x: hidden;
+  box-sizing: border-box;
   transition: width 0.2s ease;
 }
 .sidebar.collapsed { width: 34px; }
@@ -1307,6 +1309,8 @@ const copyTalkSnippet = () => {
 
   .main-layout {
     flex-direction: column;
+    height: 100%;
+    min-height: 0;
   }
 
   /* On mobile, sidebar and review area each take full space,
@@ -1315,16 +1319,15 @@ const copyTalkSnippet = () => {
     width: 100%;
     border-right: none;
     border-bottom: none;
-    /* when shown, take full height minus nav */
-    height: calc(100% - 58px);
+    height: 100%;
     flex-shrink: 0;
   }
   .sidebar-toggle { right: 10px; }
 
   .review-area {
-    /* when shown, take full height minus nav */
-    height: calc(100% - 58px);
+    height: 100%;
     flex-shrink: 0;
+    min-height: 0;
   }
 
   .mobile-hidden {

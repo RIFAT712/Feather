@@ -249,3 +249,4 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-08-01 | Adjusted the ReviewQueue sidebar arrow to use the dark panel theme instead of a bright white control. |
 | 2026-08-01 | Corrected `JuryStats.vue` to count distinct articles judged per jury member, using the latest decision per article instead of counting repeated review actions. Updated table and export labels accordingly. |
 | 2026-08-01 | Changed the valid bulk-submission result label in `SubmitArticles.vue` from `Accepted` to `Submitted` to avoid implying jury approval. |
+| 2026-08-01 | Fixed mobile `ReviewQueue.vue` layout: kept the Articles/Review bottom navigation visible on both tabs, removed double height subtraction, and prevented review content from being clipped horizontally. |
