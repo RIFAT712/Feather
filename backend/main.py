@@ -102,6 +102,20 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
         csrf_token = token_data.get("query", {}).get("tokens", {}).get("csrftoken")
         if not csrf_token:
             print(f"[add_talk_pages] Failed to get CSRF token. Response: {token_data}")
+            try:
+                from backend.database import SessionLocal
+                from backend import models
+                db = SessionLocal()
+                db.add(models.SystemLog(
+                    level="error", 
+                    source="talk_template", 
+                    message=f"Failed to get CSRF token. Response: {token_data}",
+                    timestamp=datetime.utcnow()
+                ))
+                db.commit()
+                db.close()
+            except Exception:
+                pass
             return
         
         # Edit each talk page
