@@ -119,7 +119,8 @@ onMounted(async () => {
 }
 
 @media (max-width: 640px) {
-  .contest-layout { height: auto; min-height: calc(100vh - 54px); }
+  .contest-layout { height: calc(100vh - 54px); min-height: 0; }
+  .contest-content { min-height: 0; overflow: hidden; }
   .contest-header-inner { padding: 8px 12px; }
   .contest-dates-chip { display: none; }
   .contest-nav { width: 100%; justify-content: flex-start; }
