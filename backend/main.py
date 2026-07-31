@@ -137,7 +137,7 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
                 "appendtext": append_text,
                 "token": csrf_token,
                 "format": "json",
-                "summary": f"Adding contest template on behalf of {submitter}" if submitter else "Adding contest template"
+                "summary": "প্রতিযোগিতার টেমপ্লেট যোগ করা হচ্ছে"
             }
                 
             edit_res = await client.post(

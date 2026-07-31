@@ -240,3 +240,4 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-07-31 | Added auto-migration in `database.py` for `oauth_access_token` column on the `users` table to fix internal server error during query execution on Toolforge. |
 | 2026-08-01 | Updated Wikimedia OAuth scope in `backend/main.py` from `basic editpage` to `basic createeditmovepage`, enabling page creation, editing, and moving permissions for Feather’s talk-page edits. |
 | 2026-08-01 | Fixed talk-page template formatting in `backend/main.py`: replaced the hardcoded `== Contest Submission ==` heading with the configured default `{{আলাপ পাতা}}` header so backend output matches the frontend preview. |
+| 2026-08-01 | Translated the talk-page edit summary in `backend/main.py` to the exact Bengali text `প্রতিযোগিতার টেমপ্লেট যোগ করা হচ্ছে`. |
