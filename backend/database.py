@@ -71,15 +71,71 @@ else:
         cursor.close()
 
 def run_auto_migrations(db_engine):
+    """Idempotent schema migrations. Uses IF NOT EXISTS so it's safe to run every startup."""
     try:
         from sqlalchemy import inspect, text
+        is_mysql = "mysql" in str(db_engine.url)
         inspector = inspect(db_engine)
-        # Create article_locks table if it doesn't exist
-        if 'article_locks' not in inspector.get_table_names():
+        existing_tables = inspector.get_table_names()
+        print(f"[Migration] Starting. is_mysql={is_mysql}, tables={existing_tables}")
+
+        def add_col_if_missing(table, col_name, col_type):
+            """Adds a column using IF NOT EXISTS (MariaDB) or manual check (SQLite)."""
+            if is_mysql:
+                sql = f"ALTER TABLE `{table}` ADD COLUMN IF NOT EXISTS `{col_name}` {col_type}"
+                with db_engine.connect() as conn:
+                    try:
+                        conn.execute(text(sql))
+                        conn.commit()
+                        print(f"[Migration] OK: {sql}")
+                    except Exception as ex:
+                        print(f"[Migration] WARN ({table}.{col_name}): {ex}")
+            else:
+                # SQLite: inspect first since it doesn't support IF NOT EXISTS on ALTER
+                cols = [c['name'] for c in inspect(db_engine).get_columns(table)]
+                if col_name not in cols:
+                    sql = f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}"
+                    with db_engine.connect() as conn:
+                        try:
+                            conn.execute(text(sql))
+                            conn.commit()
+                            print(f"[Migration] OK: {sql}")
+                        except Exception as ex:
+                            print(f"[Migration] WARN ({table}.{col_name}): {ex}")
+                else:
+                    print(f"[Migration] Skip: {table}.{col_name} already exists")
+
+        # ── users table ──────────────────────────────────────────────────
+        if 'users' in existing_tables:
+            add_col_if_missing('users', 'oauth_access_token', 'VARCHAR(1000)')
+        else:
+            print("[Migration] 'users' table not found — create_all will handle it.")
+
+        # ── contests table ───────────────────────────────────────────────
+        if 'contests' in existing_tables:
+            for col_name, col_type in [
+                ("min_bytes",           "INTEGER DEFAULT 0"),
+                ("min_words",           "INTEGER DEFAULT 0"),
+                ("min_refs",            "INTEGER DEFAULT 0"),
+                ("rule_no_redirect",    "BOOLEAN DEFAULT 1"),
+                ("rule_no_disambig",    "BOOLEAN DEFAULT 1"),
+                ("rule_mainspace_only", "BOOLEAN DEFAULT 1"),
+                ("allow_self_review",   "BOOLEAN DEFAULT 0"),
+                ("add_talk_template",   "BOOLEAN DEFAULT 0"),
+                ("talk_template_name",  "VARCHAR(255)"),
+                ("include_talk_header", "BOOLEAN DEFAULT 1"),
+            ]:
+                add_col_if_missing('contests', col_name, col_type)
+        else:
+            print("[Migration] 'contests' table not found — create_all will handle it.")
+
+        # ── article_locks table ──────────────────────────────────────────
+        if 'article_locks' not in existing_tables:
             with db_engine.connect() as conn:
                 try:
-                    conn.execute(text("""
-                        CREATE TABLE article_locks (
+                    pk_syntax = "AUTO_INCREMENT PRIMARY KEY" if is_mysql else "PRIMARY KEY"
+                    conn.execute(text(f"""
+                        CREATE TABLE IF NOT EXISTS article_locks (
                             article_id INTEGER NOT NULL PRIMARY KEY,
                             locked_by  VARCHAR(255) NOT NULL,
                             locked_at  DATETIME NOT NULL,
@@ -89,44 +145,38 @@ def run_auto_migrations(db_engine):
                     conn.commit()
                     print("[Migration] Created 'article_locks' table.")
                 except Exception as ex:
-                    print(f"[Migration] Failed creating article_locks: {ex}")
+                    print(f"[Migration] WARN creating article_locks: {ex}")
+        else:
+            print("[Migration] 'article_locks' table already exists.")
 
-        if 'contests' in inspector.get_table_names():
-            columns = [c['name'] for c in inspector.get_columns('contests')]
-            new_cols = [
-                ("min_bytes", "INTEGER DEFAULT 0"),
-                ("min_words", "INTEGER DEFAULT 0"),
-                ("min_refs", "INTEGER DEFAULT 0"),
-                ("rule_no_redirect", "BOOLEAN DEFAULT 1"),
-                ("rule_no_disambig", "BOOLEAN DEFAULT 1"),
-                ("rule_mainspace_only", "BOOLEAN DEFAULT 1"),
-                ("allow_self_review", "BOOLEAN DEFAULT 0"),
-                ("add_talk_template", "BOOLEAN DEFAULT 0"),
-                ("talk_template_name", "VARCHAR(255)"),
-                ("include_talk_header", "BOOLEAN DEFAULT 1")
-            ]
+        # ── system_logs table ────────────────────────────────────────────
+        if 'system_logs' not in existing_tables:
             with db_engine.connect() as conn:
-                for col_name, col_type in new_cols:
-                    if col_name not in columns:
-                        try:
-                            conn.execute(text(f"ALTER TABLE contests ADD COLUMN {col_name} {col_type}"))
-                            conn.commit()
-                            print(f"[Migration] Added column '{col_name}' to contests table.")
-                        except Exception as ex:
-                            print(f"[Migration] Failed adding {col_name}: {ex}")
+                try:
+                    auto_inc = "AUTO_INCREMENT" if is_mysql else ""
+                    conn.execute(text(f"""
+                        CREATE TABLE IF NOT EXISTS system_logs (
+                            id          INTEGER NOT NULL {auto_inc} PRIMARY KEY,
+                            level       VARCHAR(50)   NOT NULL DEFAULT 'error',
+                            source      VARCHAR(50)   NOT NULL DEFAULT 'frontend',
+                            message     VARCHAR(2000) NOT NULL,
+                            stack_trace VARCHAR(4000),
+                            url         VARCHAR(500),
+                            user_agent  VARCHAR(500),
+                            username    VARCHAR(255),
+                            timestamp   DATETIME
+                        )
+                    """))
+                    conn.commit()
+                    print("[Migration] Created 'system_logs' table.")
+                except Exception as ex:
+                    print(f"[Migration] WARN creating system_logs: {ex}")
+        else:
+            print("[Migration] 'system_logs' table already exists.")
 
-        if 'users' in inspector.get_table_names():
-            columns = [c['name'] for c in inspector.get_columns('users')]
-            if 'oauth_access_token' not in columns:
-                with db_engine.connect() as conn:
-                    try:
-                        conn.execute(text("ALTER TABLE users ADD COLUMN oauth_access_token TEXT"))
-                        conn.commit()
-                        print("[Migration] Added column 'oauth_access_token' to users table.")
-                    except Exception as ex:
-                        print(f"[Migration] Failed adding oauth_access_token: {ex}")
+        print("[Migration] All done.")
     except Exception as e:
-        print(f"[Migration] Error inspecting database: {e}")
+        print(f"[Migration] FATAL error: {e}")
 
 run_auto_migrations(engine)
 
@@ -255,5 +305,3 @@ def query_wiki_replica_batch(titles: list) -> dict:
     except Exception as e:
         print(f"[Replica] Wiki replica query error, falling back to HTTP API: {e}")
         return None
-
-
