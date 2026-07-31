@@ -1353,18 +1353,14 @@ const copyTalkSnippet = () => {
     min-height: 0;
   }
 
-  .preview-wrap {
-    padding-bottom: 112px;
-    box-sizing: border-box;
-  }
-
   .review-bar {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 58px;
-    width: 100vw;
-    z-index: 120;
+    position: relative;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    width: 100%;
+    z-index: 10;
+    margin-top: auto;
   }
 
   .mobile-hidden {
