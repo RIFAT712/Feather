@@ -631,8 +631,10 @@ def delete_contest(code: str, _: models.User = Depends(get_owner_user), db: Sess
     c = db.query(models.Contest).filter_by(code=code).first()
     if not c:
         raise HTTPException(status_code=404, detail="Not found")
-    db.query(models.ContestJury).filter_by(contest_id=c.id).delete()
-    db.query(models.Article).filter_by(contest_id=c.id).delete()
+    db.query(models.ContestJury).filter_by(contest_id=c.id).delete(synchronize_session=False)
+    article_ids = db.query(models.Article.id).filter_by(contest_id=c.id).subquery()
+    db.query(models.Review).filter(models.Review.article_id.in_(article_ids)).delete(synchronize_session=False)
+    db.query(models.Article).filter_by(contest_id=c.id).delete(synchronize_session=False)
     db.delete(c)
     db.commit()
     return {"status": "success"}
