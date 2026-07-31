@@ -63,11 +63,34 @@ const fetchSystemStatus = async () => {
 };
 
 const systemLogs = ref([]);
+const logsSourceFilter = ref('all');
+const logsLoading = ref(false);
 const fetchLogs = async () => {
+  logsLoading.value = true;
   try {
-    const res = await fetch('/api/logs?limit=50');
-    if (res.ok) systemLogs.value = await res.json();
+    const res = await fetch('/api/logs?limit=200');
+    if (res.ok) {
+      const all = await res.json();
+      // Only keep system-type entries (not article_submission noise)
+      systemLogs.value = all.filter(l => l.type === 'system');
+    }
   } catch(e) {}
+  finally { logsLoading.value = false; }
+};
+
+const filteredLogs = computed(() => {
+  if (logsSourceFilter.value === 'all') return systemLogs.value;
+  return systemLogs.value.filter(l => l.source === logsSourceFilter.value);
+});
+
+const logSources = computed(() => {
+  const s = new Set(systemLogs.value.map(l => l.source));
+  return ['all', ...Array.from(s)];
+});
+
+const expandedLogId = ref(null);
+const toggleLogExpand = (id) => {
+  expandedLogId.value = expandedLogId.value === id ? null : id;
 };
 
 const refreshData = async () => {
@@ -1118,39 +1141,111 @@ const formatDate = (iso) => {
         <div class="jury-hub-card">
           <div class="form-pane-header">
             <h2>System Logs</h2>
-            <p>View background task status, backups, and talk page template insertions.</p>
+            <p>Background task status, talk page template errors, backups, and frontend errors.</p>
           </div>
-          
-          <div class="flex justify-end mb-4 mt-2">
-            <button class="submit-btn quiet" @click="fetchLogs" style="padding: 0.5rem 1rem">
-              🔄 Refresh Logs
+
+          <!-- Source filter chips -->
+          <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; align-items:center;">
+            <button
+              v-for="src in logSources"
+              :key="src"
+              @click="logsSourceFilter = src"
+              :style="{
+                padding: '4px 14px',
+                borderRadius: '999px',
+                fontSize: '0.78rem',
+                fontWeight: '600',
+                border: '1px solid',
+                cursor: 'pointer',
+                background: logsSourceFilter === src
+                  ? (src === 'talk_template' ? 'rgba(239,68,68,0.18)' : 'rgba(99,102,241,0.18)')
+                  : 'rgba(255,255,255,0.05)',
+                borderColor: logsSourceFilter === src
+                  ? (src === 'talk_template' ? '#ef4444' : '#6366f1')
+                  : 'rgba(255,255,255,0.1)',
+                color: logsSourceFilter === src
+                  ? (src === 'talk_template' ? '#ef4444' : '#a5b4fc')
+                  : '#94a3b8',
+                transition: 'all 0.15s'
+              }"
+            >
+              {{ src === 'all' ? '🗂 All' : src === 'talk_template' ? '💬 talk_template' : src === 'backup' ? '💾 backup' : src === 'frontend' ? '🌐 frontend' : src }}
+              <span v-if="src !== 'all'" style="margin-left:4px; opacity:0.7">
+                ({{ systemLogs.filter(l => l.source === src).length }})
+              </span>
             </button>
+
+            <button class="submit-btn quiet" @click="fetchLogs" :disabled="logsLoading" style="margin-left:auto; padding:0.4rem 1rem; font-size:0.82rem">
+              {{ logsLoading ? '⏳ Loading…' : '🔄 Refresh' }}
+            </button>
+          </div>
+
+          <!-- Counts banner -->
+          <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
+            <span style="font-size:0.8rem; color:#94a3b8">Showing <strong style="color:#e2e8f0">{{ filteredLogs.length }}</strong> entries</span>
+            <span v-if="filteredLogs.filter(l=>l.level==='error').length" style="font-size:0.8rem; color:#ef4444; font-weight:600">
+              ⚠ {{ filteredLogs.filter(l=>l.level==='error').length }} error{{ filteredLogs.filter(l=>l.level==='error').length > 1 ? 's' : '' }}
+            </span>
+            <span v-if="filteredLogs.filter(l=>l.level==='warning').length" style="font-size:0.8rem; color:#f59e0b; font-weight:600">
+              {{ filteredLogs.filter(l=>l.level==='warning').length }} warning{{ filteredLogs.filter(l=>l.level==='warning').length > 1 ? 's' : '' }}
+            </span>
           </div>
 
           <div class="table-responsive">
             <table class="w-full text-left" style="border-collapse: collapse;">
               <thead>
-                <tr class="text-slate-400 border-b border-slate-700/50" style="font-size: 0.8rem; text-transform: uppercase;">
-                  <th class="pb-2 font-semibold">Timestamp</th>
-                  <th class="pb-2 font-semibold">Level</th>
-                  <th class="pb-2 font-semibold">Source</th>
-                  <th class="pb-2 font-semibold">Message</th>
+                <tr class="text-slate-400 border-b border-slate-700/50" style="font-size: 0.78rem; text-transform: uppercase;">
+                  <th style="padding:8px 12px; white-space:nowrap">Timestamp</th>
+                  <th style="padding:8px 12px">Level</th>
+                  <th style="padding:8px 12px">Source</th>
+                  <th style="padding:8px 12px">Message</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="log in systemLogs" :key="log.id" class="border-b border-slate-700/30 hover:bg-slate-800/30 transition-colors">
-                  <td class="py-3 text-slate-300 text-sm whitespace-nowrap">{{ new Date(log.timestamp + 'Z').toLocaleString('en-GB') }}</td>
-                  <td class="py-3">
-                    <span class="px-2 py-0.5 rounded text-xs font-bold shadow-sm"
-                          :class="log.level === 'error' ? 'bg-red-900/30 text-red-400 border border-red-800' : (log.level === 'warning' ? 'bg-amber-900/30 text-amber-400 border border-amber-800' : 'bg-indigo-900/30 text-indigo-400 border border-indigo-800')">
-                      {{ log.level.toUpperCase() }}
-                    </span>
+                <template v-for="log in filteredLogs" :key="log.id">
+                  <tr
+                    @click="toggleLogExpand(log.id)"
+                    style="cursor:pointer; border-bottom: 1px solid rgba(255,255,255,0.06); transition: background 0.12s"
+                    :style="{ background: expandedLogId === log.id ? 'rgba(99,102,241,0.07)' : 'transparent' }"
+                    class="hover:bg-slate-800/30"
+                  >
+                    <td style="padding:10px 12px; color:#94a3b8; font-size:0.78rem; white-space:nowrap; vertical-align:top">
+                      {{ new Date(log.timestamp + 'Z').toLocaleString('en-GB') }}
+                    </td>
+                    <td style="padding:10px 12px; vertical-align:top">
+                      <span
+                        style="padding:2px 9px; border-radius:999px; font-size:0.72rem; font-weight:700; border:1px solid"
+                        :style="log.level === 'error'
+                          ? 'background:rgba(239,68,68,0.15); color:#f87171; border-color:rgba(239,68,68,0.35)'
+                          : log.level === 'warning'
+                          ? 'background:rgba(245,158,11,0.12); color:#fbbf24; border-color:rgba(245,158,11,0.3)'
+                          : 'background:rgba(99,102,241,0.12); color:#a5b4fc; border-color:rgba(99,102,241,0.3)'"
+                      >{{ log.level.toUpperCase() }}</span>
+                    </td>
+                    <td style="padding:10px 12px; vertical-align:top">
+                      <span
+                        style="padding:2px 9px; border-radius:6px; font-size:0.72rem; font-weight:600"
+                        :style="log.source === 'talk_template'
+                          ? 'background:rgba(239,68,68,0.1); color:#fca5a5'
+                          : log.source === 'backup'
+                          ? 'background:rgba(34,197,94,0.1); color:#86efac'
+                          : 'background:rgba(255,255,255,0.07); color:#94a3b8'"
+                      >{{ log.source }}</span>
+                    </td>
+                    <td style="padding:10px 12px; color:#e2e8f0; font-size:0.83rem; max-width:420px; vertical-align:top">
+                      <span v-if="expandedLogId !== log.id" style="display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; word-break:break-word">
+                        {{ log.message }}
+                      </span>
+                      <span v-else style="white-space:pre-wrap; word-break:break-all; font-family:monospace; font-size:0.78rem; color:#e2e8f0">
+                        {{ log.message }}
+                      </span>
+                    </td>
+                  </tr>
+                </template>
+                <tr v-if="!filteredLogs.length">
+                  <td colspan="4" style="padding:40px; text-align:center; color:#4b5563; font-style:italic">
+                    {{ logsLoading ? 'Loading…' : 'No logs found for this filter.' }}
                   </td>
-                  <td class="py-3 text-slate-400 text-sm whitespace-nowrap">{{ log.source }}</td>
-                  <td class="py-3 text-slate-200 text-sm" style="word-break: break-word;">{{ log.message }}</td>
-                </tr>
-                <tr v-if="!systemLogs.length">
-                  <td colspan="4" class="py-6 text-center text-slate-500 italic">No logs found in the database.</td>
                 </tr>
               </tbody>
             </table>

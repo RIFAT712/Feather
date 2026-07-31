@@ -101,8 +101,11 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
         )
         token_data = res3.json()
         csrf_token = token_data.get("query", {}).get("tokens", {}).get("csrftoken")
-        if not csrf_token:
-            print(f"[add_talk_pages] Failed to get CSRF token. Response: {token_data}")
+        print(f"[add_talk_pages] CSRF token response: {token_data}")
+        # +\ means anonymous/unauthenticated — OAuth didn't work
+        if not csrf_token or csrf_token == "+\\":
+            msg = f"Failed to get CSRF token (got: {csrf_token!r}). OAuth may have insufficient scope or token is invalid. Full response: {token_data}"
+            print(f"[add_talk_pages] {msg}")
             try:
                 from database import SessionLocal
                 import models
@@ -110,7 +113,7 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
                 db.add(models.SystemLog(
                     level="error", 
                     source="talk_template", 
-                    message=f"Failed to get CSRF token. Response: {token_data}",
+                    message=msg,
                     timestamp=datetime.utcnow()
                 ))
                 db.commit()
@@ -147,11 +150,12 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
                 res_json = edit_res.json()
             except Exception:
                 pass
-                
-            if edit_res.status_code == 200 and "error" not in res_json:
+            print(f"[add_talk_pages] Edit result for '{talk_title}': status={edit_res.status_code} body={edit_res.text[:500]}")
+            if edit_res.status_code == 200 and "edit" in res_json and res_json["edit"].get("result") == "Success":
                 successes.append(title)
             else:
-                failures.append(f"{title}: {edit_res.text}")
+                err_info = res_json.get("error", {}).get("info", edit_res.text[:300])
+                failures.append(f"{title}: {err_info}")
                 
         # Write to SystemLog
         try:
@@ -181,7 +185,7 @@ oauth.register(
     access_token_url='https://meta.wikimedia.org/w/rest.php/oauth2/access_token',
     authorize_url='https://meta.wikimedia.org/w/rest.php/oauth2/authorize',
     api_base_url='https://meta.wikimedia.org/w/rest.php/oauth2/resource/',
-    client_kwargs={'scope': 'basic'}
+    client_kwargs={'scope': 'basic editpage'}
 )
 
 MEDIAWIKI_API_URL = os.getenv("MEDIAWIKI_API_URL", "https://bn.wiktionary.org/w/api.php")
