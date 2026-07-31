@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, inject, computed } from 'vue';
+import { ref, onMounted, onBeforeUnmount, inject, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { CdxButton, CdxTextInput, CdxIcon } from '@wikimedia/codex';
 import { cdxIconCheck, cdxIconClear, cdxIconNext } from '@wikimedia/codex-icons';
@@ -313,6 +313,11 @@ const availableNewArticles = computed(() => {
   return newArticles.value.filter(a => !a.locked_by || a.locked_by === myUsername.value);
 });
 
+const releaseArticleLock = (articleId) => {
+  if (!articleId) return;
+  fetch(`/api/articles/${articleId}/lock`, { method: 'DELETE' }).catch(() => {});
+};
+
 const judgedArticles = computed(() => {
   if (!myUsername.value) return [];
   return articles.value.filter(a => a.reviews.some(r => r.reviewer === myUsername.value));
@@ -325,6 +330,9 @@ const getMyLatestDecision = (article) => {
 };
 
 const selectArticle = (article) => {
+  if (currentArticle.value?.article_id && currentArticle.value.article_id !== article?.article_id) {
+    releaseArticleLock(currentArticle.value.article_id);
+  }
   currentArticle.value = article;
   comment.value = '';
   fetchPreview(article.title);
@@ -345,6 +353,8 @@ onMounted(async () => {
 });
 
 const skipArticle = () => {
+  const previousArticleId = currentArticle.value?.article_id;
+  releaseArticleLock(previousArticleId);
   const next = availableNewArticles.value.find(a => a.article_id !== currentArticle.value?.article_id);
   if (next) {
     selectArticle(next);
@@ -355,6 +365,14 @@ const skipArticle = () => {
     currentArticle.value = articles.value.find(a => a.article_id === currentArticle.value?.article_id) || null;
   }
 };
+
+watch(mobileTab, (tab) => {
+  if (tab === 'list') releaseArticleLock(currentArticle.value?.article_id);
+});
+
+onBeforeUnmount(() => {
+  releaseArticleLock(currentArticle.value?.article_id);
+});
 
 const handleDecision = async (decision) => {
   if (!currentArticle.value || isSubmitting.value) return;
@@ -392,6 +410,7 @@ const handleRemove = async () => {
       method: 'DELETE'
     });
     if (!res.ok) throw new Error('Remove failed');
+    releaseArticleLock(currentArticle.value.article_id);
     currentArticle.value = null;
     await fetchArticles();
     mobileTab.value = 'list';

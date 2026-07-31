@@ -1544,6 +1544,27 @@ def lock_article(article_id: int, current_user: models.User = Depends(get_curren
     db.commit()
     return {"success": True, "locked_by": current_user.wiki_username}
 
+@app.delete("/api/articles/{article_id}/lock")
+def unlock_article(article_id: int, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Release the current user's temporary review lock when they leave an article."""
+    article = db.query(models.Article).filter_by(id=article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    contest = article.contest
+    is_owner = current_user.role == models.RoleEnum.owner
+    is_jury = db.query(models.ContestJury).filter_by(
+        contest_id=contest.id, user_id=current_user.id
+    ).first() is not None
+    if not (is_owner or is_jury):
+        raise HTTPException(status_code=403, detail="Not authorized to unlock articles in this contest")
+
+    lock = db.query(models.ArticleLock).filter_by(article_id=article_id).first()
+    if lock and lock.locked_by == current_user.wiki_username:
+        db.delete(lock)
+        db.commit()
+    return {"success": True}
+
 @app.get("/api/proxy/article/{title}")
 async def proxy_article(title: str):
     unique_id = uuid.uuid4().hex[:8]
@@ -1602,6 +1623,9 @@ def review_article(
         comment=data.comment
     )
     db.add(review)
+    # A review decision, including Skip, ends this reviewer's temporary lock.
+    if active_lock and active_lock.locked_by == current_user.wiki_username:
+        db.delete(active_lock)
     db.commit()
     return {"status": "success", "decision": data.decision}
 
