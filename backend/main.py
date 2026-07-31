@@ -1037,7 +1037,7 @@ async def submit_bulk(
             contest.talk_template_name, 
             contest.include_talk_header,
             current_user.oauth_access_token,
-            data.on_behalf_of
+            request.on_behalf_of
         )
         
     return results
