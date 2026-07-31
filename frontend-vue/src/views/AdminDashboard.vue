@@ -28,6 +28,15 @@ const isLoadingContests = ref(false);
 const toastMessage = ref('');
 const toastIsError = ref(false);
 
+// Contest form times use Bangladesh Standard Time (UTC+06:00); storage remains UTC.
+const bangladeshTimeToUtcIso = (date, time) =>
+  new Date(`${date}T${time || '00:00'}:00+06:00`).toISOString();
+const utcToBangladeshParts = (value) => {
+  const utc = new Date(value.endsWith('Z') ? value : `${value}Z`);
+  const bd = new Date(utc.getTime() + 6 * 60 * 60 * 1000);
+  return { date: bd.toISOString().slice(0, 10), time: bd.toISOString().slice(11, 16) };
+};
+
 const showToast = (msg, isError = false) => {
   toastMessage.value = msg;
   toastIsError.value = isError;
@@ -192,8 +201,8 @@ const handleCreate = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: name.value,
-        start_date: new Date(`${startDate.value}T${startTime.value}Z`).toISOString(),
-        end_date: new Date(`${endDate.value}T${endTime.value}Z`).toISOString(),
+        start_date: bangladeshTimeToUtcIso(startDate.value, startTime.value),
+        end_date: bangladeshTimeToUtcIso(endDate.value, endTime.value),
         rule_must_be_creator: mustBeCreator.value,
         min_bytes: Number(minBytes.value) || 0,
         min_words: Number(minWords.value) || 0,
@@ -241,12 +250,12 @@ const resetCreateForm = () => {
 // Clone Contest Settings
 const handleCloneContest = (c) => {
   name.value = `Copy of ${c.name}`;
-  const start = new Date(c.start_date + (!c.start_date.endsWith('Z') ? 'Z' : ''));
-  startDate.value = start.toISOString().split('T')[0];
-  startTime.value = start.toISOString().split('T')[1].slice(0,5);
-  const end = new Date(c.end_date + (!c.end_date.endsWith('Z') ? 'Z' : ''));
-  endDate.value = end.toISOString().split('T')[0];
-  endTime.value = end.toISOString().split('T')[1].slice(0,5);
+  const start = utcToBangladeshParts(c.start_date);
+  startDate.value = start.date;
+  startTime.value = start.time;
+  const end = utcToBangladeshParts(c.end_date);
+  endDate.value = end.date;
+  endTime.value = end.time;
   
   mustBeCreator.value = c.rule_must_be_creator ?? true;
   minBytes.value = c.min_bytes ?? 0;
@@ -339,13 +348,13 @@ const openEditModal = (c) => {
   editingContest.value = c;
   editName.value = c.name;
   
-  const start = new Date(c.start_date + (!c.start_date.endsWith('Z') ? 'Z' : ''));
-  editStartDate.value = start.toISOString().split('T')[0];
-  editStartTime.value = start.toISOString().split('T')[1].slice(0,5);
+  const start = utcToBangladeshParts(c.start_date);
+  editStartDate.value = start.date;
+  editStartTime.value = start.time;
   
-  const end = new Date(c.end_date + (!c.end_date.endsWith('Z') ? 'Z' : ''));
-  editEndDate.value = end.toISOString().split('T')[0];
-  editEndTime.value = end.toISOString().split('T')[1].slice(0,5);
+  const end = utcToBangladeshParts(c.end_date);
+  editEndDate.value = end.date;
+  editEndTime.value = end.time;
   
   editMustBeCreator.value = c.rule_must_be_creator ?? true;
   editMinBytes.value = c.min_bytes ?? 0;
@@ -370,8 +379,8 @@ const saveEdit = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: editName.value,
-        start_date: new Date(`${editStartDate.value}T${editStartTime.value}Z`).toISOString(),
-        end_date: new Date(`${editEndDate.value}T${editEndTime.value}Z`).toISOString(),
+        start_date: bangladeshTimeToUtcIso(editStartDate.value, editStartTime.value),
+        end_date: bangladeshTimeToUtcIso(editEndDate.value, editEndTime.value),
         rule_must_be_creator: editMustBeCreator.value,
         min_bytes: Number(editMinBytes.value) || 0,
         min_words: Number(editMinWords.value) || 0,
@@ -867,7 +876,7 @@ const formatDate = (iso) => {
               </div>
 
               <div class="form-group">
-                <label class="field-label">Start Date & Time (UTC) <span class="req">*</span></label>
+                <label class="field-label">Start Date & Time (BST) <span class="req">*</span></label>
                 <div class="datetime-flex">
                   <input type="date" v-model="startDate" class="native-picker" />
                   <input type="time" v-model="startTime" class="native-picker" />
@@ -875,7 +884,7 @@ const formatDate = (iso) => {
               </div>
 
               <div class="form-group">
-                <label class="field-label">End Date & Time (UTC) <span class="req">*</span></label>
+                <label class="field-label">End Date & Time (BST) <span class="req">*</span></label>
                 <div class="datetime-flex">
                   <input type="date" v-model="endDate" class="native-picker" />
                   <input type="time" v-model="endTime" class="native-picker" />
@@ -1288,7 +1297,7 @@ const formatDate = (iso) => {
 
             <div class="form-grid-2 mt-3">
               <div class="form-group">
-                <label class="field-label">Start Date & Time (UTC)</label>
+                <label class="field-label">Start Date & Time (BST)</label>
                 <div class="datetime-flex">
                   <input type="date" v-model="editStartDate" class="native-picker" />
                   <input type="time" v-model="editStartTime" class="native-picker" />
@@ -1296,7 +1305,7 @@ const formatDate = (iso) => {
               </div>
 
               <div class="form-group">
-                <label class="field-label">End Date & Time (UTC)</label>
+                <label class="field-label">End Date & Time (BST)</label>
                 <div class="datetime-flex">
                   <input type="date" v-model="editEndDate" class="native-picker" />
                   <input type="time" v-model="editEndTime" class="native-picker" />

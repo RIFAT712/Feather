@@ -15,6 +15,15 @@ const talkHeaderLabel = '{{আলাপ পাতা}}';
 
 const activeTab = ref('basic'); // 'basic', 'rules', 'talk', 'jury'
 
+// Contest form times use Bangladesh Standard Time (UTC+06:00); storage remains UTC.
+const bangladeshTimeToUtcIso = (date, time) =>
+  new Date(`${date}T${time || '00:00'}:00+06:00`).toISOString();
+const utcToBangladeshParts = (value) => {
+  const utc = new Date(value.endsWith('Z') ? value : `${value}Z`);
+  const bd = new Date(utc.getTime() + 6 * 60 * 60 * 1000);
+  return { date: bd.toISOString().slice(0, 10), time: bd.toISOString().slice(11, 16) };
+};
+
 // Form state
 const editName = ref('');
 const editStartDate = ref('');
@@ -91,12 +100,12 @@ const fetchContest = async () => {
       juries.value = c.juries || [];
       
       editName.value = c.name;
-      const start = new Date(c.start_date + (!c.start_date.endsWith('Z') ? 'Z' : ''));
-      editStartDate.value = start.toISOString().split('T')[0];
-      editStartTime.value = start.toISOString().split('T')[1].slice(0,5);
-      const end = new Date(c.end_date + (!c.end_date.endsWith('Z') ? 'Z' : ''));
-      editEndDate.value = end.toISOString().split('T')[0];
-      editEndTime.value = end.toISOString().split('T')[1].slice(0,5);
+      const start = utcToBangladeshParts(c.start_date);
+      editStartDate.value = start.date;
+      editStartTime.value = start.time;
+      const end = utcToBangladeshParts(c.end_date);
+      editEndDate.value = end.date;
+      editEndTime.value = end.time;
       
       editMustBeCreator.value = c.rule_must_be_creator ?? true;
       editMinBytes.value = c.min_bytes ?? 0;
@@ -133,8 +142,8 @@ const saveSettings = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: editName.value,
-        start_date: new Date(`${editStartDate.value}T${editStartTime.value}Z`).toISOString(),
-        end_date: new Date(`${editEndDate.value}T${editEndTime.value}Z`).toISOString(),
+        start_date: bangladeshTimeToUtcIso(editStartDate.value, editStartTime.value),
+        end_date: bangladeshTimeToUtcIso(editEndDate.value, editEndTime.value),
         rule_must_be_creator: editMustBeCreator.value,
         min_bytes: Number(editMinBytes.value) || 0,
         min_words: Number(editMinWords.value) || 0,
@@ -257,14 +266,14 @@ const wikitextPreview = computed(() => {
             <cdx-text-input v-model="editName" />
           </div>
           <div class="form-group">
-            <label>Start Date & Time (UTC)</label>
+            <label>Start Date & Time (BST)</label>
             <div style="display:flex;gap:8px;">
               <input type="date" v-model="editStartDate" class="native-input" />
               <input type="time" v-model="editStartTime" class="native-input" />
             </div>
           </div>
           <div class="form-group">
-            <label>End Date & Time (UTC)</label>
+            <label>End Date & Time (BST)</label>
             <div style="display:flex;gap:8px;">
               <input type="date" v-model="editEndDate" class="native-input" />
               <input type="time" v-model="editEndTime" class="native-input" />
