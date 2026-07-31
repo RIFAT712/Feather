@@ -831,22 +831,26 @@ const copyTalkSnippet = () => {
   box-sizing: border-box;
   transition: width 0.2s ease;
 }
-.sidebar.collapsed { width: 34px; }
+.sidebar.collapsed {
+  width: 0;
+  border-right: none;
+  background: transparent;
+}
 .sidebar.collapsed > :not(.sidebar-toggle) { display: none; }
 .sidebar-toggle {
   position: absolute;
-  top: 10px;
+  top: 12px;
   right: -12px;
   z-index: 4;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 30px;
   padding: 0;
-  border: 1px solid rgba(255,255,255,0.16);
+  border: 1px solid rgba(255,255,255,0.32);
   border-radius: 4px;
   background: #131520;
-  color: #cbd5e1;
-  font-size: 1.1rem;
-  line-height: 20px;
+  color: #f8fafc;
+  font-size: 1.35rem;
+  line-height: 26px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -854,6 +858,10 @@ const copyTalkSnippet = () => {
   box-shadow: 0 2px 8px rgba(0,0,0,0.45);
 }
 .sidebar-toggle:hover { background: #1f2333; color: #fff; }
+.sidebar.collapsed .sidebar-toggle {
+  left: 0;
+  right: auto;
+}
 
 /* Stats Row */
 .sidebar-stats {
