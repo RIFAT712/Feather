@@ -184,7 +184,7 @@ oauth.register(
 )
 
 MEDIAWIKI_API_URL = os.getenv("MEDIAWIKI_API_URL", "https://bn.wiktionary.org/w/api.php")
-JWT_SECRET = os.getenv("SESSION_SECRET", "super-secret")
+JWT_SECRET = os.getenv("SESSION_SECRET", "super-secret") + "_v2"
 JWT_ALGORITHM = "HS256"
 
 _global_semaphore = None
