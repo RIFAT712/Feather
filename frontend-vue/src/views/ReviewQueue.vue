@@ -522,7 +522,7 @@ const copyTalkSnippet = () => {
           @click="sidebarCollapsed = !sidebarCollapsed"
           :aria-label="sidebarCollapsed ? 'Expand article panel' : 'Collapse article panel'"
           :title="sidebarCollapsed ? 'Expand article panel' : 'Collapse article panel'"
-        >{{ sidebarCollapsed ? '›' : '‹' }}</button>
+        >{{ sidebarCollapsed ? '☰' : '×' }}</button>
         <!-- Stats row -->
         <div class="sidebar-stats">
           <div class="stat-pill pending">
@@ -1352,10 +1352,12 @@ const copyTalkSnippet = () => {
   }
 
   .review-bar {
-    position: absolute;
+    position: fixed;
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: 58px;
+    width: 100vw;
+    z-index: 120;
   }
 
   .mobile-hidden {
