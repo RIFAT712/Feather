@@ -13,6 +13,7 @@ import {
   cdxIconLock,
   cdxIconMenu,
   cdxIconSpeechBubbles,
+  cdxIconNext,
   cdxIconTrash,
 } from '@wikimedia/codex-icons';
 
@@ -600,6 +601,13 @@ const copyTalkSnippet = () => {
           :aria-label="sidebarCollapsed ? 'Expand article panel' : 'Collapse article panel'"
           :title="sidebarCollapsed ? 'Expand article panel' : 'Collapse article panel'"
         ><CdxIcon :icon="sidebarCollapsed ? cdxIconMenu : cdxIconClose" /></button>
+        <div class="queue-heading">
+          <div>
+            <span class="queue-eyebrow">JURY WORKSPACE</span>
+            <h2>Review Queue</h2>
+          </div>
+          <span class="queue-live">Live</span>
+        </div>
         <!-- Stats row -->
         <div class="sidebar-stats">
           <div class="stat-pill total">
@@ -624,9 +632,9 @@ const copyTalkSnippet = () => {
         <div v-if="selectedForBulk.length > 0" class="bulk-banner">
           <span class="bulk-label">{{ selectedForBulk.length }} selected</span>
           <div class="bulk-btns">
-            <button class="bbtn accept" @click="handleBulkDecision('accepted')" title="Accept Selected">✓</button>
-            <button class="bbtn reject" @click="handleBulkDecision('rejected')" title="Reject Selected">✕</button>
-            <button class="bbtn skip" @click="handleBulkDecision('skipped')" title="Skip Selected">→</button>
+            <button class="bbtn accept" @click="handleBulkDecision('accepted')" title="Accept Selected"><CdxIcon :icon="cdxIconCheck" /></button>
+            <button class="bbtn reject" @click="handleBulkDecision('rejected')" title="Reject Selected"><CdxIcon :icon="cdxIconClear" /></button>
+            <button class="bbtn skip" @click="handleBulkDecision('skipped')" title="Skip Selected"><CdxIcon :icon="cdxIconNext" /></button>
             <button class="bbtn remove" @click="handleBulkRemove" title="Remove Selected"><CdxIcon :icon="cdxIconTrash" /></button>
           </div>
         </div>
@@ -801,9 +809,16 @@ const copyTalkSnippet = () => {
           <!-- Review Action Bar (sticky at bottom) -->
           <div class="review-bar">
             <div class="review-bar-inner">
+              <div class="review-panel-heading">
+                <span class="review-panel-kicker">DECISION</span>
+                <h3>Review this article</h3>
+                <p>Leave an optional note, then choose a verdict.</p>
+              </div>
               <div v-if="reviewError" class="review-error">{{ reviewError }}</div>
               <div class="review-comment">
+                <label for="jury-comment">Jury comment</label>
                 <cdx-text-input
+                  id="jury-comment"
                   v-model="comment"
                   placeholder="Leave a note (optional)…"
                 />
@@ -814,7 +829,7 @@ const copyTalkSnippet = () => {
                   :disabled="isSubmitting"
                   @click="handleDecision('accepted')"
                 >
-                  <span class="action-icon">✓</span>
+                  <CdxIcon :icon="cdxIconCheck" class="action-icon" />
                   <span class="action-label">Accept</span>
                 </button>
                 <button
@@ -822,7 +837,7 @@ const copyTalkSnippet = () => {
                   :disabled="isSubmitting"
                   @click="handleDecision('rejected')"
                 >
-                  <span class="action-icon">✕</span>
+                  <CdxIcon :icon="cdxIconClear" class="action-icon" />
                   <span class="action-label">Reject</span>
                 </button>
                 <button
@@ -830,7 +845,7 @@ const copyTalkSnippet = () => {
                   :disabled="isSubmitting"
                   @click="skipArticle"
                 >
-                  <span class="action-icon">→</span>
+                  <CdxIcon :icon="cdxIconNext" class="action-icon" />
                   <span class="action-label">Skip</span>
                 </button>
                 <button
@@ -1809,5 +1824,104 @@ const copyTalkSnippet = () => {
   .preview-wrap { padding: 0; }
   .wiki-iframe { border: 0; border-radius: 0; }
   .review-bar { padding: 9px 10px 10px; background: var(--background-color-neutral-subtle); }
+}
+@media (min-width: 769px) {
+  .main-layout { position: relative; }
+  .sidebar { width: 300px; }
+  .queue-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 22px 18px 18px;
+    border-bottom: 1px solid var(--border-color-muted);
+  }
+  .queue-eyebrow,
+  .review-panel-kicker {
+    display: block;
+    color: var(--color-subtle);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+  }
+  .queue-heading h2,
+  .review-panel-heading h3 {
+    margin: 5px 0 0;
+    color: var(--color-emphasized);
+    font-size: 1.12rem;
+    line-height: 1.2;
+  }
+  .queue-live {
+    padding: 4px 8px;
+    border: 1px solid var(--border-color-muted);
+    border-radius: 4px;
+    color: var(--color-subtle);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .review-area { position: relative; display: flex; }
+  .article-header { margin-right: 360px; padding: 22px 28px; }
+  .preview-wrap { margin-right: 360px; padding: 22px 26px 0; }
+  .review-bar {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 360px;
+    box-sizing: border-box;
+    padding: 26px 24px;
+    border-top: 0;
+    border-left: 1px solid var(--border-color-muted);
+    box-shadow: none;
+  }
+  .review-bar-inner {
+    height: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    flex-wrap: nowrap;
+    gap: 18px;
+  }
+  .review-panel-heading p {
+    margin: 8px 0 0;
+    color: var(--color-subtle);
+    font-size: 0.82rem;
+    line-height: 1.5;
+  }
+  .review-comment { flex: 0 0 auto; }
+  .review-comment label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--color-neutral);
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  .review-comment .cdx-text-input,
+  .review-comment .cdx-text-input__input { width: 100%; box-sizing: border-box; }
+  .review-actions {
+    flex-direction: column;
+    gap: 10px;
+    margin-top: auto;
+  }
+  .action-btn {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
+  .review-error { flex: 0 0 auto; }
+}
+
+@media (max-width: 768px) {
+  .review-panel-heading { display: none; }
+  .queue-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 2px 12px;
+    border-bottom: 1px solid var(--border-color-muted);
+  }
+  .queue-heading h2 { margin: 4px 0 0; color: var(--color-emphasized); font-size: 1.05rem; }
+  .queue-eyebrow { color: var(--color-subtle); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.1em; }
+  .queue-live { padding: 3px 7px; border: 1px solid var(--border-color-muted); border-radius: 4px; color: var(--color-subtle); font-size: 0.62rem; text-transform: uppercase; }
 }
 </style>

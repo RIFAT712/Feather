@@ -198,6 +198,7 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-08-02 | Redesigned ReviewQueue with a monochrome black-and-gray dark theme, clearer desktop/mobile hierarchy, neutral containers, and color limited to action buttons and warnings. |
 | 2026-08-02 | Switched the dark ReviewQueue surfaces, borders, text, and Codex controls to WikimediaUI Codex dark-mode design tokens instead of standalone theme values. |
 | 2026-08-02 | Replaced review workflow emojis with Codex icons in ReviewQueue, ActivityLog, and JuryStats. |
+| 2026-08-02 | Rebuilt the ReviewQueue desktop layout around a persistent article queue, central preview, and dedicated right-side decision panel; retained the mobile tab workflow. |
 | ---------- | --------------------------------------------------------------- |
 | 2026-07-19 | Initial AGENTS.md created with full project context             |
 | 2026-07-19 | Rewrote `GlobalProfile.vue` — event-based profile with tab navigation (Participated / Judged), expandable contest cards showing submitted articles or judgment info with stats bars and approval donut rings. Profile pill in header navigates to `/user/:username`. |
