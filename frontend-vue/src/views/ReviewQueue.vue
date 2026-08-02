@@ -14,6 +14,7 @@ const comment = ref('');
 const isLoading = ref(true);
 const isSubmitting = ref(false);
 const isLoadingPreview = ref(false);
+const reviewError = ref('');
 
 // Mobile tab: 'list' | 'review'
 const mobileTab = ref('list');
@@ -279,8 +280,8 @@ ${body}
   }
 };
 
-const fetchArticles = async () => {
-  isLoading.value = true;
+const fetchArticles = async (showLoading = true) => {
+  if (showLoading) isLoading.value = true;
   try {
     const roleRes = await fetch(`/api/contests/${route.params.code}/my-role`);
     if (roleRes.ok) roles.value = await roleRes.json();
@@ -306,6 +307,7 @@ const myUsername = computed(() => user.value?.wiki_username);
 const newArticles = computed(() => {
   if (!myUsername.value) return [];
   return articles.value.filter(a =>
+    a.status === 'pending' &&
     !(roles.value.is_jury && !roles.value.is_owner && a.submitted_by === myUsername.value) &&
     !a.reviews.some(r => r.reviewer === myUsername.value)
   );
@@ -314,6 +316,13 @@ const newArticles = computed(() => {
 const availableNewArticles = computed(() => {
   return newArticles.value.filter(a => !a.locked_by || a.locked_by === myUsername.value);
 });
+
+const statusStats = computed(() => ({
+  total: articles.value.length,
+  accepted: articles.value.filter(a => a.status === 'accepted').length,
+  rejected: articles.value.filter(a => a.status === 'rejected').length,
+  pending: articles.value.filter(a => a.status === 'pending').length,
+}));
 
 const releaseArticleLock = (articleId) => {
   if (!articleId || permanentlyLockedArticleIds.has(articleId)) return;
@@ -325,6 +334,15 @@ const judgedArticles = computed(() => {
   return articles.value.filter(a => a.reviews.some(r => r.reviewer === myUsername.value));
 });
 
+const otherReviewedArticles = computed(() => {
+  if (!myUsername.value) return [];
+  return articles.value.filter(a =>
+    a.status !== 'pending' &&
+    a.reviews.length > 0 &&
+    !a.reviews.some(r => r.reviewer === myUsername.value)
+  );
+});
+
 const getMyLatestDecision = (article) => {
   const myReviews = article.reviews.filter(r => r.reviewer === myUsername.value);
   if (!myReviews.length) return null;
@@ -332,6 +350,8 @@ const getMyLatestDecision = (article) => {
 };
 
 const selectArticle = (article) => {
+  if (!article || article.status !== 'pending') return;
+  reviewError.value = '';
   if (currentArticle.value?.article_id && currentArticle.value.article_id !== article?.article_id) {
     releaseArticleLock(currentArticle.value.article_id);
   }
@@ -343,8 +363,13 @@ const selectArticle = (article) => {
   mobileTab.value = 'review';
 };
 
+let statsInterval;
+
 onMounted(async () => {
   await fetchArticles();
+  statsInterval = setInterval(() => {
+    fetchArticles(false).catch(error => console.error('Failed to refresh review queue', error));
+  }, 5000);
   if (availableNewArticles.value.length > 0 && !currentArticle.value) {
     const randomIdx = Math.floor(Math.random() * availableNewArticles.value.length);
     selectArticle(availableNewArticles.value[randomIdx]);
@@ -373,19 +398,24 @@ watch(mobileTab, (tab) => {
 });
 
 onBeforeUnmount(() => {
+  clearInterval(statsInterval);
   releaseArticleLock(currentArticle.value?.article_id);
 });
 
 const handleDecision = async (decision) => {
   if (!currentArticle.value || isSubmitting.value) return;
   isSubmitting.value = true;
+  reviewError.value = '';
   try {
     const res = await fetch(`/api/articles/${currentArticle.value.article_id}/review`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ decision, comment: comment.value }),
     });
-    if (!res.ok) throw new Error('Review failed');
+    if (!res.ok) {
+      const errorBody = await res.json().catch(() => ({}));
+      throw new Error(errorBody.detail || `Review failed (${res.status})`);
+    }
     if (decision === 'accepted' || decision === 'rejected') {
       permanentlyLockedArticleIds.add(currentArticle.value.article_id);
     }
@@ -401,6 +431,7 @@ const handleDecision = async (decision) => {
     }
   } catch (error) {
     console.error("Error submitting review", error);
+    reviewError.value = error.message || 'Review failed';
   } finally {
     isSubmitting.value = false;
   }
@@ -551,17 +582,21 @@ const copyTalkSnippet = () => {
         >{{ sidebarCollapsed ? '☰' : '×' }}</button>
         <!-- Stats row -->
         <div class="sidebar-stats">
-          <div class="stat-pill pending">
-            <span class="stat-num">{{ newArticles.length }}</span>
-            <span class="stat-lbl">Pending</span>
-          </div>
-          <div class="stat-pill done">
-            <span class="stat-num">{{ judgedArticles.length }}</span>
-            <span class="stat-lbl">Judged</span>
-          </div>
           <div class="stat-pill total">
-            <span class="stat-num">{{ articles.length }}</span>
+            <span class="stat-num">{{ statusStats.total }}</span>
             <span class="stat-lbl">Total</span>
+          </div>
+          <div class="stat-pill accepted">
+            <span class="stat-num">{{ statusStats.accepted }}</span>
+            <span class="stat-lbl">Accepted</span>
+          </div>
+          <div class="stat-pill rejected">
+            <span class="stat-num">{{ statusStats.rejected }}</span>
+            <span class="stat-lbl">Rejected</span>
+          </div>
+          <div class="stat-pill pending">
+            <span class="stat-num">{{ statusStats.pending }}</span>
+            <span class="stat-lbl">Pending</span>
           </div>
         </div>
 
@@ -608,6 +643,30 @@ const copyTalkSnippet = () => {
             </li>
           </ul>
         </transition>
+
+        <!-- Articles reviewed by other judges -->
+        <div v-if="otherReviewedArticles.length" class="section-head other-reviewed-head">
+          <span class="section-title">
+            <span class="section-dot judged-dot"></span>
+            Reviewed by Other Judges
+          </span>
+          <span class="section-count">{{ otherReviewedArticles.length }}</span>
+        </div>
+        <ul v-if="otherReviewedArticles.length" class="article-list read-only-list">
+          <li
+            v-for="a in otherReviewedArticles"
+            :key="`other-${a.article_id}`"
+            class="article-item judged read-only-item"
+          >
+            <div class="item-body">
+              <span class="item-title">{{ a.title }}</span>
+              <span class="item-sub">Reviewed by {{ a.reviews.map(r => r.reviewer).join(', ') }}</span>
+            </div>
+            <span class="verdict-badge" :class="a.status">
+              {{ a.status === 'accepted' ? '✓' : '✕' }}
+            </span>
+          </li>
+        </ul>
 
         <!-- Judged Articles section -->
         <div class="section-head" @click="showJudgedArticles = !showJudgedArticles">
@@ -720,6 +779,7 @@ const copyTalkSnippet = () => {
           <!-- Review Action Bar (sticky at bottom) -->
           <div class="review-bar">
             <div class="review-bar-inner">
+              <div v-if="reviewError" class="review-error">{{ reviewError }}</div>
               <div class="review-comment">
                 <cdx-text-input
                   v-model="comment"
@@ -912,8 +972,11 @@ const copyTalkSnippet = () => {
   background: rgba(255,255,255,0.04);
 }
 .stat-pill.pending { background: rgba(245, 158, 11, 0.1); }
-.stat-pill.done { background: rgba(34, 197, 94, 0.1); }
+.stat-pill.accepted { background: rgba(34, 197, 94, 0.1); }
+.stat-pill.rejected { background: rgba(239, 68, 68, 0.1); }
 .stat-pill.total { background: rgba(99, 102, 241, 0.1); }
+.other-reviewed-head { margin-top: 10px; }
+.read-only-item { cursor: default; opacity: 0.8; }
 .stat-num {
   font-size: 1.2rem;
   font-weight: 700;
@@ -1553,6 +1616,13 @@ const copyTalkSnippet = () => {
 
   .mobile-hidden { display: none !important; }
   .review-queue { padding-bottom: 0; }
+}
+
+.review-error {
+  flex: 0 0 100%;
+  color: #fca5a5;
+  font-size: 0.85rem;
+  padding: 0 0 6px;
 }
 
 @media (max-width: 480px) {

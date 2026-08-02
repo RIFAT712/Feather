@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ActivityLog from './ActivityLog.vue';
 
@@ -26,6 +26,12 @@ const stats = computed(() => {
 
 const timerText = ref("");
 let timerInterval;
+let statsInterval;
+
+const fetchContestLog = async () => {
+  const response = await fetch(`/api/contests/${route.params.code}/log`);
+  if (response.ok) log.value = await response.json();
+};
 
 const updateTimer = () => {
   const now = new Date();
@@ -48,25 +54,31 @@ const updateTimer = () => {
 };
 
 onMounted(() => {
-  try {
-    fetch(`/api/contests/${route.params.code}/my-role`)
-      .then(res => res.ok ? res.json() : null)
-      .then(data => { if (data) roles.value = data; isLoadingRoles.value = false; 
-        if (roles.value.is_jury || roles.value.is_owner) {
-          fetch(`/api/contests/${route.params.code}/log`)
-            .then(res => res.ok ? res.json() : null)
-            .then(data => { if (data) log.value = data; });
-        }
-      });
-  } catch(e) {}
+  const loadDashboard = async () => {
+    try {
+      const roleResponse = await fetch(`/api/contests/${route.params.code}/my-role`);
+      if (roleResponse.ok) roles.value = await roleResponse.json();
+      isLoadingRoles.value = false;
+      if (roles.value.is_jury || roles.value.is_owner) {
+        await fetchContestLog();
+        statsInterval = setInterval(() => {
+          fetchContestLog().catch(error => console.error('Failed to refresh contest stats', error));
+        }, 5000);
+      }
+    } catch (error) {
+      isLoadingRoles.value = false;
+      console.error('Failed to load contest dashboard', error);
+    }
+  };
+  loadDashboard();
   
   updateTimer();
   timerInterval = setInterval(updateTimer, 1000);
 });
 
-import { onUnmounted } from 'vue';
 onUnmounted(() => {
   clearInterval(timerInterval);
+  clearInterval(statsInterval);
 });
 </script>
 
