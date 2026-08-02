@@ -7,7 +7,6 @@ import {
   cdxIconArticleCheck,
   cdxIconArrowPrevious,
   cdxIconCheck,
-  cdxIconClose,
   cdxIconCopy,
   cdxIconLinkExternal,
   cdxIconLock,
@@ -31,12 +30,10 @@ const reviewError = ref('');
 
 // Mobile tab: 'list' | 'review'
 const mobileTab = ref('list');
-const sidebarCollapsed = ref(false);
 
 const showNewArticles = ref(true);
 const showJudgedArticles = ref(false);
 const showOtherReviewed = ref(false);
-const showAllSubmitted = ref(false);
 
 const roles = ref({ is_jury: false, is_owner: false });
 const isAuthorized = computed(() => roles.value.is_jury || roles.value.is_owner);
@@ -370,13 +367,6 @@ const getMyLatestComment = (article) => {
   return myReviews[myReviews.length - 1].comment || '';
 };
 
-const statusLabel = (status) => ({
-  accepted: 'Accepted',
-  rejected: 'Rejected',
-  pending: 'Pending',
-  validation_failed: 'Validation error',
-}[status] || status);
-
 const selectArticle = (article) => {
   const canReReview = article?.reviews?.some(r => r.reviewer === myUsername.value);
   if (!article || (article.status !== 'pending' && !canReReview)) return;
@@ -606,13 +596,7 @@ const copyTalkSnippet = () => {
     <!-- Main Layout -->
     <div v-else class="main-layout">
       <!-- ═══════════════ SIDEBAR ═══════════════ -->
-      <aside class="sidebar" :class="{ 'mobile-hidden': mobileTab !== 'list', collapsed: sidebarCollapsed }">
-        <button
-          class="sidebar-toggle"
-          @click="sidebarCollapsed = !sidebarCollapsed"
-          :aria-label="sidebarCollapsed ? 'Expand article panel' : 'Collapse article panel'"
-          :title="sidebarCollapsed ? 'Expand article panel' : 'Collapse article panel'"
-        ><CdxIcon :icon="sidebarCollapsed ? cdxIconMenu : cdxIconClose" /></button>
+      <aside class="sidebar" :class="{ 'mobile-hidden': mobileTab !== 'list' }">
         <div class="queue-heading">
           <div>
             <span class="queue-eyebrow">JURY WORKSPACE</span>
@@ -651,6 +635,7 @@ const copyTalkSnippet = () => {
           </div>
         </div>
 
+        <div class="sidebar-scroll">
         <!-- New Articles section -->
         <div class="section-head" @click="showNewArticles = !showNewArticles">
           <span class="section-title">
@@ -744,31 +729,7 @@ const copyTalkSnippet = () => {
           </ul>
         </transition>
 
-        <!-- Complete submission list for jury moderation -->
-        <div class="section-head all-submitted-head" @click="showAllSubmitted = !showAllSubmitted">
-          <span class="section-title">
-            <span class="section-dot submitted-dot"></span>
-            All Submitted Articles
-          </span>
-          <span class="section-count">{{ articles.length }}</span>
-          <span class="section-chevron">{{ showAllSubmitted ? '▼' : '▶' }}</span>
         </div>
-        <transition name="section-slide">
-          <ul v-show="showAllSubmitted" class="article-list all-submitted-list">
-            <li v-for="a in articles" :key="`submitted-${a.article_id}`" class="submitted-row">
-              <div class="item-body">
-                <span class="item-title" :title="a.title">{{ a.title }}</span>
-                <span class="item-sub">by {{ a.submitted_by }}</span>
-                <span v-if="a.validation_error" class="submission-error" :title="a.validation_error">{{ a.validation_error }}</span>
-              </div>
-              <span class="submission-status" :class="`status-${a.status}`">{{ statusLabel(a.status) }}</span>
-              <button class="submission-remove" type="button" title="Remove article" @click.stop="handleRemoveArticle(a)">
-                <CdxIcon :icon="cdxIconTrash" />
-              </button>
-            </li>
-            <li v-if="!articles.length" class="empty-item">No submitted articles</li>
-          </ul>
-        </transition>
       </aside>
 
       <!-- ═══════════════ REVIEW AREA ═══════════════ -->
@@ -993,41 +954,6 @@ const copyTalkSnippet = () => {
   transition: width 0.2s ease;
   z-index: 20;
 }
-.sidebar.collapsed {
-  width: 28px;
-  border-right: none;
-  background: transparent;
-  z-index: 100;
-}
-.sidebar.collapsed > :not(.sidebar-toggle) { display: none; }
-.sidebar-toggle {
-  position: absolute;
-  top: 12px;
-  right: -12px;
-  z-index: 50;
-  width: 28px;
-  height: 30px;
-  padding: 0;
-  border: 1px solid rgba(255,255,255,0.32);
-  border-radius: 4px;
-  background: #131520;
-  color: #f8fafc;
-  font-size: 1.35rem;
-  line-height: 26px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.45);
-}
-.sidebar-toggle:hover { background: #1f2333; color: #fff; }
-.sidebar.collapsed .sidebar-toggle {
-  left: 0;
-  right: auto;
-  display: flex !important;
-  visibility: visible;
-  opacity: 1;
-}
 
 /* Stats Row */
 .sidebar-stats {
@@ -1050,7 +976,7 @@ const copyTalkSnippet = () => {
 .stat-pill.accepted { background: rgba(34, 197, 94, 0.1); }
 .stat-pill.rejected { background: rgba(239, 68, 68, 0.1); }
 .stat-pill.total { background: rgba(99, 102, 241, 0.1); }
-.other-reviewed-head { margin-top: 10px; order: 3; }
+.other-reviewed-head { order: 3; }
 .read-only-list { order: 4; }
 .read-only-item { cursor: default; opacity: 0.8; }
 .stat-num {
@@ -1963,58 +1889,6 @@ const copyTalkSnippet = () => {
   .queue-live { padding: 3px 7px; border: 1px solid var(--border-color-muted); border-radius: 4px; color: var(--color-subtle); font-size: 0.62rem; text-transform: uppercase; }
 }
 
-.all-submitted-head { margin-top: 8px; }
-.submitted-dot { background: var(--color-subtle); }
-.all-submitted-list { max-height: 300px; }
-.submitted-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 8px;
-  border-bottom: 1px solid var(--border-color-muted);
-}
-.submitted-row .item-body { min-width: 0; }
-.submission-error {
-  display: block;
-  overflow: hidden;
-  color: var(--color-error);
-  font-size: 0.65rem;
-  line-height: 1.3;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.submission-status {
-  flex-shrink: 0;
-  max-width: 72px;
-  padding: 3px 5px;
-  border: 1px solid var(--border-color-muted);
-  border-radius: 4px;
-  color: var(--color-subtle);
-  font-size: 0.6rem;
-  line-height: 1.2;
-  text-align: center;
-}
-.submission-status.status-validation_failed { color: var(--color-error); border-color: var(--border-color-error--hover); }
-.submission-remove {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--border-color-muted);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--color-subtle);
-  cursor: pointer;
-}
-.submission-remove:hover { border-color: var(--color-error); color: var(--color-error); background: var(--background-color-error-subtle); }
-@media (max-width: 768px) {
-  .all-submitted-list { max-height: none; }
-  .submitted-row { padding: 11px 8px; }
-}
-
 /* Compact desktop ribbons: keep the original bottom review workflow. */
 @media (min-width: 769px) {
   .sidebar { width: 270px; }
@@ -2052,5 +1926,30 @@ const copyTalkSnippet = () => {
   .review-comment label { display: none; }
   .review-actions { flex-direction: row; gap: 6px; margin-top: 0; }
   .action-btn { width: auto; min-height: 36px; padding: 7px 13px; border-radius: 6px; }
+}
+
+/* One scroll container keeps every queue section reachable and predictable. */
+.sidebar {
+  overflow: hidden;
+  transition: none;
+}
+.sidebar-scroll {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.sidebar-scroll .article-list {
+  flex: none;
+  max-height: none;
+  overflow: visible;
+}
+.sidebar-scroll .section-head {
+  position: static;
+}
+@media (max-width: 768px) {
+  .sidebar-scroll { overflow-y: auto; }
 }
 </style>

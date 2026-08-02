@@ -201,6 +201,7 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-08-02 | Rebuilt the ReviewQueue desktop layout around a persistent article queue, central preview, and dedicated right-side decision panel; retained the mobile tab workflow. |
 | 2026-08-02 | Added an all-submitted-articles moderation list to ReviewQueue so jury members can remove pending, accepted, rejected, or validation-failed submissions directly. |
 | 2026-08-02 | Restored the ReviewQueue bottom action bar and compacted the sidebar, article header, and review controls to reduce thick ribbon-like layout panels. |
+| 2026-08-02 | Moved all-submitted-article moderation into a dedicated `JuryStats.vue` tab with refresh and removal controls. Simplified `ReviewQueue.vue` to one scrollable sidebar, removed its collapse rail, and keeps My Judged before other juries' reviews. |
 | ---------- | --------------------------------------------------------------- |
 | 2026-07-19 | Initial AGENTS.md created with full project context             |
 | 2026-07-19 | Rewrote `GlobalProfile.vue` — event-based profile with tab navigation (Participated / Judged), expandable contest cards showing submitted articles or judgment info with stats bars and approval donut rings. Profile pill in header navigates to `/user/:username`. |

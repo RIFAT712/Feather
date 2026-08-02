@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CdxIcon } from '@wikimedia/codex';
-import { cdxIconArticleCheck } from '@wikimedia/codex-icons';
+import { cdxIconArticleCheck, cdxIconTrash } from '@wikimedia/codex-icons';
 import { Doughnut, Bar } from 'vue-chartjs';
 import {
   Chart as ChartJS,
@@ -23,6 +23,15 @@ const isLoading = ref(true);
 const articles = ref([]);
 const roles = ref({ is_jury: false, is_owner: false });
 const isAuthorized = computed(() => roles.value.is_jury || roles.value.is_owner);
+const activeTab = ref('overview');
+const removingArticleId = ref(null);
+const removalError = ref('');
+
+const fetchArticles = async () => {
+  const res = await fetch(`/api/contests/${route.params.code}/log`);
+  if (!res.ok) throw new Error('Could not load submitted articles.');
+  articles.value = await res.json();
+};
 
 onMounted(async () => {
   try {
@@ -34,8 +43,7 @@ onMounted(async () => {
       return;
     }
 
-    const res = await fetch(`/api/contests/${route.params.code}/log`);
-    if (res.ok) articles.value = await res.json();
+    await fetchArticles();
   } catch (err) {
     console.error(err);
   } finally {
@@ -82,6 +90,30 @@ const juryStats = computed(() => {
     };
   }).sort((a, b) => b.total - a.total);
 });
+
+const statusLabel = (status) => ({
+  accepted: 'Accepted',
+  rejected: 'Rejected',
+  pending: 'Pending',
+  validation_failed: 'Validation failed',
+}[status] || status);
+
+const removeArticle = async (article) => {
+  if (!confirm(`Remove "${article.title}" permanently from this contest?`)) return;
+
+  removingArticleId.value = article.article_id;
+  removalError.value = '';
+  try {
+    const res = await fetch(`/api/articles/${article.article_id}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || 'Could not remove the article.');
+    await fetchArticles();
+  } catch (err) {
+    removalError.value = err.message || 'Could not remove the article.';
+  } finally {
+    removingArticleId.value = null;
+  }
+};
 
 // ── Doughnut chart data ──
 const doughnutData = computed(() => ({
@@ -228,7 +260,22 @@ const handleExportWikitable = () => {
     </div>
 
     <div v-else class="stats-layout">
+      <nav class="jury-tabs" aria-label="Jury sections">
+        <button
+          type="button"
+          class="jury-tab"
+          :class="{ active: activeTab === 'overview' }"
+          @click="activeTab = 'overview'"
+        >Overview</button>
+        <button
+          type="button"
+          class="jury-tab"
+          :class="{ active: activeTab === 'submissions' }"
+          @click="activeTab = 'submissions'"
+        >All submitted <span>{{ articles.length }}</span></button>
+      </nav>
 
+      <template v-if="activeTab === 'overview'">
       <!-- Jury Judge CTA Hero Banner -->
       <div class="judge-hero-banner">
         <div class="judge-hero-bg"></div>
@@ -383,6 +430,57 @@ const handleExportWikitable = () => {
           </tbody>
         </table>
       </div>
+      </template>
+
+      <section v-else class="submissions-panel">
+        <div class="submissions-header">
+          <div>
+            <h2>All Submitted Articles</h2>
+            <p>Review every submission, including validation failures, and remove entries when needed.</p>
+          </div>
+          <button type="button" class="refresh-submissions" @click="fetchArticles">Refresh</button>
+        </div>
+
+        <p v-if="removalError" class="removal-error">{{ removalError }}</p>
+
+        <div class="submissions-table-wrap">
+          <table class="submissions-table">
+            <thead>
+              <tr>
+                <th>Article</th>
+                <th>Submitted by</th>
+                <th>Status</th>
+                <th>Details</th>
+                <th><span class="visually-hidden">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="article in articles" :key="article.article_id">
+                <td class="submission-title">{{ article.title }}</td>
+                <td>
+                  <router-link :to="`/${route.params.code}/user/${encodeURIComponent(article.submitted_by)}`" class="jury-name-link">
+                    {{ article.submitted_by }}
+                  </router-link>
+                </td>
+                <td><span class="submission-status" :class="`status-${article.status}`">{{ statusLabel(article.status) }}</span></td>
+                <td class="submission-details">{{ article.validation_error || '—' }}</td>
+                <td class="submission-action">
+                  <button
+                    type="button"
+                    class="remove-submission"
+                    :disabled="removingArticleId === article.article_id"
+                    title="Remove article from contest"
+                    @click="removeArticle(article)"
+                  ><CdxIcon :icon="cdxIconTrash" /></button>
+                </td>
+              </tr>
+              <tr v-if="!articles.length">
+                <td colspan="5" class="empty-state">No articles have been submitted yet.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   </div>
 </template>
@@ -419,6 +517,66 @@ const handleExportWikitable = () => {
   background: #0a0a0a;
   font-family: 'Inter', sans-serif;
 }
+
+.jury-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 16px 32px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.jury-tab {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 10px 14px;
+}
+.jury-tab:hover { color: #e2e8f0; background: rgba(255,255,255,0.04); }
+.jury-tab.active { color: #ffffff; border-bottom-color: #ffffff; }
+.jury-tab span { margin-left: 5px; color: #9ca3af; font-size: 0.75rem; }
+
+.submissions-panel { padding: 28px 32px 32px; }
+.submissions-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.submissions-header h2 { margin: 0 0 4px; color: #e2e8f0; font-size: 1.4rem; }
+.submissions-header p { margin: 0; color: #9ca3af; font-size: 0.875rem; }
+.refresh-submissions,
+.remove-submission {
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 4px;
+  background: transparent;
+  color: #e2e8f0;
+  cursor: pointer;
+  font: inherit;
+}
+.refresh-submissions { padding: 7px 12px; font-size: 0.8rem; }
+.refresh-submissions:hover { background: rgba(255,255,255,0.08); }
+.removal-error { margin: 0 0 16px; color: #f87171; font-size: 0.875rem; }
+.submissions-table-wrap { overflow-x: auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; }
+.submissions-table { width: 100%; min-width: 760px; border-collapse: collapse; }
+.submissions-table th,
+.submissions-table td { padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: left; vertical-align: middle; }
+.submissions-table th { color: #9ca3af; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+.submissions-table td { color: #e2e8f0; font-size: 0.875rem; }
+.submissions-table tr:last-child td { border-bottom: 0; }
+.submission-title { font-weight: 600; }
+.submission-details { max-width: 320px; color: #9ca3af !important; line-height: 1.4; }
+.submission-status { display: inline-block; border: 1px solid rgba(255,255,255,0.14); border-radius: 4px; color: #d1d5db; font-size: 0.72rem; padding: 3px 6px; white-space: nowrap; }
+.submission-status.status-validation_failed { color: #f87171; border-color: rgba(248,113,113,0.45); }
+.submission-action { width: 48px; text-align: right !important; }
+.remove-submission { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; color: #9ca3af; }
+.remove-submission:hover:not(:disabled) { color: #f87171; border-color: #f87171; }
+.remove-submission:disabled { cursor: wait; opacity: 0.5; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* Loading */
 .loading-state {
@@ -502,6 +660,8 @@ const handleExportWikitable = () => {
 
 /* Mobile layout adjustments */
 @media (max-width: 768px) {
+  .jury-tabs { padding: 10px 16px 0; overflow-x: auto; }
+  .jury-tab { flex: 0 0 auto; }
   .page-header { padding: 16px 16px 0; flex-direction: column; align-items: flex-start !important; gap: 12px; }
   .kpi-grid { padding: 16px; grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .charts-row { padding: 0 16px 16px; }
@@ -509,6 +669,8 @@ const handleExportWikitable = () => {
   .judge-hero-banner { margin: 16px 16px 0; padding: 24px 20px; }
   .judge-hero-inner { flex-direction: column; align-items: flex-start; }
   .judge-hero-btn { width: 100%; justify-content: center; }
+  .submissions-panel { padding: 20px 16px 24px; }
+  .submissions-header { flex-direction: column; }
 }
 
 .chart-card {
