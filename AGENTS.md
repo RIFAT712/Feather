@@ -191,6 +191,9 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-08-02 | Synchronized dashboard and review-queue accepted, rejected, pending, and total article counts using article statuses from the contest log; both views now refresh live every five seconds. |
 | 2026-08-02 | Added a read-only ReviewQueue section showing finalized articles reviewed by other judges, while preserving backend protection against duplicate decisions. |
 | 2026-08-02 | Added a Jury Comment column to the ActivityLog Per-User Table, rendering all non-empty comments left by reviewers for each submitted article. |
+| 2026-08-02 | Fixed HTTP validation failures for usernames containing accented or non-ASCII characters by percent-encoding the username in the MediaWiki API `User-Agent` header. |
+| 2026-08-02 | Allowed jurors to reopen and update their own review decision and comment, while keeping other jurors blocked from reviewing finalized articles. |
+| 2026-08-02 | Made the other-judge review section collapsible and placed it after My Judged; removed redundant reviewer names from the Jury Comment column because the reviewer is already shown separately. |
 | ---------- | --------------------------------------------------------------- |
 | 2026-07-19 | Initial AGENTS.md created with full project context             |
 | 2026-07-19 | Rewrote `GlobalProfile.vue` — event-based profile with tab navigation (Participated / Judged), expandable contest cards showing submitted articles or judgment info with stats bars and approval donut rings. Profile pill in header navigates to `/user/:username`. |

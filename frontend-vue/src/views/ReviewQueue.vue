@@ -22,6 +22,7 @@ const sidebarCollapsed = ref(false);
 
 const showNewArticles = ref(true);
 const showJudgedArticles = ref(false);
+const showOtherReviewed = ref(false);
 
 const roles = ref({ is_jury: false, is_owner: false });
 const isAuthorized = computed(() => roles.value.is_jury || roles.value.is_owner);
@@ -350,7 +351,8 @@ const getMyLatestDecision = (article) => {
 };
 
 const selectArticle = (article) => {
-  if (!article || article.status !== 'pending') return;
+  const canReReview = article?.reviews?.some(r => r.reviewer === myUsername.value);
+  if (!article || (article.status !== 'pending' && !canReReview)) return;
   reviewError.value = '';
   if (currentArticle.value?.article_id && currentArticle.value.article_id !== article?.article_id) {
     releaseArticleLock(currentArticle.value.article_id);
@@ -645,14 +647,15 @@ const copyTalkSnippet = () => {
         </transition>
 
         <!-- Articles reviewed by other judges -->
-        <div v-if="otherReviewedArticles.length" class="section-head other-reviewed-head">
+        <div v-if="otherReviewedArticles.length" class="section-head other-reviewed-head" @click="showOtherReviewed = !showOtherReviewed">
           <span class="section-title">
             <span class="section-dot judged-dot"></span>
             Reviewed by Other Judges
           </span>
           <span class="section-count">{{ otherReviewedArticles.length }}</span>
+          <span class="section-chevron">{{ showOtherReviewed ? '▼' : '▶' }}</span>
         </div>
-        <ul v-if="otherReviewedArticles.length" class="article-list read-only-list">
+        <ul v-if="showOtherReviewed && otherReviewedArticles.length" class="article-list read-only-list">
           <li
             v-for="a in otherReviewedArticles"
             :key="`other-${a.article_id}`"
@@ -975,7 +978,8 @@ const copyTalkSnippet = () => {
 .stat-pill.accepted { background: rgba(34, 197, 94, 0.1); }
 .stat-pill.rejected { background: rgba(239, 68, 68, 0.1); }
 .stat-pill.total { background: rgba(99, 102, 241, 0.1); }
-.other-reviewed-head { margin-top: 10px; }
+.other-reviewed-head { margin-top: 10px; order: 3; }
+.read-only-list { order: 4; }
 .read-only-item { cursor: default; opacity: 0.8; }
 .stat-num {
   font-size: 1.2rem;

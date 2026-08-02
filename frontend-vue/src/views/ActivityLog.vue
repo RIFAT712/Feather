@@ -189,7 +189,7 @@ onMounted(async () => {
                   <td class="td-comment">
                     <template v-if="reviewComments(entry).length">
                       <div v-for="(review, reviewIndex) in reviewComments(entry)" :key="`${review.reviewer}-${reviewIndex}`" class="comment-item">
-                        <strong>{{ review.reviewer }}:</strong> {{ review.comment }}
+                        {{ review.comment }}
                       </div>
                     </template>
                     <span v-else>—</span>

@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import quote
 
 # article_locks moved to DB — see models.ArticleLock
 
@@ -811,7 +812,8 @@ async def process_articles_batch(
     # 2. Fallback to HTTP MediaWiki API if DB Replica is unavailable (e.g. running locally)
     unique_id = uuid.uuid4().hex[:8]
     contact_email = os.getenv("CONTACT_EMAIL", "contact@example.com")
-    user_agent = f"WikiArticleContestTool/1.0 (User:{submitter_username}; ContestCode:{contest.code}; {contact_email}; RequestID:{unique_id})"
+    user_agent_username = quote(str(submitter_username or ""), safe="")
+    user_agent = f"WikiArticleContestTool/1.0 (User:{user_agent_username}; ContestCode:{contest.code}; {contact_email}; RequestID:{unique_id})"
     headers = {
         "User-Agent": user_agent,
         "Accept-Encoding": "gzip"
@@ -1518,7 +1520,10 @@ def lock_article(article_id: int, current_user: models.User = Depends(get_curren
     article = db.query(models.Article).filter_by(id=article_id).first()
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
-    if article.status != models.ArticleStatus.pending:
+    own_review = db.query(models.Review).filter_by(
+        article_id=article_id, reviewer_id=current_user.id
+    ).order_by(models.Review.timestamp.desc()).first()
+    if article.status != models.ArticleStatus.pending and not own_review:
         raise HTTPException(status_code=409, detail="Article has already been permanently reviewed.")
         
     contest = article.contest
@@ -1603,7 +1608,10 @@ def review_article(
     if is_jury and not is_owner and article.submitter_id == current_user.id:
         raise HTTPException(status_code=403, detail="Jury members cannot review their own articles.")
 
-    if article.status != models.ArticleStatus.pending:
+    own_review = db.query(models.Review).filter_by(
+        article_id=article_id, reviewer_id=current_user.id
+    ).order_by(models.Review.timestamp.desc()).first()
+    if article.status != models.ArticleStatus.pending and not own_review:
         raise HTTPException(status_code=409, detail="Article has already been permanently reviewed.")
 
     active_lock = db.query(models.ArticleLock).filter_by(article_id=article_id).first()
@@ -1620,14 +1628,20 @@ def review_article(
     # Update article status (skipped stays pending for other jurors)
     if data.decision in ("accepted", "rejected"):
         article.status = models.ArticleStatus[data.decision]
+    elif own_review:
+        article.status = models.ArticleStatus.pending
 
-    review = models.Review(
-        article_id=article.id,
-        reviewer_id=current_user.id,
-        status=models.ReviewStatus[data.decision],
-        comment=data.comment
-    )
-    db.add(review)
+    if own_review:
+        own_review.status = models.ReviewStatus[data.decision]
+        own_review.comment = data.comment
+        own_review.timestamp = datetime.utcnow()
+    else:
+        db.add(models.Review(
+            article_id=article.id,
+            reviewer_id=current_user.id,
+            status=models.ReviewStatus[data.decision],
+            comment=data.comment
+        ))
     # Skip ends the temporary lock. Accept/Reject deliberately retain it so a
     # finalized article cannot be reviewed again by another jury member.
     if data.decision == "skipped" and active_lock and active_lock.locked_by == current_user.wiki_username:
