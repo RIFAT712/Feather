@@ -199,6 +199,8 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-08-02 | Switched the dark ReviewQueue surfaces, borders, text, and Codex controls to WikimediaUI Codex dark-mode design tokens instead of standalone theme values. |
 | 2026-08-02 | Replaced review workflow emojis with Codex icons in ReviewQueue, ActivityLog, and JuryStats. |
 | 2026-08-02 | Rebuilt the ReviewQueue desktop layout around a persistent article queue, central preview, and dedicated right-side decision panel; retained the mobile tab workflow. |
+| 2026-08-02 | Added an all-submitted-articles moderation list to ReviewQueue so jury members can remove pending, accepted, rejected, or validation-failed submissions directly. |
+| 2026-08-02 | Restored the ReviewQueue bottom action bar and compacted the sidebar, article header, and review controls to reduce thick ribbon-like layout panels. |
 | ---------- | --------------------------------------------------------------- |
 | 2026-07-19 | Initial AGENTS.md created with full project context             |
 | 2026-07-19 | Rewrote `GlobalProfile.vue` — event-based profile with tab navigation (Participated / Judged), expandable contest cards showing submitted articles or judgment info with stats bars and approval donut rings. Profile pill in header navigates to `/user/:username`. |

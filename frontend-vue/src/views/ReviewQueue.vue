@@ -36,6 +36,7 @@ const sidebarCollapsed = ref(false);
 const showNewArticles = ref(true);
 const showJudgedArticles = ref(false);
 const showOtherReviewed = ref(false);
+const showAllSubmitted = ref(false);
 
 const roles = ref({ is_jury: false, is_owner: false });
 const isAuthorized = computed(() => roles.value.is_jury || roles.value.is_owner);
@@ -369,6 +370,13 @@ const getMyLatestComment = (article) => {
   return myReviews[myReviews.length - 1].comment || '';
 };
 
+const statusLabel = (status) => ({
+  accepted: 'Accepted',
+  rejected: 'Rejected',
+  pending: 'Pending',
+  validation_failed: 'Validation error',
+}[status] || status);
+
 const selectArticle = (article) => {
   const canReReview = article?.reviews?.some(r => r.reviewer === myUsername.value);
   if (!article || (article.status !== 'pending' && !canReReview)) return;
@@ -458,25 +466,29 @@ const handleDecision = async (decision) => {
   }
 };
 
-const handleRemove = async () => {
-  if (!currentArticle.value || isSubmitting.value) return;
-  if (!confirm('Are you sure you want to permanently remove this article from the contest?')) return;
+const handleRemoveArticle = async (article) => {
+  if (!article || isSubmitting.value) return;
+  if (!confirm(`Remove "${article.title}" permanently from this contest?`)) return;
   isSubmitting.value = true;
   try {
-    const res = await fetch(`/api/articles/${currentArticle.value.article_id}`, {
+    const res = await fetch(`/api/articles/${article.article_id}`, {
       method: 'DELETE'
     });
     if (!res.ok) throw new Error('Remove failed');
-    releaseArticleLock(currentArticle.value.article_id);
-    currentArticle.value = null;
+    releaseArticleLock(article.article_id);
+    if (currentArticle.value?.article_id === article.article_id) {
+      currentArticle.value = null;
+      mobileTab.value = 'list';
+    }
     await fetchArticles();
-    mobileTab.value = 'list';
   } catch (error) {
     console.error("Error removing article", error);
   } finally {
     isSubmitting.value = false;
   }
 };
+
+const handleRemove = () => handleRemoveArticle(currentArticle.value);
 
 
 const toggleBulkSelection = (article_id, e) => {
@@ -729,6 +741,32 @@ const copyTalkSnippet = () => {
             <li v-if="!judgedArticles.length" class="empty-item">
               <span>Nothing judged yet</span>
             </li>
+          </ul>
+        </transition>
+
+        <!-- Complete submission list for jury moderation -->
+        <div class="section-head all-submitted-head" @click="showAllSubmitted = !showAllSubmitted">
+          <span class="section-title">
+            <span class="section-dot submitted-dot"></span>
+            All Submitted Articles
+          </span>
+          <span class="section-count">{{ articles.length }}</span>
+          <span class="section-chevron">{{ showAllSubmitted ? '▼' : '▶' }}</span>
+        </div>
+        <transition name="section-slide">
+          <ul v-show="showAllSubmitted" class="article-list all-submitted-list">
+            <li v-for="a in articles" :key="`submitted-${a.article_id}`" class="submitted-row">
+              <div class="item-body">
+                <span class="item-title" :title="a.title">{{ a.title }}</span>
+                <span class="item-sub">by {{ a.submitted_by }}</span>
+                <span v-if="a.validation_error" class="submission-error" :title="a.validation_error">{{ a.validation_error }}</span>
+              </div>
+              <span class="submission-status" :class="`status-${a.status}`">{{ statusLabel(a.status) }}</span>
+              <button class="submission-remove" type="button" title="Remove article" @click.stop="handleRemoveArticle(a)">
+                <CdxIcon :icon="cdxIconTrash" />
+              </button>
+            </li>
+            <li v-if="!articles.length" class="empty-item">No submitted articles</li>
           </ul>
         </transition>
       </aside>
@@ -1923,5 +1961,96 @@ const copyTalkSnippet = () => {
   .queue-heading h2 { margin: 4px 0 0; color: var(--color-emphasized); font-size: 1.05rem; }
   .queue-eyebrow { color: var(--color-subtle); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.1em; }
   .queue-live { padding: 3px 7px; border: 1px solid var(--border-color-muted); border-radius: 4px; color: var(--color-subtle); font-size: 0.62rem; text-transform: uppercase; }
+}
+
+.all-submitted-head { margin-top: 8px; }
+.submitted-dot { background: var(--color-subtle); }
+.all-submitted-list { max-height: 300px; }
+.submitted-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border-color-muted);
+}
+.submitted-row .item-body { min-width: 0; }
+.submission-error {
+  display: block;
+  overflow: hidden;
+  color: var(--color-error);
+  font-size: 0.65rem;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.submission-status {
+  flex-shrink: 0;
+  max-width: 72px;
+  padding: 3px 5px;
+  border: 1px solid var(--border-color-muted);
+  border-radius: 4px;
+  color: var(--color-subtle);
+  font-size: 0.6rem;
+  line-height: 1.2;
+  text-align: center;
+}
+.submission-status.status-validation_failed { color: var(--color-error); border-color: var(--border-color-error--hover); }
+.submission-remove {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-color-muted);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-subtle);
+  cursor: pointer;
+}
+.submission-remove:hover { border-color: var(--color-error); color: var(--color-error); background: var(--background-color-error-subtle); }
+@media (max-width: 768px) {
+  .all-submitted-list { max-height: none; }
+  .submitted-row { padding: 11px 8px; }
+}
+
+/* Compact desktop ribbons: keep the original bottom review workflow. */
+@media (min-width: 769px) {
+  .sidebar { width: 270px; }
+  .queue-heading { padding: 12px 14px 10px; align-items: center; }
+  .queue-heading h2 { font-size: 0.98rem; }
+  .queue-eyebrow { font-size: 0.58rem; }
+  .queue-live { padding: 3px 6px; font-size: 0.58rem; }
+  .sidebar-stats { padding: 10px 12px; gap: 5px; }
+  .stat-pill { padding: 7px 5px; }
+  .stat-num { font-size: 1rem; }
+  .stat-lbl { font-size: 0.58rem; }
+  .section-head { padding: 8px 12px; }
+  .article-list { padding: 3px 6px; }
+  .article-item { padding: 8px 8px; gap: 8px; }
+  .article-header { margin-right: 0; padding: 10px 16px; min-height: 52px; }
+  .article-title-link { font-size: 0.98rem; }
+  .preview-wrap { margin-right: 0; padding: 12px 16px 0; }
+  .review-bar {
+    position: static;
+    width: 100%;
+    padding: 9px 14px;
+    border-top: 1px solid var(--border-color-base);
+    border-left: 0;
+    box-shadow: none;
+  }
+  .review-bar-inner {
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .review-panel-heading { display: none; }
+  .review-comment { flex: 1 1 240px; }
+  .review-comment label { display: none; }
+  .review-actions { flex-direction: row; gap: 6px; margin-top: 0; }
+  .action-btn { width: auto; min-height: 36px; padding: 7px 13px; border-radius: 6px; }
 }
 </style>
