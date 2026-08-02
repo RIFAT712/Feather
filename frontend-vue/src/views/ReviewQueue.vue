@@ -7,13 +7,17 @@ import {
   cdxIconArticleCheck,
   cdxIconArrowPrevious,
   cdxIconCheck,
+  cdxIconCollapse,
   cdxIconCopy,
+  cdxIconDownTriangle,
+  cdxIconExpand,
   cdxIconLinkExternal,
   cdxIconLock,
   cdxIconMenu,
   cdxIconSpeechBubbles,
   cdxIconNext,
   cdxIconTrash,
+  cdxIconUpTriangle,
 } from '@wikimedia/codex-icons';
 
 const props = defineProps(['contest']);
@@ -30,6 +34,8 @@ const reviewError = ref('');
 
 // Mobile tab: 'list' | 'review'
 const mobileTab = ref('list');
+const sidebarCollapsed = ref(false);
+const reviewPanelCollapsed = ref(false);
 
 const showNewArticles = ref(true);
 const showJudgedArticles = ref(false);
@@ -596,7 +602,14 @@ const copyTalkSnippet = () => {
     <!-- Main Layout -->
     <div v-else class="main-layout">
       <!-- ═══════════════ SIDEBAR ═══════════════ -->
-      <aside class="sidebar" :class="{ 'mobile-hidden': mobileTab !== 'list' }">
+      <aside class="sidebar" :class="{ 'mobile-hidden': mobileTab !== 'list', collapsed: sidebarCollapsed }">
+        <button
+          type="button"
+          class="sidebar-toggle"
+          :aria-label="sidebarCollapsed ? 'Expand article sidebar' : 'Collapse article sidebar'"
+          :title="sidebarCollapsed ? 'Expand article sidebar' : 'Collapse article sidebar'"
+          @click="sidebarCollapsed = !sidebarCollapsed"
+        ><CdxIcon :icon="sidebarCollapsed ? cdxIconExpand : cdxIconCollapse" /></button>
         <div class="queue-heading">
           <div>
             <span class="queue-eyebrow">JURY WORKSPACE</span>
@@ -643,7 +656,7 @@ const copyTalkSnippet = () => {
             Pending Review
           </span>
           <span class="section-count">{{ newArticles.length }}</span>
-          <span class="section-chevron">{{ showNewArticles ? '▾' : '▸' }}</span>
+          <CdxIcon :icon="showNewArticles ? cdxIconUpTriangle : cdxIconDownTriangle" class="section-chevron" />
         </div>
         <transition name="section-slide">
           <ul v-show="showNewArticles" class="article-list">
@@ -676,7 +689,7 @@ const copyTalkSnippet = () => {
             Reviewed by Other Judges
           </span>
           <span class="section-count">{{ otherReviewedArticles.length }}</span>
-          <span class="section-chevron">{{ showOtherReviewed ? '▼' : '▶' }}</span>
+          <CdxIcon :icon="showOtherReviewed ? cdxIconUpTriangle : cdxIconDownTriangle" class="section-chevron" />
         </div>
         <ul v-if="showOtherReviewed && otherReviewedArticles.length" class="article-list read-only-list">
           <li
@@ -701,7 +714,7 @@ const copyTalkSnippet = () => {
             My Judged
           </span>
           <span class="section-count">{{ judgedArticles.length }}</span>
-          <span class="section-chevron">{{ showJudgedArticles ? '▾' : '▸' }}</span>
+          <CdxIcon :icon="showJudgedArticles ? cdxIconUpTriangle : cdxIconDownTriangle" class="section-chevron" />
         </div>
         <transition name="section-slide">
           <ul v-show="showJudgedArticles" class="article-list">
@@ -806,23 +819,31 @@ const copyTalkSnippet = () => {
           </div>
 
           <!-- Review Action Bar (sticky at bottom) -->
-          <div class="review-bar">
+          <div class="review-bar" :class="{ 'is-collapsed': reviewPanelCollapsed }">
             <div class="review-bar-inner">
+              <button
+                type="button"
+                class="review-panel-toggle"
+                :aria-label="reviewPanelCollapsed ? 'Expand review panel' : 'Collapse review panel'"
+                :title="reviewPanelCollapsed ? 'Expand review panel' : 'Collapse review panel'"
+                @click="reviewPanelCollapsed = !reviewPanelCollapsed"
+              ><CdxIcon :icon="reviewPanelCollapsed ? cdxIconExpand : cdxIconCollapse" /></button>
               <div class="review-panel-heading">
                 <span class="review-panel-kicker">DECISION</span>
                 <h3>Review this article</h3>
                 <p>Leave an optional note, then choose a verdict.</p>
               </div>
-              <div v-if="reviewError" class="review-error">{{ reviewError }}</div>
-              <div class="review-comment">
-                <label for="jury-comment">Jury comment</label>
-                <cdx-text-input
-                  id="jury-comment"
-                  v-model="comment"
-                  placeholder="Leave a note (optional)…"
-                />
-              </div>
-              <div class="review-actions">
+              <template v-if="!reviewPanelCollapsed">
+                <div v-if="reviewError" class="review-error">{{ reviewError }}</div>
+                <div class="review-comment">
+                  <label for="jury-comment">Jury comment</label>
+                  <cdx-text-input
+                    id="jury-comment"
+                    v-model="comment"
+                    placeholder="Leave a note (optional)…"
+                  />
+                </div>
+                <div class="review-actions">
                 <button
                   class="action-btn accept-btn"
                   :disabled="isSubmitting"
@@ -855,7 +876,8 @@ const copyTalkSnippet = () => {
                   <CdxIcon :icon="cdxIconTrash" class="action-icon" />
                   <span class="action-label">Remove</span>
                 </button>
-              </div>
+                </div>
+              </template>
             </div>
           </div>
         </template>
@@ -1933,6 +1955,37 @@ const copyTalkSnippet = () => {
   overflow: hidden;
   transition: none;
 }
+.sidebar-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-color-muted);
+  border-radius: 4px;
+  background: var(--background-color-interactive-subtle);
+  color: var(--color-subtle);
+  cursor: pointer;
+}
+.sidebar-toggle:hover {
+  background: var(--background-color-interactive-subtle--hover);
+  color: var(--color-emphasized);
+}
+.sidebar.collapsed {
+  width: 44px;
+  background: var(--background-color-base);
+  border-right-color: var(--border-color-muted);
+}
+.sidebar.collapsed > :not(.sidebar-toggle) { display: none; }
+.sidebar.collapsed .sidebar-toggle {
+  position: static;
+  margin: 8px auto;
+}
 .sidebar-scroll {
   display: flex;
   flex: 1;
@@ -1949,7 +2002,49 @@ const copyTalkSnippet = () => {
 .sidebar-scroll .section-head {
   position: static;
 }
+.section-chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--color-subtle);
+  flex: 0 0 16px;
+}
+.article-header {
+  min-height: 44px;
+  padding: 6px 12px;
+  gap: 8px;
+}
+.article-header-info { gap: 2px; }
+.article-title-link { font-size: 0.96rem; }
+.article-meta { gap: 4px; }
+.review-panel-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border-color-muted);
+  border-radius: 4px;
+  background: var(--background-color-interactive-subtle);
+  color: var(--color-subtle);
+  cursor: pointer;
+}
+.review-panel-toggle:hover {
+  background: var(--background-color-interactive-subtle--hover);
+  color: var(--color-emphasized);
+}
+.review-bar.is-collapsed { padding: 6px 10px; }
+.review-bar.is-collapsed .review-bar-inner {
+  min-height: 28px;
+  justify-content: flex-end;
+}
 @media (max-width: 768px) {
   .sidebar-scroll { overflow-y: auto; }
+  .sidebar-toggle { display: none; }
+  .sidebar.collapsed { width: 100%; }
+  .article-header { min-height: 46px; padding: 6px 10px; }
+  .article-title-link { font-size: 0.92rem; }
+  .review-bar.is-collapsed { padding: 5px 8px; }
 }
 </style>
