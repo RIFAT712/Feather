@@ -2,7 +2,19 @@
 import { ref, onMounted, onBeforeUnmount, inject, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { CdxButton, CdxTextInput, CdxIcon } from '@wikimedia/codex';
-import { cdxIconCheck, cdxIconClear, cdxIconNext } from '@wikimedia/codex-icons';
+import {
+  cdxIconArticle,
+  cdxIconArticleCheck,
+  cdxIconArrowPrevious,
+  cdxIconCheck,
+  cdxIconClose,
+  cdxIconCopy,
+  cdxIconLinkExternal,
+  cdxIconLock,
+  cdxIconMenu,
+  cdxIconSpeechBubbles,
+  cdxIconTrash,
+} from '@wikimedia/codex-icons';
 
 const props = defineProps(['contest']);
 const route = useRoute();
@@ -350,6 +362,12 @@ const getMyLatestDecision = (article) => {
   return myReviews[myReviews.length - 1].decision;
 };
 
+const getMyLatestComment = (article) => {
+  const myReviews = article.reviews.filter(r => r.reviewer === myUsername.value);
+  if (!myReviews.length) return '';
+  return myReviews[myReviews.length - 1].comment || '';
+};
+
 const selectArticle = (article) => {
   const canReReview = article?.reviews?.some(r => r.reviewer === myUsername.value);
   if (!article || (article.status !== 'pending' && !canReReview)) return;
@@ -358,7 +376,7 @@ const selectArticle = (article) => {
     releaseArticleLock(currentArticle.value.article_id);
   }
   currentArticle.value = article;
-  comment.value = '';
+  comment.value = getMyLatestComment(article);
   fetchPreview(article.title);
   fetch(`/api/articles/${article.article_id}/lock`, { method: 'POST' }).catch(() => {});
   // On mobile, auto-switch to review tab
@@ -581,7 +599,7 @@ const copyTalkSnippet = () => {
           @click="sidebarCollapsed = !sidebarCollapsed"
           :aria-label="sidebarCollapsed ? 'Expand article panel' : 'Collapse article panel'"
           :title="sidebarCollapsed ? 'Expand article panel' : 'Collapse article panel'"
-        >{{ sidebarCollapsed ? '☰' : '×' }}</button>
+        ><CdxIcon :icon="sidebarCollapsed ? cdxIconMenu : cdxIconClose" /></button>
         <!-- Stats row -->
         <div class="sidebar-stats">
           <div class="stat-pill total">
@@ -609,7 +627,7 @@ const copyTalkSnippet = () => {
             <button class="bbtn accept" @click="handleBulkDecision('accepted')" title="Accept Selected">✓</button>
             <button class="bbtn reject" @click="handleBulkDecision('rejected')" title="Reject Selected">✕</button>
             <button class="bbtn skip" @click="handleBulkDecision('skipped')" title="Skip Selected">→</button>
-            <button class="bbtn remove" @click="handleBulkRemove" title="Remove Selected">🗑️</button>
+            <button class="bbtn remove" @click="handleBulkRemove" title="Remove Selected"><CdxIcon :icon="cdxIconTrash" /></button>
           </div>
         </div>
 
@@ -638,10 +656,10 @@ const copyTalkSnippet = () => {
                 <span class="item-title">{{ a.title }}</span>
                 <span class="item-sub">by {{ a.submitted_by }}</span>
               </div>
-              <span v-if="a.locked_by && a.locked_by !== myUsername" class="lock-badge" title="Being reviewed by someone">🔒</span>
+              <CdxIcon v-if="a.locked_by && a.locked_by !== myUsername" :icon="cdxIconLock" class="lock-badge" title="Being reviewed by someone" />
             </li>
             <li v-if="!newArticles.length" class="empty-item">
-              <span>🎉 All articles reviewed!</span>
+              <span><CdxIcon :icon="cdxIconArticleCheck" /> All articles reviewed!</span>
             </li>
           </ul>
         </transition>
@@ -712,7 +730,7 @@ const copyTalkSnippet = () => {
         <!-- Empty state -->
         <div v-if="!currentArticle" class="center-state full">
           <div class="done-state">
-            <div class="done-icon">🎉</div>
+            <div class="done-icon"><CdxIcon :icon="cdxIconArticleCheck" /></div>
             <h3>All Caught Up!</h3>
             <p>You have reviewed all available articles.</p>
           </div>
@@ -723,7 +741,7 @@ const copyTalkSnippet = () => {
           <div class="article-header">
             <!-- Mobile back button -->
             <button class="back-btn mobile-only" @click="mobileTab = 'list'">
-              ← Back
+              <CdxIcon :icon="cdxIconArrowPrevious" /> Back
             </button>
             <div class="article-header-info">
               <a :href="articleUrl(currentArticle.title)" target="_blank" class="article-title-link" :title="currentArticle.title">
@@ -735,7 +753,7 @@ const copyTalkSnippet = () => {
                   {{ new Date(currentArticle.wiki_creation_date).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) }}
                 </span>
                 <span v-if="currentArticle.locked_by && currentArticle.locked_by !== myUsername" class="lock-chip">
-                  🔒 {{ currentArticle.locked_by }} reviewing
+                  <CdxIcon :icon="cdxIconLock" /> {{ currentArticle.locked_by }} reviewing
                 </span>
                 <span v-if="getMyLatestDecision(currentArticle)" class="verdict-chip" :class="getMyLatestDecision(currentArticle)">
                   {{ getMyLatestDecision(currentArticle) === 'accepted' ? '✓ Accepted' : getMyLatestDecision(currentArticle) === 'rejected' ? '✕ Rejected' : '→ Skipped' }}
@@ -743,23 +761,24 @@ const copyTalkSnippet = () => {
               </div>
             </div>
             <a :href="articleUrl(currentArticle.title)" target="_blank" class="open-wiki-btn" title="Open on Wiktionary">
-              ↗ Wiki
+              <CdxIcon :icon="cdxIconLinkExternal" /> Wiki
             </a>
           </div>
 
           <!-- Talk Template Card -->
           <div v-if="false && props.contest?.add_talk_template && talkPageSnippet" class="talk-card">
-            <span class="talk-icon">💬</span>
+            <CdxIcon :icon="cdxIconSpeechBubbles" class="talk-icon" />
             <div class="talk-info">
               <span class="talk-label">Talk Template</span>
               <code class="talk-code">{{ talkPageSnippet.replace(/\n\n/g, '  |  ') }}</code>
             </div>
             <div class="talk-actions">
               <button class="talk-copy-btn" @click="copyTalkSnippet">
-                {{ isCopiedTalkSnippet ? '✅ Copied!' : '📋 Copy' }}
+                <CdxIcon :icon="isCopiedTalkSnippet ? cdxIconCheck : cdxIconCopy" />
+                {{ isCopiedTalkSnippet ? 'Copied!' : 'Copy' }}
               </button>
               <a :href="'https://bn.wiktionary.org/wiki/আলাপ:' + encodeURIComponent(currentArticle.title)" target="_blank" class="talk-open-btn">
-                Talk ↗
+              <CdxIcon :icon="cdxIconLinkExternal" /> Talk
               </a>
             </div>
           </div>
@@ -819,7 +838,7 @@ const copyTalkSnippet = () => {
                   :disabled="isSubmitting"
                   @click="handleRemove"
                 >
-                  <span class="action-icon">🗑️</span>
+                  <CdxIcon :icon="cdxIconTrash" class="action-icon" />
                   <span class="action-label">Remove</span>
                 </button>
               </div>
@@ -836,7 +855,7 @@ const copyTalkSnippet = () => {
         :class="{ active: mobileTab === 'list' }"
         @click="mobileTab = 'list'"
       >
-        <span class="mob-nav-icon">☰</span>
+        <CdxIcon :icon="cdxIconMenu" class="mob-nav-icon" />
         <span class="mob-nav-lbl">Articles <span class="mob-badge">{{ newArticles.length }}</span></span>
       </button>
       <button
@@ -845,7 +864,7 @@ const copyTalkSnippet = () => {
         @click="mobileTab = 'review'"
         :disabled="!currentArticle"
       >
-        <span class="mob-nav-icon">📝</span>
+        <CdxIcon :icon="cdxIconArticle" class="mob-nav-icon" />
         <span class="mob-nav-lbl">Review</span>
       </button>
     </nav>
@@ -1638,5 +1657,157 @@ const copyTalkSnippet = () => {
 /* Retained desktop collapse rules; mobile uses the dedicated two-screen layout above. */
 @media (min-width: 769px) {
   .review-area { min-height: 0; }
+}
+
+/* Calm monochrome review workspace */
+.review-queue,
+.review-area,
+.preview-wrap { background: var(--background-color-base); }
+.main-layout { background: var(--background-color-base); }
+.sidebar {
+  width: 320px;
+  background: var(--background-color-neutral-subtle);
+  border-right: 1px solid var(--border-color-muted);
+}
+.sidebar-toggle,
+.sidebar.collapsed .sidebar-toggle {
+  background: var(--background-color-interactive);
+  border-color: var(--border-color-base);
+  color: var(--color-emphasized);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.55);
+}
+.sidebar-toggle:hover { background: var(--background-color-interactive--hover); }
+.sidebar-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 16px;
+  border-bottom-color: #292929;
+}
+.stat-pill,
+.stat-pill.pending,
+.stat-pill.accepted,
+.stat-pill.rejected,
+.stat-pill.total {
+  background: var(--background-color-interactive-subtle);
+  border: 1px solid var(--border-color-muted);
+  border-radius: 7px;
+  padding: 10px 8px;
+}
+.stat-pill:hover { background: var(--background-color-interactive); }
+.stat-num { color: var(--color-emphasized); font-size: 1.15rem; }
+.stat-lbl { color: var(--color-subtle); }
+.section-head {
+  position: static;
+  background: var(--background-color-neutral-subtle);
+  border-bottom: 1px solid var(--border-color-muted);
+  padding: 13px 16px;
+}
+.section-head:hover { background: var(--background-color-interactive-subtle--hover); }
+.section-title { color: var(--color-neutral); }
+.section-dot,
+.pending-dot,
+.judged-dot { background: var(--color-subtle); }
+.section-count {
+  color: var(--color-base);
+  background: var(--background-color-neutral);
+  border: 1px solid var(--border-color-muted);
+}
+.section-chevron { color: var(--color-subtle); }
+.article-list { padding: 6px 8px; }
+.article-item {
+  padding: 12px 10px;
+  border: 1px solid transparent;
+  border-bottom-color: var(--border-color-muted);
+}
+.article-item:hover { background: var(--background-color-interactive-subtle--hover); }
+.article-item.active {
+  background: var(--background-color-interactive);
+  border-left: 3px solid var(--color-emphasized);
+  border-top-color: var(--border-color-base);
+  border-right-color: var(--border-color-base);
+}
+.article-item.active .item-title { color: var(--color-emphasized); }
+.item-title { color: var(--color-base); }
+.item-sub { color: var(--color-subtle); }
+.verdict-badge,
+.verdict-badge.accepted,
+.verdict-badge.rejected,
+.verdict-badge.skipped {
+  background: var(--background-color-neutral);
+  color: var(--color-neutral);
+  border: 1px solid var(--border-color-muted);
+}
+.review-area { border-left: 1px solid #1e1e1e; }
+.article-header {
+  padding: 18px 28px;
+  background: var(--background-color-neutral-subtle);
+  border-bottom-color: var(--border-color-muted);
+}
+.article-title-link { color: var(--color-emphasized); font-size: 1.08rem; }
+.article-title-link:hover { color: var(--color-base--hover); }
+.meta-chip {
+  background: var(--background-color-interactive-subtle);
+  color: var(--color-subtle);
+  border: 1px solid var(--border-color-muted);
+}
+.open-wiki-btn {
+  color: var(--color-base);
+  background: var(--background-color-interactive-subtle);
+  border-color: var(--border-color-muted);
+}
+.open-wiki-btn:hover { background: var(--background-color-interactive--hover); }
+.preview-wrap { padding: 18px 24px 0; }
+.wiki-iframe {
+  border: 1px solid var(--border-color-muted);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+}
+.review-bar {
+  background: var(--background-color-neutral-subtle);
+  border-top-color: var(--border-color-base);
+  box-shadow: 0 -8px 24px rgba(0,0,0,0.4);
+  padding: 16px 24px;
+}
+.review-comment .cdx-text-input__input {
+  background: var(--background-color-disabled-subtle);
+  border-color: var(--border-color-muted);
+  color: var(--color-emphasized);
+}
+.skip-btn,
+.back-btn {
+  background: var(--background-color-interactive-subtle);
+  border-color: var(--border-color-muted);
+  color: var(--color-neutral);
+}
+.skip-btn:hover:not(:disabled),
+.back-btn:hover { background: var(--background-color-interactive--hover); color: var(--color-emphasized); }
+.loading-spinner { border-top-color: #f0f0f0; }
+.mobile-bottom-nav { background: var(--background-color-neutral-subtle); border-top-color: var(--border-color-muted); }
+.mob-nav-btn.active { color: var(--color-emphasized); background: var(--background-color-neutral); }
+.mob-badge { background: var(--background-color-interactive); }
+
+@media (max-width: 768px) {
+  .sidebar {
+    width: 100%;
+    background: var(--background-color-base);
+    border: 0;
+  }
+  .sidebar-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 0 0 4px; }
+  .stat-pill,
+  .stat-pill.pending,
+  .stat-pill.accepted,
+  .stat-pill.rejected,
+  .stat-pill.total { background: #171717; }
+  .section-head { background: var(--background-color-neutral-subtle); }
+  .section-head:hover { background: var(--background-color-interactive-subtle--hover); }
+  .article-item { background: var(--background-color-interactive-subtle); }
+  .article-item.active { background: var(--background-color-interactive); border-color: var(--border-color-base); border-left-color: var(--color-emphasized); }
+  .article-item:hover { background: var(--background-color-interactive-subtle--hover); }
+  .review-area { border-left: 0; background: var(--background-color-base); }
+  .article-header { padding: 10px 12px; background: var(--background-color-neutral-subtle); }
+  .preview-wrap { padding: 0; }
+  .wiki-iframe { border: 0; border-radius: 0; }
+  .review-bar { padding: 9px 10px 10px; background: var(--background-color-neutral-subtle); }
 }
 </style>

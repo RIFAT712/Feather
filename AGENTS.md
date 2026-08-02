@@ -194,6 +194,10 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-08-02 | Fixed HTTP validation failures for usernames containing accented or non-ASCII characters by percent-encoding the username in the MediaWiki API `User-Agent` header. |
 | 2026-08-02 | Allowed jurors to reopen and update their own review decision and comment, while keeping other jurors blocked from reviewing finalized articles. |
 | 2026-08-02 | Made the other-judge review section collapsible and placed it after My Judged; removed redundant reviewer names from the Jury Comment column because the reviewer is already shown separately. |
+| 2026-08-02 | Preloaded the juror's previous comment when reopening an article from My Judged, allowing the comment to be edited and resubmitted. |
+| 2026-08-02 | Redesigned ReviewQueue with a monochrome black-and-gray dark theme, clearer desktop/mobile hierarchy, neutral containers, and color limited to action buttons and warnings. |
+| 2026-08-02 | Switched the dark ReviewQueue surfaces, borders, text, and Codex controls to WikimediaUI Codex dark-mode design tokens instead of standalone theme values. |
+| 2026-08-02 | Replaced review workflow emojis with Codex icons in ReviewQueue, ActivityLog, and JuryStats. |
 | ---------- | --------------------------------------------------------------- |
 | 2026-07-19 | Initial AGENTS.md created with full project context             |
 | 2026-07-19 | Rewrote `GlobalProfile.vue` — event-based profile with tab navigation (Participated / Judged), expandable contest cards showing submitted articles or judgment info with stats bars and approval donut rings. Profile pill in header navigates to `/user/:username`. |

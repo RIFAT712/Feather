@@ -1,6 +1,8 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue';
 import { useRoute } from 'vue-router';
+import { CdxIcon } from '@wikimedia/codex';
+import { cdxIconAlert } from '@wikimedia/codex-icons';
 
 const props = defineProps(['contest']);
 const route = useRoute();
@@ -181,7 +183,7 @@ onMounted(async () => {
                   <td class="td-article">
                     <a :href="`https://bn.wiktionary.org/wiki/${encodeURIComponent(entry.title)}`" target="_blank" class="article-link">{{ entry.title }}</a>
                     <div v-if="entry.validation_error" class="error-subtext">
-                      <span class="err-icon">⚠️</span> {{ entry.validation_error }}
+                      <CdxIcon :icon="cdxIconAlert" class="err-icon" /> {{ entry.validation_error }}
                     </div>
                   </td>
                   <td><span :class="['badge', statusClass(entry.status)]">{{ statusLabel(entry.status) }}</span></td>
@@ -229,7 +231,7 @@ onMounted(async () => {
 
           <!-- Error banner if validation_error present -->
           <div v-if="entry.validation_error" class="tl-error-banner">
-            <span class="err-icon">⚠️</span>
+            <CdxIcon :icon="cdxIconAlert" class="err-icon" />
             <span class="err-msg"><strong>Error:</strong> {{ entry.validation_error }}</span>
           </div>
 

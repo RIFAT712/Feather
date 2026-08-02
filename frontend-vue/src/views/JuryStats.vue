@@ -1,6 +1,8 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { CdxIcon } from '@wikimedia/codex';
+import { cdxIconArticleCheck } from '@wikimedia/codex-icons';
 import { Doughnut, Bar } from 'vue-chartjs';
 import {
   Chart as ChartJS,
@@ -232,7 +234,7 @@ const handleExportWikitable = () => {
         <div class="judge-hero-bg"></div>
         <div class="judge-hero-inner">
           <div class="judge-hero-left">
-            <div class="judge-hero-icon">⚖️</div>
+            <CdxIcon :icon="cdxIconArticleCheck" class="judge-hero-icon" />
             <div class="judge-hero-text">
               <div class="judge-hero-title">Ready to Judge?</div>
               <div class="judge-hero-sub">
