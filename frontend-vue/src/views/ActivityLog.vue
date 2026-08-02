@@ -50,6 +50,10 @@ const toggleUser = (group) => {
   openGroups.value[group.user] = !openGroups.value[group.user];
 };
 
+const reviewComments = (entry) => (entry.reviews || [])
+  .filter(review => review.comment && review.comment.trim())
+  .map(review => ({ reviewer: review.reviewer, comment: review.comment.trim() }));
+
 onMounted(async () => {
   try {
     const roleRes = await fetch(`/api/contests/${route.params.code}/my-role`);
@@ -163,6 +167,7 @@ onMounted(async () => {
                   <th>Article</th>
                   <th>Status</th>
                   <th>Reviewed by</th>
+                  <th>Jury Comment</th>
                   <th>Submitted</th>
                   <th>Reviewed</th>
                 </tr>
@@ -181,6 +186,14 @@ onMounted(async () => {
                   </td>
                   <td><span :class="['badge', statusClass(entry.status)]">{{ statusLabel(entry.status) }}</span></td>
                   <td class="td-reviewer">{{ entry.reviews && entry.reviews.length ? entry.reviews[0].reviewer : '—' }}</td>
+                  <td class="td-comment">
+                    <template v-if="reviewComments(entry).length">
+                      <div v-for="(review, reviewIndex) in reviewComments(entry)" :key="`${review.reviewer}-${reviewIndex}`" class="comment-item">
+                        <strong>{{ review.reviewer }}:</strong> {{ review.comment }}
+                      </div>
+                    </template>
+                    <span v-else>—</span>
+                  </td>
                   <td class="td-date">{{ fmt(entry.submitted_at) }}</td>
                   <td class="td-date">{{ entry.reviews && entry.reviews.length ? fmt(entry.reviews[0].reviewed_at) : '—' }}</td>
                 </tr>
@@ -551,6 +564,9 @@ onMounted(async () => {
 
 .td-article  { font-weight: 500; color: #e2e8f0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .td-reviewer { color: #64748b; }
+.td-comment { min-width: 220px; max-width: 360px; color: #cbd5e1; line-height: 1.45; }
+.comment-item { white-space: normal; overflow-wrap: anywhere; }
+.comment-item + .comment-item { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.06); }
 .td-date     { color: #94a3b8; font-size: 0.8rem; white-space: nowrap; }
 .article-link { color: inherit; text-decoration: none; border-bottom: 1px dashed #94a3b8; transition: border-color 0.15s, color 0.15s; }
 .article-link:hover { color: #ffffff; border-bottom-color: #ffffff; }

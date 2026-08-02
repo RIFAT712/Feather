@@ -190,6 +190,7 @@ npm run dev                  # Starts on http://localhost:3000
 | 2026-08-02 | Fixed `ReviewQueue.vue` showing non-pending articles as reviewable, which caused expected backend `409 Conflict` responses; the queue now filters to pending articles and displays the backend conflict detail. |
 | 2026-08-02 | Synchronized dashboard and review-queue accepted, rejected, pending, and total article counts using article statuses from the contest log; both views now refresh live every five seconds. |
 | 2026-08-02 | Added a read-only ReviewQueue section showing finalized articles reviewed by other judges, while preserving backend protection against duplicate decisions. |
+| 2026-08-02 | Added a Jury Comment column to the ActivityLog Per-User Table, rendering all non-empty comments left by reviewers for each submitted article. |
 | ---------- | --------------------------------------------------------------- |
 | 2026-07-19 | Initial AGENTS.md created with full project context             |
 | 2026-07-19 | Rewrote `GlobalProfile.vue` — event-based profile with tab navigation (Participated / Judged), expandable contest cards showing submitted articles or judgment info with stats bars and approval donut rings. Profile pill in header navigates to `/user/:username`. |
