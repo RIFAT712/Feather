@@ -594,142 +594,129 @@ const copyTalkSnippet = () => {
 
         <div v-else class="main-layout">
             <aside class="sidebar" :class="{ 'mobile-hidden': mobileTab !== 'list', collapsed: sidebarCollapsed }">
-        <button
-          type="button"
-          class="sidebar-toggle"
-          :aria-label="sidebarCollapsed ? 'Expand article sidebar' : 'Collapse article sidebar'"
-          :title="sidebarCollapsed ? 'Expand article sidebar' : 'Collapse article sidebar'"
-          @click="sidebarCollapsed = !sidebarCollapsed"
-        ><CdxIcon :icon="sidebarCollapsed ? cdxIconExpand : cdxIconCollapse" /></button>
-        <div class="queue-heading">
-          <div>
-            <span class="queue-eyebrow">JURY WORKSPACE</span>
-            <h2>Review Queue</h2>
-          </div>
-          <span class="queue-live">Live</span>
-        </div>
-                <div class="sidebar-stats">
-          <div class="stat-pill total">
-            <span class="stat-num">{{ statusStats.total }}</span>
-            <span class="stat-lbl">Total</span>
-          </div>
-          <div class="stat-pill accepted">
-            <span class="stat-num">{{ statusStats.accepted }}</span>
-            <span class="stat-lbl">Accepted</span>
-          </div>
-          <div class="stat-pill rejected">
-            <span class="stat-num">{{ statusStats.rejected }}</span>
-            <span class="stat-lbl">Rejected</span>
-          </div>
-          <div class="stat-pill pending">
-            <span class="stat-num">{{ statusStats.pending }}</span>
-            <span class="stat-lbl">Pending</span>
-          </div>
-        </div>
 
-                <div v-if="selectedForBulk.length > 0" class="bulk-banner">
-          <span class="bulk-label">{{ selectedForBulk.length }} selected</span>
-          <div class="bulk-btns">
-            <button class="bbtn accept" @click="handleBulkDecision('accepted')" title="Accept Selected"><CdxIcon :icon="cdxIconCheck" /></button>
-            <button class="bbtn reject" @click="handleBulkDecision('rejected')" title="Reject Selected"><CdxIcon :icon="cdxIconClear" /></button>
-            <button class="bbtn skip" @click="handleBulkDecision('skipped')" title="Skip Selected"><CdxIcon :icon="cdxIconNext" /></button>
-            <button class="bbtn remove" @click="handleBulkRemove" title="Remove Selected"><CdxIcon :icon="cdxIconTrash" /></button>
-          </div>
-        </div>
-
-        <div class="sidebar-scroll">
-                <div class="section-head" @click="showNewArticles = !showNewArticles">
-          <span class="section-title">
-            <span class="section-dot pending-dot"></span>
-            Pending Review
-          </span>
-          <span class="section-count">{{ newArticles.length }}</span>
-          <CdxIcon :icon="showNewArticles ? cdxIconUpTriangle : cdxIconDownTriangle" class="section-chevron" />
-        </div>
-        <transition name="section-slide">
-          <ul v-show="showNewArticles" class="article-list">
-            <li
-              v-for="a in newArticles"
-              :key="a.article_id"
-              class="article-item"
-              :class="{ active: currentArticle?.article_id === a.article_id, locked: a.locked_by && a.locked_by !== myUsername }"
-              @click="selectArticle(a)"
-            >
-              <label class="cb-wrap" @click.stop>
-                <input type="checkbox" :checked="selectedForBulk.includes(a.article_id)" @change="toggleBulkSelection(a.article_id, $event)" class="bulk-cb" />
-              </label>
-              <div class="item-body">
-                <span class="item-title">{{ a.title }}</span>
-                <span class="item-sub">by {{ a.submitted_by }}</span>
-              </div>
-              <CdxIcon v-if="a.locked_by && a.locked_by !== myUsername" :icon="cdxIconLock" class="lock-badge" title="Being reviewed by someone" />
-            </li>
-            <li v-if="!newArticles.length" class="empty-item">
-              <span><CdxIcon :icon="cdxIconArticleCheck" /> All articles reviewed!</span>
-            </li>
-          </ul>
-        </transition>
-
-                <div v-if="otherReviewedArticles.length" class="section-head other-reviewed-head" @click="showOtherReviewed = !showOtherReviewed">
-          <span class="section-title">
-            <span class="section-dot judged-dot"></span>
-            Reviewed by Other Judges
-          </span>
-          <span class="section-count">{{ otherReviewedArticles.length }}</span>
-          <CdxIcon :icon="showOtherReviewed ? cdxIconUpTriangle : cdxIconDownTriangle" class="section-chevron" />
-        </div>
-        <ul v-if="showOtherReviewed && otherReviewedArticles.length" class="article-list read-only-list">
-          <li
-            v-for="a in otherReviewedArticles"
-            :key="`other-${a.article_id}`"
-            class="article-item judged read-only-item"
-          >
-            <div class="item-body">
-              <span class="item-title">{{ a.title }}</span>
-              <span class="item-sub">Reviewed by {{ a.reviews.map(r => r.reviewer).join(', ') }}</span>
+          <!-- ── Sidebar Header ── -->
+          <div class="sidebar-header">
+            <div class="sidebar-title-row">
+              <span class="queue-eyebrow">JURY WORKSPACE</span>
+              <span class="queue-live">Live</span>
             </div>
-            <span class="verdict-badge" :class="a.status">
-              {{ a.status === 'accepted' ? '✓' : '✕' }}
-            </span>
-          </li>
-        </ul>
+            <div class="sidebar-heading-row">
+              <h2 class="sidebar-h2">Review Queue</h2>
+              <button
+                type="button"
+                class="sidebar-toggle"
+                :aria-label="sidebarCollapsed ? 'Expand' : 'Collapse'"
+                :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+                @click="sidebarCollapsed = !sidebarCollapsed"
+              ><CdxIcon :icon="sidebarCollapsed ? cdxIconExpand : cdxIconCollapse" /></button>
+            </div>
 
-                <div class="section-head" @click="showJudgedArticles = !showJudgedArticles">
-          <span class="section-title">
-            <span class="section-dot judged-dot"></span>
-            My Judged
-          </span>
-          <span class="section-count">{{ judgedArticles.length }}</span>
-          <CdxIcon :icon="showJudgedArticles ? cdxIconUpTriangle : cdxIconDownTriangle" class="section-chevron" />
-        </div>
-        <transition name="section-slide">
-          <ul v-show="showJudgedArticles" class="article-list">
-            <li
-              v-for="a in judgedArticles"
-              :key="a.article_id"
-              class="article-item judged"
-              :class="{ active: currentArticle?.article_id === a.article_id }"
-              @click="selectArticle(a)"
-            >
-              <div class="item-body">
-                <span class="item-title">{{ a.title }}</span>
-                <span class="item-sub">by {{ a.submitted_by }}</span>
-              </div>
-              <span
-                class="verdict-badge"
-                :class="getMyLatestDecision(a)"
+            <!-- compact stat strip -->
+            <div class="stat-strip">
+              <span class="sstat total"><span class="snum">{{ statusStats.total }}</span><span class="slbl">Total</span></span>
+              <span class="sstat-sep">·</span>
+              <span class="sstat pending"><span class="snum">{{ statusStats.pending }}</span><span class="slbl">Pending</span></span>
+              <span class="sstat-sep">·</span>
+              <span class="sstat accepted"><span class="snum">{{ statusStats.accepted }}</span><span class="slbl">OK</span></span>
+              <span class="sstat-sep">·</span>
+              <span class="sstat rejected"><span class="snum">{{ statusStats.rejected }}</span><span class="slbl">Rej</span></span>
+            </div>
+          </div>
+
+          <!-- bulk action banner -->
+          <div v-if="selectedForBulk.length > 0" class="bulk-banner">
+            <span class="bulk-label">{{ selectedForBulk.length }} selected</span>
+            <div class="bulk-btns">
+              <button class="bbtn accept" @click="handleBulkDecision('accepted')" title="Accept Selected"><CdxIcon :icon="cdxIconCheck" /></button>
+              <button class="bbtn reject" @click="handleBulkDecision('rejected')" title="Reject Selected"><CdxIcon :icon="cdxIconClear" /></button>
+              <button class="bbtn skip" @click="handleBulkDecision('skipped')" title="Skip Selected"><CdxIcon :icon="cdxIconNext" /></button>
+              <button class="bbtn remove" @click="handleBulkRemove" title="Remove Selected"><CdxIcon :icon="cdxIconTrash" /></button>
+            </div>
+          </div>
+
+          <!-- ── Scrollable list ── -->
+          <div class="sidebar-scroll">
+
+            <!-- Pending Review -->
+            <div class="section-head" @click="showNewArticles = !showNewArticles">
+              <span class="section-dot pending-dot"></span>
+              <span class="section-title">Pending Review</span>
+              <span class="section-count">{{ newArticles.length }}</span>
+              <CdxIcon :icon="showNewArticles ? cdxIconUpTriangle : cdxIconDownTriangle" class="section-chevron" />
+            </div>
+            <transition name="section-slide">
+              <ul v-show="showNewArticles" class="article-list">
+                <li
+                  v-for="a in newArticles"
+                  :key="a.article_id"
+                  class="article-item pending-item"
+                  :class="{ active: currentArticle?.article_id === a.article_id, locked: a.locked_by && a.locked_by !== myUsername }"
+                  @click="selectArticle(a)"
+                >
+                  <label class="cb-wrap" @click.stop>
+                    <input type="checkbox" :checked="selectedForBulk.includes(a.article_id)" @change="toggleBulkSelection(a.article_id, $event)" class="bulk-cb" />
+                  </label>
+                  <div class="item-body">
+                    <span class="item-title">{{ a.title }}</span>
+                    <span class="item-sub">{{ a.submitted_by }}</span>
+                  </div>
+                  <CdxIcon v-if="a.locked_by && a.locked_by !== myUsername" :icon="cdxIconLock" class="lock-badge" title="Being reviewed by someone" />
+                </li>
+                <li v-if="!newArticles.length" class="empty-item">
+                  <CdxIcon :icon="cdxIconArticleCheck" /> All reviewed!
+                </li>
+              </ul>
+            </transition>
+
+            <!-- Reviewed by Other Judges -->
+            <div v-if="otherReviewedArticles.length" class="section-head" @click="showOtherReviewed = !showOtherReviewed">
+              <span class="section-dot other-dot"></span>
+              <span class="section-title">Other Judges</span>
+              <span class="section-count">{{ otherReviewedArticles.length }}</span>
+              <CdxIcon :icon="showOtherReviewed ? cdxIconUpTriangle : cdxIconDownTriangle" class="section-chevron" />
+            </div>
+            <ul v-if="showOtherReviewed && otherReviewedArticles.length" class="article-list">
+              <li
+                v-for="a in otherReviewedArticles"
+                :key="`other-${a.article_id}`"
+                class="article-item read-only-item"
+                :class="a.status"
               >
-                {{ getMyLatestDecision(a) === 'accepted' ? '✓' : getMyLatestDecision(a) === 'rejected' ? '✕' : '→' }}
-              </span>
-            </li>
-            <li v-if="!judgedArticles.length" class="empty-item">
-              <span>Nothing judged yet</span>
-            </li>
-          </ul>
-        </transition>
+                <div class="item-body">
+                  <span class="item-title">{{ a.title }}</span>
+                  <span class="item-sub">{{ a.reviews.map(r => r.reviewer).join(', ') }}</span>
+                </div>
+              </li>
+            </ul>
 
-        </div>
-      </aside>
+            <!-- My Judged -->
+            <div class="section-head" @click="showJudgedArticles = !showJudgedArticles">
+              <span class="section-dot judged-dot"></span>
+              <span class="section-title">My Judged</span>
+              <span class="section-count">{{ judgedArticles.length }}</span>
+              <CdxIcon :icon="showJudgedArticles ? cdxIconUpTriangle : cdxIconDownTriangle" class="section-chevron" />
+            </div>
+            <transition name="section-slide">
+              <ul v-show="showJudgedArticles" class="article-list">
+                <li
+                  v-for="a in judgedArticles"
+                  :key="a.article_id"
+                  class="article-item"
+                  :class="[getMyLatestDecision(a), { active: currentArticle?.article_id === a.article_id }]"
+                  @click="selectArticle(a)"
+                >
+                  <div class="item-body">
+                    <span class="item-title">{{ a.title }}</span>
+                    <span class="item-sub">{{ a.submitted_by }}</span>
+                  </div>
+                </li>
+                <li v-if="!judgedArticles.length" class="empty-item">Nothing judged yet</li>
+              </ul>
+            </transition>
+
+          </div>
+        </aside>
 
             <div class="review-area" :class="{ 'mobile-hidden': mobileTab !== 'review' }">
                 <div v-if="!currentArticle" class="center-state full">
@@ -941,206 +928,286 @@ const copyTalkSnippet = () => {
 
 /* ─── Sidebar ───────────────────────────────────────── */
 .sidebar {
-  width: 288px;
+  width: 260px;
   flex-shrink: 0;
-  background: #131520;
+  background: #0f1117;
   border-right: 1px solid rgba(255,255,255,0.06);
   display: flex;
   flex-direction: column;
-  overflow: visible;
-  position: relative;
-  overflow-x: hidden;
+  overflow: hidden;
   box-sizing: border-box;
-  transition: width 0.2s ease;
   z-index: 20;
 }
 
-/* Stats Row */
-.sidebar-stats {
-  display: flex;
-  gap: 8px;
-  padding: 14px 16px;
+/* Sidebar Header (pinned, never scrolls) */
+.sidebar-header {
+  flex-shrink: 0;
+  padding: 12px 14px 10px;
   border-bottom: 1px solid rgba(255,255,255,0.06);
+  background: #0f1117;
 }
-.stat-pill {
-  flex: 1;
+.sidebar-title-row {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 8px 4px;
-  border-radius: 10px;
-  background: rgba(255,255,255,0.04);
+  justify-content: space-between;
+  margin-bottom: 4px;
 }
-.stat-pill.pending { background: rgba(245, 158, 11, 0.1); }
-.stat-pill.accepted { background: rgba(34, 197, 94, 0.1); }
-.stat-pill.rejected { background: rgba(239, 68, 68, 0.1); }
-.stat-pill.total { background: rgba(99, 102, 241, 0.1); }
-.other-reviewed-head { order: 3; }
-.read-only-list { order: 4; }
-.read-only-item { cursor: default; opacity: 0.8; }
-.stat-num {
-  font-size: 1.2rem;
+.queue-eyebrow {
+  font-size: 0.58rem;
   font-weight: 700;
-  color: #8b97a8;
+  letter-spacing: 0.12em;
+  color: #2e3a4a;
+  text-transform: uppercase;
+}
+.queue-live {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #1e4a2e;
+  border: 1px solid #1e3a2a;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.sidebar-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.sidebar-h2 {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #4a5568;
+  line-height: 1.2;
+}
+
+/* Sidebar collapse toggle — inline in heading row, no overlap */
+.sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 5px;
+  background: rgba(255,255,255,0.03);
+  color: #3d4a5c;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.sidebar-toggle:hover { background: rgba(255,255,255,0.07); color: #6b7280; }
+
+/* Compact stat strip */
+.stat-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sstat {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+}
+.snum {
+  font-size: 0.88rem;
+  font-weight: 700;
   line-height: 1;
 }
-.stat-lbl { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: #4a5568; }
+.slbl {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.sstat-sep { color: #1e2635; font-size: 0.75rem; }
+.sstat.total .snum  { color: #3d4a5c; }
+.sstat.total .slbl  { color: #2a3444; }
+.sstat.pending .snum { color: #7c5a1a; }
+.sstat.pending .slbl { color: #5a4212; }
+.sstat.accepted .snum { color: #1a5c32; }
+.sstat.accepted .slbl { color: #133d22; }
+.sstat.rejected .snum { color: #7c1a1a; }
+.sstat.rejected .slbl { color: #5a1212; }
 
 /* Bulk Banner */
 .bulk-banner {
-  padding: 10px 14px;
+  flex-shrink: 0;
+  padding: 8px 12px;
   background: #111111;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
-.bulk-label { font-size: 0.78rem; font-weight: 600; color: #8b97a8; white-space: nowrap; }
-.bulk-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.bulk-label { font-size: 0.75rem; font-weight: 600; color: #5a6478; white-space: nowrap; }
+.bulk-btns { display: flex; gap: 5px; flex-wrap: wrap; }
 .bbtn {
-  padding: 4px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px; height: 28px;
+  padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: 5px;
   font-size: 0.75rem;
-  font-weight: 600;
   cursor: pointer;
   color: #fff;
   transition: filter 0.15s, transform 0.1s;
 }
-.bbtn:disabled { opacity: 0.5; cursor: not-allowed; }
-.bbtn:active:not(:disabled) { transform: scale(0.96); }
-.bbtn.accept { background: #16a34a; }
-.bbtn.accept:hover:not(:disabled) { filter: brightness(1.1); }
-.bbtn.reject { background: #dc2626; }
-.bbtn.reject:hover:not(:disabled) { filter: brightness(1.1); }
-.bbtn.clear { background: rgba(255,255,255,0.1); }
-.bbtn.clear:hover { background: rgba(255,255,255,0.15); }
-.bbtn.skip { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); }
-.bbtn.skip:hover:not(:disabled) { background: rgba(255,255,255,0.12); }
-.bbtn.remove { background: #991b1b; }
-.bbtn.remove:hover:not(:disabled) { filter: brightness(1.1); }
+.bbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.bbtn:active:not(:disabled) { transform: scale(0.93); }
+.bbtn.accept { background: #15532a; }
+.bbtn.accept:hover:not(:disabled) { background: #166534; }
+.bbtn.reject { background: #7f1d1d; }
+.bbtn.reject:hover:not(:disabled) { background: #991b1b; }
+.bbtn.skip { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); }
+.bbtn.skip:hover:not(:disabled) { background: rgba(255,255,255,0.1); }
+.bbtn.remove { background: #450a0a; }
+.bbtn.remove:hover:not(:disabled) { background: #7f1d1d; }
 
-/* Section Headers */
+/* ── Sidebar Scroll container ── */
+.sidebar-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-scroll::-webkit-scrollbar { width: 2px; }
+.sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 2px; }
+
+/* Section Headers — sticky within sidebar-scroll */
 .section-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
+  gap: 7px;
+  padding: 8px 14px;
   cursor: pointer;
   user-select: none;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
   position: sticky;
   top: 0;
-  z-index: 2;
-  background: #131520;
-  transition: background 0.15s;
+  z-index: 3;
+  background: #0f1117;
+  transition: background 0.12s;
+  flex-shrink: 0;
 }
-.section-head:hover { background: rgba(255,255,255,0.04); }
+.section-head:hover { background: rgba(255,255,255,0.03); }
 .section-title {
   flex: 1;
-  font-size: 0.7rem;
+  font-size: 0.67rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: #4a5568;
-  display: flex;
-  align-items: center;
-  gap: 7px;
+  letter-spacing: 0.08em;
+  color: #2e3a4a;
 }
 .section-dot {
-  width: 6px; height: 6px;
+  width: 5px; height: 5px;
   border-radius: 50%;
   flex-shrink: 0;
 }
-.pending-dot { background: #f59e0b; }
-.judged-dot { background: #22c55e; }
+.pending-dot  { background: #78450a; }
+.judged-dot   { background: #14532d; }
+.other-dot    { background: #1e3a5a; }
 .section-count {
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: #3d4a5c;
-  background: rgba(255,255,255,0.05);
-  border-radius: 10px;
-  padding: 1px 7px;
+  font-size: 0.67rem;
+  font-weight: 600;
+  color: #2a3444;
+  background: rgba(255,255,255,0.04);
+  border-radius: 8px;
+  padding: 1px 6px;
 }
-.section-chevron { font-size: 0.72rem; color: #3d4a5c; }
+.section-chevron { color: #2a3444; flex-shrink: 0; }
 
 /* Article List */
 .article-list {
   list-style: none;
   margin: 0;
-  padding: 4px 0;
-  overflow-y: auto;
-  flex: 1;
+  padding: 0;
 }
-.article-list::-webkit-scrollbar { width: 3px; }
-.article-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
 
+/* Article Items — color coded by status via left border */
 .article-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 14px;
+  gap: 9px;
+  padding: 8px 12px 8px 14px;
   cursor: pointer;
-  transition: background 0.12s;
-  border-bottom: 1px solid rgba(255,255,255,0.03);
+  transition: background 0.1s;
+  border-bottom: 1px solid rgba(255,255,255,0.025);
+  border-left: 3px solid transparent;
 }
-.article-item:hover { background: rgba(255,255,255,0.05); }
+.article-item:hover { background: rgba(255,255,255,0.035); }
+
+/* Pending = amber left bar */
+.article-item.pending-item { border-left-color: #78450a; }
+.article-item.pending-item:hover { background: rgba(120,69,10,0.07); }
+
+/* Active = indigo left bar */
 .article-item.active {
-  background: rgba(79, 70, 229, 0.18);
-  border-left: 3px solid #4f46e5;
+  background: rgba(55,48,163,0.14);
+  border-left-color: #4338ca;
 }
-.article-item.locked { opacity: 0.6; }
+.article-item.active .item-title { color: #6366f1; }
+
+/* Judged items colored by verdict */
+.article-item.accepted { border-left-color: #14532d; }
+.article-item.accepted:hover { background: rgba(20,83,45,0.07); }
+.article-item.rejected { border-left-color: #7f1d1d; }
+.article-item.rejected:hover { background: rgba(127,29,29,0.07); }
+.article-item.skipped  { border-left-color: #2a3444; }
+.article-item.locked   { opacity: 0.55; }
+.article-item.read-only-item { cursor: default; }
 
 .cb-wrap { flex-shrink: 0; display: flex; align-items: center; }
 .bulk-cb {
-  width: 14px; height: 14px;
+  width: 13px; height: 13px;
   cursor: pointer;
-  accent-color: #4f46e5;
+  accent-color: #4338ca;
 }
 
-.item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .item-title {
-  font-size: 0.83rem;
+  font-size: 0.8rem;
   font-weight: 500;
-  color: #7a8799;
+  color: #3d4a5c;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.3;
 }
-.article-item.active .item-title { color: #818cf8; }
-.item-sub { font-size: 0.7rem; color: #3d4a5c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lock-badge { font-size: 0.75rem; flex-shrink: 0; }
-.verdict-badge {
-  font-size: 0.75rem;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 5px;
-  flex-shrink: 0;
+.item-sub {
+  font-size: 0.67rem;
+  color: #252f3d;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.verdict-badge.accepted { background: rgba(34,197,94,0.15); color: #22c55e; }
-.verdict-badge.rejected { background: rgba(239,68,68,0.15); color: #ef4444; }
-.verdict-badge.skipped { background: rgba(148,163,184,0.15); color: #94a3b8; }
+.lock-badge { color: #3d4a5c; flex-shrink: 0; }
 
 .empty-item {
-  padding: 20px 16px;
-  color: rgba(255,255,255,0.18);
-  font-size: 0.8rem;
+  padding: 18px 14px;
+  color: rgba(255,255,255,0.14);
+  font-size: 0.75rem;
   font-style: italic;
   text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 /* Section slide animation */
 .section-slide-enter-active,
-.section-slide-leave-active {
-  transition: opacity 0.18s ease;
-}
+.section-slide-leave-active { transition: opacity 0.15s ease; }
 .section-slide-enter-from,
-.section-slide-leave-to {
-  opacity: 0;
-}
+.section-slide-leave-to { opacity: 0; }
 
 /* ─── Review Area ────────────────────────────────────── */
 .review-area {
@@ -1882,32 +1949,13 @@ const copyTalkSnippet = () => {
 
 @media (max-width: 768px) {
   .review-panel-heading { display: none; }
-  .queue-heading {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 4px 2px 12px;
-    border-bottom: 1px solid var(--border-color-muted);
-  }
-  .queue-heading h2 { margin: 4px 0 0; color: var(--color-emphasized); font-size: 1.05rem; }
-  .queue-eyebrow { color: var(--color-subtle); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.1em; }
-  .queue-live { padding: 3px 7px; border: 1px solid var(--border-color-muted); border-radius: 4px; color: var(--color-subtle); font-size: 0.62rem; text-transform: uppercase; }
 }
 
 /* Compact desktop ribbons: keep the original bottom review workflow. */
 @media (min-width: 769px) {
-  .sidebar { width: 270px; }
-  .queue-heading { padding: 12px 14px 10px; align-items: center; }
-  .queue-heading h2 { font-size: 0.98rem; }
-  .queue-eyebrow { font-size: 0.58rem; }
-  .queue-live { padding: 3px 6px; font-size: 0.58rem; }
-  .sidebar-stats { padding: 10px 12px; gap: 5px; }
-  .stat-pill { padding: 7px 5px; }
-  .stat-num { font-size: 1rem; }
-  .stat-lbl { font-size: 0.58rem; }
-  .section-head { padding: 8px 12px; }
-  .article-list { padding: 3px 6px; }
-  .article-item { padding: 8px 8px; gap: 8px; }
+  .sidebar { width: 260px; }
+  .section-head { padding: 7px 12px; }
+  .article-item { padding: 7px 10px 7px 12px; gap: 8px; }
   .article-header { margin-right: 0; padding: 10px 16px; min-height: 52px; }
   .article-title-link { font-size: 0.98rem; }
   .preview-wrap { margin-right: 0; padding: 12px 16px 0; }
@@ -1933,61 +1981,36 @@ const copyTalkSnippet = () => {
   .action-btn { width: auto; min-height: 36px; padding: 7px 13px; border-radius: 6px; }
 }
 
-/* One scroll container keeps every queue section reachable and predictable. */
-.sidebar {
-  overflow: hidden;
-  transition: none;
-}
-.sidebar-toggle {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 4;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--border-color-muted);
-  border-radius: 4px;
-  background: var(--background-color-interactive-subtle);
-  color: var(--color-subtle);
-  cursor: pointer;
-}
-.sidebar-toggle:hover {
-  background: var(--background-color-interactive-subtle--hover);
-  color: var(--color-emphasized);
-}
-.sidebar.collapsed {
-  width: 44px;
-  background: var(--background-color-base);
-  border-right-color: var(--border-color-muted);
-}
-.sidebar.collapsed > :not(.sidebar-toggle) { display: none; }
-.sidebar.collapsed .sidebar-toggle {
-  position: static;
-  margin: 8px auto;
-}
-.sidebar-scroll {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
+/* sidebar-scroll: article-lists don't need individual scroll, parent handles it */
 .sidebar-scroll .article-list {
   flex: none;
-  max-height: none;
   overflow: visible;
 }
 .sidebar-scroll .section-head {
   position: sticky;
   top: 0;
   z-index: 3;
-  background: #131520;
+  background: #0f1117;
 }
+
+/* Collapsed sidebar */
+.sidebar.collapsed {
+  width: 44px;
+}
+.sidebar.collapsed .sidebar-header {
+  padding: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.sidebar.collapsed .sidebar-title-row,
+.sidebar.collapsed .sidebar-h2,
+.sidebar.collapsed .stat-strip,
+.sidebar.collapsed .sidebar-scroll,
+.sidebar.collapsed .bulk-banner { display: none; }
+.sidebar.collapsed .sidebar-heading-row {
+  justify-content: center;
+  margin-bottom: 0;
+}
+
 .section-chevron {
   width: 16px;
   height: 16px;
