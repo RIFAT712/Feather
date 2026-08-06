@@ -982,10 +982,10 @@ const copyTalkSnippet = () => {
 .stat-num {
   font-size: 1.2rem;
   font-weight: 700;
-  color: #e2e8f0;
+  color: #8b97a8;
   line-height: 1;
 }
-.stat-lbl { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; }
+.stat-lbl { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: #4a5568; }
 
 /* Bulk Banner */
 .bulk-banner {
@@ -997,7 +997,7 @@ const copyTalkSnippet = () => {
   gap: 10px;
   flex-wrap: wrap;
 }
-.bulk-label { font-size: 0.78rem; font-weight: 600; color: #e5e7eb; white-space: nowrap; }
+.bulk-label { font-size: 0.78rem; font-weight: 600; color: #8b97a8; white-space: nowrap; }
 .bulk-btns { display: flex; gap: 6px; flex-wrap: wrap; }
 .bbtn {
   padding: 4px 12px;
@@ -1044,7 +1044,7 @@ const copyTalkSnippet = () => {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  color: #64748b;
+  color: #4a5568;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -1059,12 +1059,12 @@ const copyTalkSnippet = () => {
 .section-count {
   font-size: 0.7rem;
   font-weight: 700;
-  color: #475569;
-  background: rgba(255,255,255,0.07);
+  color: #3d4a5c;
+  background: rgba(255,255,255,0.05);
   border-radius: 10px;
   padding: 1px 7px;
 }
-.section-chevron { font-size: 0.72rem; color: #475569; }
+.section-chevron { font-size: 0.72rem; color: #3d4a5c; }
 
 /* Article List */
 .article-list {
@@ -1104,14 +1104,14 @@ const copyTalkSnippet = () => {
 .item-title {
   font-size: 0.83rem;
   font-weight: 500;
-  color: #e2e8f0;
+  color: #7a8799;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.3;
 }
-.article-item.active .item-title { color: #a5b4fc; }
-.item-sub { font-size: 0.7rem; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.article-item.active .item-title { color: #818cf8; }
+.item-sub { font-size: 0.7rem; color: #3d4a5c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lock-badge { font-size: 0.75rem; flex-shrink: 0; }
 .verdict-badge {
   font-size: 0.75rem;
@@ -1126,7 +1126,7 @@ const copyTalkSnippet = () => {
 
 .empty-item {
   padding: 20px 16px;
-  color: rgba(255,255,255,0.25);
+  color: rgba(255,255,255,0.18);
   font-size: 0.8rem;
   font-style: italic;
   text-align: center;
@@ -1983,7 +1983,10 @@ const copyTalkSnippet = () => {
   overflow: visible;
 }
 .sidebar-scroll .section-head {
-  position: static;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #131520;
 }
 .section-chevron {
   width: 16px;

@@ -1,8 +1,11 @@
 <script setup>
-import { ref, onMounted, provide } from 'vue';
+import { ref, onMounted, provide, computed } from 'vue';
 import { CdxButton } from '@wikimedia/codex';
+import { useRoute } from 'vue-router';
 
 const user = ref(null);
+const route = useRoute();
+const isReviewPage = computed(() => route.path.endsWith('/jury/review'));
 const isLoading = ref(true);
 const isOverloaded = ref(false);
 const showCookieBanner = ref(false);
@@ -78,7 +81,7 @@ const declineCookies = () => {
     <div v-if="isOverloaded" class="overload-banner">
       ⚠️ System is overloaded. Please do not submit articles right now. Backing up data and restarting...
     </div>
-    <header class="app-header">
+    <header v-if="!isReviewPage" class="app-header">
       <div class="header-inner">
         <div class="header-left">
           <router-link to="/" class="home-link">

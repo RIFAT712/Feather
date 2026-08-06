@@ -2,7 +2,7 @@
 import { ref, onMounted, inject, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CdxIcon } from '@wikimedia/codex';
-import { cdxIconHome } from '@wikimedia/codex-icons';
+import { cdxIconHome, cdxIconArrowPrevious } from '@wikimedia/codex-icons';
 
 const user = inject('user');
 const route = useRoute();
@@ -32,7 +32,17 @@ onMounted(async () => {
   <div v-if="isLoading" class="loading-wrap">Loading contest...</div>
   <div v-else-if="error" class="error-state">{{ error }}</div>
   <div v-else class="contest-layout" :class="{ 'review-layout': isReviewPage }">
-    <div class="contest-header">
+    <!-- Back button shown only on /jury/review, replaces both nav bars -->
+    <div v-if="isReviewPage" class="review-topbar">
+      <router-link :to="`/${contest.code}/jury`" class="back-btn">
+        <cdx-icon :icon="cdxIconArrowPrevious" class="back-icon" />
+        <span>Back to Jury</span>
+      </router-link>
+      <span class="review-topbar-title">{{ contest.name }}</span>
+    </div>
+
+    <!-- Full contest header shown on all other pages -->
+    <div v-else class="contest-header">
       <div class="contest-header-inner">
         <router-link :to="`/${contest.code}`" class="contest-title-link">
           <cdx-icon :icon="cdxIconHome" class="home-icon" />
@@ -66,10 +76,57 @@ onMounted(async () => {
 .contest-layout {
   display: flex;
   flex-direction: column;
-  /* 100dvh = dynamic viewport height, excludes mobile browser chrome */
+  /* On normal pages, subtract the 54px app header */
   height: calc(100dvh - 54px);
   overflow: hidden;
   background: #0a0a0a;
+}
+/* On /jury/review the app-header is hidden, so use full viewport */
+.review-layout {
+  height: 100dvh;
+}
+
+/* ── Back button topbar (review page only) ── */
+.review-topbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
+  padding: 0 16px;
+  background: #0d0d0d;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  color: #9ca3af;
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 4px 10px 4px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.back-btn:hover {
+  color: #e5e7eb;
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(255,255,255,0.14);
+}
+.back-icon { color: inherit; flex-shrink: 0; }
+.review-topbar-title {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #4b5563;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .contest-header {
@@ -135,7 +192,6 @@ onMounted(async () => {
     -webkit-overflow-scrolling: touch;
   }
   /* Review page manages its own scroll inside the panels; lock the shell */
-  .review-layout .contest-header { display: none; }
   .review-layout .contest-content {
     overflow: hidden;
     height: 100%;
@@ -143,5 +199,7 @@ onMounted(async () => {
   .contest-header-inner { padding: 8px 12px; }
   .contest-dates-chip { display: none; }
   .contest-nav { width: 100%; justify-content: flex-start; }
+  .review-topbar { height: 40px; padding: 0 12px; }
+  .review-topbar-title { display: none; }
 }
 </style>
