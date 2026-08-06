@@ -84,8 +84,7 @@ onUnmounted(() => {
 
 <template>
   <div class="dashboard">
-    <!-- Hero Banner -->
-    <div class="hero-banner">
+        <div class="hero-banner">
       <div class="hero-content">
         <div class="contest-status-badge" :class="isActive ? 'active' : 'inactive'">
           <svg v-if="isActive" viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><circle cx="8" cy="8" r="8"/></svg>
@@ -114,7 +113,7 @@ onUnmounted(() => {
           <button v-if="!isLoadingRoles && (roles.is_jury || roles.is_owner)" class="action-btn secondary" @click="router.push(`/${contest.code}/jury`)">
             Review Queue
           </button>
-          <button v-if="!isLoadingRoles && (roles.is_jury || roles.is_owner)" class="action-btn secondary" @click="router.push(`/${contest.code}/jury-stats`)">
+          <button v-if="!isLoadingRoles && (roles.is_jury || roles.is_owner)" class="action-btn secondary" @click="router.push(`/${contest.code}/jury`)">
             Statistics
           </button>
           <button v-if="!isLoadingRoles && roles.is_owner" class="action-btn secondary" @click="router.push(`/${contest.code}/config`)">
@@ -124,8 +123,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Stats Cards (jury/owner only) -->
-    <div v-if="!isLoadingRoles && (roles.is_jury || roles.is_owner) && log.length > 0" class="stats-row">
+        <div v-if="!isLoadingRoles && (roles.is_jury || roles.is_owner) && log.length > 0" class="stats-row">
       <div class="stat-card">
         <div class="stat-number">{{ stats.total }}</div>
         <div class="stat-label">Total Submitted</div>
@@ -144,8 +142,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Activity Log (jury/owner only) -->
-    <div v-if="!isLoadingRoles && (roles.is_jury || roles.is_owner)" class="log-section">
+        <div v-if="!isLoadingRoles && (roles.is_jury || roles.is_owner)" class="log-section">
       <ActivityLog :contest="contest" />
     </div>
   </div>

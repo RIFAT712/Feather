@@ -30,15 +30,12 @@ This is a **Wiki Article Contest Management Tool** for **Bengali Wiktionary** (`
 
 ```
 D:\Quote Contest\article-tool\
-├── app.py                      # Utility script: extracts names from data.json → names.txt
-├── data.json                   # Raw article data (189 KB)
-├── names.txt                   # Extracted article names
 ├── Procfile                    # Toolforge process command runner configuration
 ├── requirements.txt            # Root requirements pointing to backend requirements (Toolforge build detection)
 │
 ├── backend\
 │   ├── .env                    # Environment variables (OAuth creds, secrets)
-│   ├── main.py                 # FastAPI app — all API routes (552 lines)
+│   ├── main.py                 # FastAPI app — all API routes
 │   ├── models.py               # SQLAlchemy models (User, Contest, Article, Review, ContestJury)
 │   ├── database.py             # DB engine & session setup (SQLite)
 │   ├── requirements.txt        # Python deps: fastapi, uvicorn, sqlalchemy, httpx, authlib, PyJWT, etc.
@@ -55,20 +52,22 @@ D:\Quote Contest\article-tool\
         ├── router.js           # Route definitions
         ├── style.css           # Global styles
         ├── components\
-        │   ├── AdminPanel.vue
-        │   ├── BulkSubmit.vue
-        │   ├── HelloWorld.vue
-        │   └── ReviewQueue.vue
+        │   └── ui\
+        │       ├── NumberRuleInput.vue  # Reusable numeric rule input
+        │       └── RuleToggleCard.vue   # Reusable rule toggle card
         └── views\
             ├── Home.vue            # Landing / contest list
             ├── AdminDashboard.vue  # Owner-only: manage contests & juries
             ├── ContestLayout.vue   # Wrapper layout for contest routes
             ├── ContestDashboard.vue# Contest overview page
-            ├── SubmitArticles.vue  # Bulk article submission (25 KB — largest view)
+            ├── ContestConfig.vue   # Owner-only contest settings & jury management
+            ├── ContestResult.vue   # Public contest results page
+            ├── SubmitArticles.vue  # Bulk article submission
             ├── ReviewQueue.vue     # Jury article review queue with article preview
             ├── ActivityLog.vue     # Full submission/review log
-            ├── JuryStats.vue       # Jury performance charts
-            └── UserProfile.vue     # Per-user submission & review history
+            ├── JuryStats.vue       # Jury performance charts & article moderation
+            ├── GlobalProfile.vue   # Cross-contest user profile (/user/:username)
+            └── UserProfile.vue     # Per-user submission & review history (contest-scoped)
 ```
 
 ---
@@ -187,6 +186,11 @@ npm run dev                  # Starts on http://localhost:3000
 ## Change Log
 
 | Date       | Change Description                                              |
+| 2026-08-07 | Fixed mobile scroll issues across the tool: (1) `ContestLayout.vue` switched from `100vh` to `100dvh` so content is no longer clipped behind the mobile browser address bar; (2) on mobile, non-review pages (Submit, Dashboard, Results) now use `overflow-y:auto` instead of `overflow:hidden` so they are scrollable; only the review shell stays locked; (3) `ReviewQueue.vue` mobile `.review-area` switched from `overflow:hidden` to `overflow-y:auto` + `-webkit-overflow-scrolling:touch` + `padding-bottom:174px` so the article preview is fully scrollable above the fixed review bar; (4) `style.css` disables `scrollbar-gutter:stable` on mobile (overlay scrollbars need no gutter) and adds `overscroll-behavior-y:none` to prevent accidental pull-to-refresh. |
+| 2026-08-07 | Fixed two `ReviewQueue.vue` bugs: (1) Preview iframe link colors restored to Wikipedia standard — blue (#3366cc) for unvisited, purple (#795cb2) for visited, and red (#d33) for missing-page red-links (`.new` class); previously all links were overridden to gray (#d1d5db). (2) Removed random article selection on mount and after bulk actions — the queue now always advances serially to `availableNewArticles[0]` so articles are reviewed in submission order. |
+| 2026-08-06 | Removed unused files and components: deleted root-level utility scripts (`app.py`, `recolor.py`, `data.json`, `names.txt`), the `benchmark/` directory and `benchmark_results.json`, the Vite starter assets (`assets/hero.png`, `assets/vite.svg`, `assets/vue.svg`), and the four obsolete starter components (`components/HelloWorld.vue`, `AdminPanel.vue`, `BulkSubmit.vue`, `ReviewQueue.vue`). Removed the duplicate `jury-stats` route alias from `router.js` and updated `ContestDashboard.vue` to link to `/jury` instead. |
+| 2026-08-06 | Fixed login-related bugs: (1) `delete_cookie` in logout now passes matching `httponly/secure/samesite/path` attributes so browsers actually clear it; (2) `jwt.ExpiredSignatureError` is now caught separately from generic `PyJWTError` for clearer 401 messages; (3) cookie consent banner now only shows when the user is logged in; (4) `?error=login_failed` query param is now detected and displayed as a red error box on the login page, then cleaned from the URL; (5) auth callback now logs full traceback on failure. |
+| 2026-08-06 | Added persistent auth cookie (`max_age=604800`) so the JWT survives browser restarts (previously a session cookie). Added a cookie consent banner (`App.vue`) that appears on first login, slides up from the bottom, and stores the user's Accept/Decline choice in `localStorage` under `cookie_consent`. |
 | 2026-08-02 | Fixed `ReviewQueue.vue` showing non-pending articles as reviewable, which caused expected backend `409 Conflict` responses; the queue now filters to pending articles and displays the backend conflict detail. |
 | 2026-08-02 | Synchronized dashboard and review-queue accepted, rejected, pending, and total article counts using article statuses from the contest log; both views now refresh live every five seconds. |
 | 2026-08-02 | Added a read-only ReviewQueue section showing finalized articles reviewed by other judges, while preserving backend protection against duplicate decisions. |

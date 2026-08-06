@@ -13,8 +13,6 @@ from pathlib import Path
 from typing import List, Optional
 from urllib.parse import quote
 
-# article_locks moved to DB — see models.ArticleLock
-
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, BackgroundTasks
 from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -90,7 +88,6 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
         template_text = f"{{{{{template_text}}}}}"
         
     async with httpx.AsyncClient() as client:
-        # Get CSRF token via OAuth
         headers = {
             "Authorization": f"Bearer {access_token}",
             "User-Agent": "QuoteContestArticleTool/1.0 (https://github.com/RIFAT712/Feather)"
@@ -103,7 +100,6 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
         token_data = res3.json()
         csrf_token = token_data.get("query", {}).get("tokens", {}).get("csrftoken")
         print(f"[add_talk_pages] CSRF token response: {token_data}")
-        # +\ means anonymous/unauthenticated — OAuth didn't work
         if not csrf_token or csrf_token == "+\\":
             msg = f"Failed to get CSRF token (got: {csrf_token!r}). OAuth may have insufficient scope or token is invalid. Full response: {token_data}"
             print(f"[add_talk_pages] {msg}")
@@ -122,8 +118,6 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
             except Exception:
                 pass
             return
-        
-        # Edit each talk page
         successes = []
         failures = []
         for title in titles:
@@ -158,8 +152,6 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
             else:
                 err_info = res_json.get("error", {}).get("info", edit_res.text[:300])
                 failures.append(f"{title}: {err_info}")
-                
-        # Write to SystemLog
         try:
             from database import SessionLocal
             import models
@@ -217,8 +209,6 @@ async def shutdown_event():
     global _http_client
     if _http_client is not None:
         await _http_client.aclose()
-
-# Pydantic Schemas
 class ContestCreate(BaseModel):
     name: str
     start_date: datetime
@@ -270,8 +260,6 @@ class ValidationResult(BaseModel):
     error: Optional[str] = None
     wiki_creator: Optional[str] = None
     wiki_creation_date: Optional[str] = None
-
-# Auth Dependencies
 def get_current_user(request: Request, db: Session = Depends(get_db)):
     token = request.cookies.get("auth_token")
     if not token:
@@ -289,15 +277,15 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         return user
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Session expired, please log in again")
     except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 def get_owner_user(current_user: models.User = Depends(get_current_user)):
     if current_user.role != models.RoleEnum.owner:
         raise HTTPException(status_code=403, detail="Owner privileges required")
     return current_user
-
-# Routes
 @app.get("/auth/login")
 async def login(request: Request, next: Optional[str] = None):
     host = request.headers.get("x-forwarded-host", request.url.hostname)
@@ -305,8 +293,6 @@ async def login(request: Request, next: Optional[str] = None):
     
     if next:
         request.session['next_url'] = next
-        
-    # Dynamically set the callback URL if running on Toolforge
     if host and "toolforge.org" in host:
         redirect_uri = f"https://{host}/auth/callback"
     else:
@@ -343,22 +329,31 @@ async def auth_callback(request: Request, response: Response, db: Session = Depe
         next_url = request.session.pop('next_url', '/')
         redirect_res = RedirectResponse(url=next_url)
         redirect_res.set_cookie(
-            key="auth_token", 
-            value=auth_token, 
-            httponly=True, 
-            secure=is_secure, 
-            samesite="lax"
+            key="auth_token",
+            value=auth_token,
+            httponly=True,
+            secure=is_secure,
+            samesite="lax",
+            max_age=60 * 60 * 24 * 7,  # 7 days — matches JWT expiry
         )
         return redirect_res
         
     except Exception as e:
-        print(f"Login failed: {e}")
+        import traceback
+        print(f"Login failed: {e}\n{traceback.format_exc()}")
         return RedirectResponse(url="/?error=login_failed")
 
 @app.post("/auth/logout")
-async def logout():
+async def logout(request: Request):
+    is_secure = request.headers.get("x-forwarded-proto") == "https" or request.url.scheme == "https"
     response = Response(status_code=200)
-    response.delete_cookie("auth_token")
+    response.delete_cookie(
+        key="auth_token",
+        httponly=True,
+        secure=is_secure,
+        samesite="lax",
+        path="/",
+    )
     return response
 
 @app.get("/api/me")
@@ -366,8 +361,6 @@ def get_me(current_user: models.User = Depends(get_current_user)):
     return {"wiki_username": current_user.wiki_username, "role": current_user.role.value}
 
 _is_restarting = False
-
-# ── Shared backup helper ──────────────────────────────────────────────────────
 def _write_backup_files(dest_dir: str, label: str):
     """Dump articles per contest, users, and contests to CSV files in dest_dir.
     Also writes a SystemLog entry so the event appears in /api/logs.
@@ -417,8 +410,6 @@ def _write_backup_files(dest_dir: str, label: str):
                         last_rev.reviewer.wiki_username if last_rev and last_rev.reviewer else "",
                         last_rev.comment or "" if last_rev else ""
                     ])
-
-        # Users
         users = db.query(models.User).all()
         users_file = f'users_{timestamp}.csv' if label == "EMERGENCY" else 'users.csv'
         with open(os.path.join(dest_dir, users_file), 'w', newline='', encoding='utf-8') as f:
@@ -426,8 +417,6 @@ def _write_backup_files(dest_dir: str, label: str):
             writer.writerow(['id', 'wiki_username', 'role'])
             for u in users:
                 writer.writerow([u.id, u.wiki_username, u.role.value])
-
-        # Contests
         contests_file = f'contests_{timestamp}.csv' if label == "EMERGENCY" else 'contests.csv'
         with open(os.path.join(dest_dir, contests_file), 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
@@ -462,8 +451,6 @@ def _write_backup_files(dest_dir: str, label: str):
             pass  # Don't let a logging failure mask the original error
     finally:
         db.close()
-
-# ── Backup root resolution ────────────────────────────────────────────────────
 def _resolve_backup_root() -> str:
     """
     Resolve where ~/backup/ should live.
@@ -486,7 +473,6 @@ def _resolve_backup_root() -> str:
         probe = os.path.join(base, "backup")
         try:
             os.makedirs(probe, exist_ok=True)
-            # Verify write access
             test_file = os.path.join(probe, ".write_test")
             with open(test_file, "w") as f:
                 f.write("ok")
@@ -497,9 +483,6 @@ def _resolve_backup_root() -> str:
             print(f"[Backup] Cannot write to {probe} ({label}): {e} — trying next candidate")
 
     raise RuntimeError("[Backup] No writable backup root found!")
-
-# ── Emergency backup (triggered on server overload) ───────────────────────────
-# Always creates NEW files — never overwrites (timestamp in filename).
 def do_emergency_backup_and_restart():
     global _is_restarting
     if _is_restarting:
@@ -512,13 +495,10 @@ def do_emergency_backup_and_restart():
 
     time.sleep(2)   # Give FastAPI time to send the response
     os._exit(1)     # Restart via process manager (Procfile / systemd)
-
-# ── Hourly scheduled backup ───────────────────────────────────────────────────
 HOURLY_BACKUP_INTERVAL_SECONDS = 3600  # 1 hour
 
 def _hourly_backup_loop():
     """Runs in a daemon thread; takes a backup every hour."""
-    # Resolve writable backup root and pre-create both subdirectories at startup
     home = _resolve_backup_root()
     os.makedirs(os.path.join(home, 'backup', 'hourly'), exist_ok=True)
     os.makedirs(os.path.join(home, 'backup', 'emergency'), exist_ok=True)
@@ -527,12 +507,8 @@ def _hourly_backup_loop():
         hourly_dir = os.path.join(home, 'backup', 'hourly')
         _write_backup_files(hourly_dir, "HOURLY")
         time.sleep(HOURLY_BACKUP_INTERVAL_SECONDS)
-
-# Start the hourly backup daemon thread when the module loads
 _hourly_thread = threading.Thread(target=_hourly_backup_loop, daemon=True, name="hourly-backup")
 _hourly_thread.start()
-
-# ── System status & overload detection ───────────────────────────────────────
 @app.get("/api/system/status")
 def system_status(background_tasks: BackgroundTasks):
     global _is_restarting
@@ -641,8 +617,6 @@ def get_admin_stats(_: models.User = Depends(get_owner_user), db: Session = Depe
         "total_users": total_users,
         "total_juries": total_juries
     }
-
-# Admin endpoints
 @app.post("/api/admin/contests")
 def create_contest(data: ContestCreate, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
     c = models.Contest(
@@ -737,8 +711,6 @@ def unassign_jury(data: UnassignJury, _: models.User = Depends(get_owner_user), 
     db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=user.id).delete()
     db.commit()
     return {"status": "success", "removed": data.wiki_username}
-
-# Submissions
 async def process_articles_batch(
     titles: List[str],
     submitter_username: str,
@@ -752,7 +724,6 @@ async def process_articles_batch(
         models.Article.contest_id == contest.id,
         models.Article.title.in_(titles)
     ).all()
-    # Filter out articles with validation_failed status so they can be re-submitted and re-validated
     existing_titles = {a.title.lower() for a in existing if a.status != models.ArticleStatus.validation_failed}
     
     titles_to_check = []
@@ -764,8 +735,6 @@ async def process_articles_batch(
             
     if not titles_to_check:
         return results
-
-    # 1. Attempt batch validation via Wiktionary Replica MariaDB (Fast, zero rate limits)
     db_replica_results = query_wiki_replica_batch(titles_to_check)
     if db_replica_results is not None:
         for t in titles_to_check:
@@ -808,8 +777,6 @@ async def process_articles_batch(
                     
             results.append(ValidationResult(title=t, is_valid=True, wiki_creator=creator, wiki_creation_date=timestamp_str))
         return results
-
-    # 2. Fallback to HTTP MediaWiki API if DB Replica is unavailable (e.g. running locally)
     unique_id = uuid.uuid4().hex[:8]
     contact_email = os.getenv("CONTACT_EMAIL", "contact@example.com")
     user_agent_username = quote(str(submitter_username or ""), safe="")
@@ -855,8 +822,6 @@ async def process_articles_batch(
                     page_size = first_rev.get("size", page.get("length", 0))
                     pageprops = page.get("pageprops", {})
                     is_disambig = "disambiguation" in pageprops
-                    
-                    # Content text analysis for min_words & min_refs
                     content = first_rev.get("*") or first_rev.get("slots", {}).get("main", {}).get("*", "")
                     word_count = len([w for w in content.split() if w.strip()]) if content else 0
                     ref_count = len(re.findall(r'<ref[\s/>]', content, re.IGNORECASE)) if content else 0
@@ -918,8 +883,6 @@ async def submit_bulk(
     contest = db.query(models.Contest).filter_by(code=request.contest_code).first()
     if not contest:
         raise HTTPException(status_code=404, detail="Contest not found")
-
-    # Determine privileges once
     is_owner = current_user.role == models.RoleEnum.owner
     is_jury = db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=current_user.id).first() is not None
     is_privileged = is_owner or is_jury
@@ -939,8 +902,6 @@ async def submit_bulk(
         db,
         bypass_rules=is_privileged
     )
-    
-    # Find or create submitter user record for the effective submitter
     effective_user = db.query(models.User).filter_by(wiki_username=submitter_username).first()
     if not effective_user:
         try:
@@ -953,8 +914,6 @@ async def submit_bulk(
             effective_user = db.query(models.User).filter_by(wiki_username=submitter_username).first()
             if not effective_user:
                 raise HTTPException(status_code=500, detail="Failed to create submitter user record due to database concurrency.")
-
-    # Query existing articles for clean_titles to decide insert vs update
     existing_articles_map = {
         a.title.lower(): a for a in db.query(models.Article).filter(
             models.Article.contest_id == contest.id,
@@ -980,7 +939,6 @@ async def submit_bulk(
                 continue
 
             if existing_art:
-                # Upgrade previous validation_failed entry to pending
                 existing_art.status = models.ArticleStatus.pending
                 existing_art.validation_error = None
                 existing_art.submitter_id = effective_user.id
@@ -1004,7 +962,6 @@ async def submit_bulk(
                 continue
 
             if existing_art:
-                # Update existing validation_failed entry with latest error & timestamp
                 existing_art.status = models.ArticleStatus.validation_failed
                 existing_art.validation_error = res.error
                 existing_art.submitter_id = effective_user.id
@@ -1012,7 +969,6 @@ async def submit_bulk(
                 existing_art.wiki_creation_date = wiki_date
                 existing_art.submitted_at = datetime.utcnow()
             else:
-                # Log failed validation event into DB so it appears in the contest log
                 article = models.Article(
                     title=res.title,
                     submitter_id=effective_user.id,
@@ -1056,20 +1012,27 @@ def get_next_pending(contest_code: str, current_user: models.User = Depends(get_
     
     if not (is_owner or is_jury):
         raise HTTPException(status_code=403, detail="Not authorized to review this contest")
-    
-    # Exclude articles actively locked by a different reviewer
     lock_cutoff = datetime.utcnow() - timedelta(minutes=15)
     locked_by_others = db.query(models.ArticleLock.article_id).filter(
         models.ArticleLock.locked_at >= lock_cutoff,
         models.ArticleLock.locked_by != current_user.wiki_username
     ).subquery()
+    
+    reviewed_by_me = db.query(models.Review.article_id).filter(
+        models.Review.reviewer_id == current_user.id
+    ).subquery()
 
-    article = db.query(models.Article).options(joinedload(models.Article.submitter)).filter(
+    query = db.query(models.Article).options(joinedload(models.Article.submitter)).filter(
         models.Article.contest_id == contest.id, 
         models.Article.status == models.ArticleStatus.pending,
-        ~models.Article.id.in_(locked_by_others)
-    ).first()
+        ~models.Article.id.in_(locked_by_others),
+        ~models.Article.id.in_(reviewed_by_me)
+    )
     
+    if not is_owner and not contest.allow_self_review:
+        query = query.filter(models.Article.submitter_id != current_user.id)
+        
+    article = query.first()    
     if not article:
         raise HTTPException(status_code=404, detail="No pending articles")
         
@@ -1134,7 +1097,6 @@ def get_contest_log(code: str, db: Session = Depends(get_db)):
     log = []
     now = datetime.utcnow()
     lock_cutoff = now - timedelta(minutes=15)
-    # Load all active locks for this contest's articles in one query
     article_ids = [a.id for a in articles]
     active_locks = {}
     if article_ids:
@@ -1145,7 +1107,6 @@ def get_contest_log(code: str, db: Session = Depends(get_db)):
         active_locks = {row.article_id: row.locked_by for row in lock_rows}
 
     for a in articles:
-        # Check lock
         locked_by = active_locks.get(a.id)
 
         entry = {
@@ -1234,8 +1195,6 @@ def get_global_logs(
     Filter with ?source=backup to see only backup history.
     """
     logs = []
-
-    # 1. System runtime error logs (Frontend JS errors, Button click errors, Backend 500 errors)
     sys_query = db.query(models.SystemLog)
     if source:
         sys_query = sys_query.filter(models.SystemLog.source == source)
@@ -1255,8 +1214,6 @@ def get_global_logs(
             "timestamp": s.timestamp.isoformat() if s.timestamp else None,
             "status": s.level,  # info | error | warning
         })
-
-    # 2. Article validation & submission logs (skip when filtering by backup source)
     if not (source and source in ("frontend", "backup")):
         art_query = db.query(models.Article).options(
             joinedload(models.Article.submitter),
@@ -1387,8 +1344,6 @@ def get_user_profile(username: str, db: Session = Depends(get_db)):
 
     judged = []
     judged_contest_ids = set()
-
-    # Contests where user is explicitly assigned as jury
     jury_assignments = db.query(models.ContestJury)\
         .options(joinedload(models.ContestJury.contest))\
         .filter_by(user_id=user.id).all()
@@ -1426,9 +1381,6 @@ def get_user_profile(username: str, db: Session = Depends(get_db)):
                 "skipped": skipped
             }
         })
-
-    # Owners can review any contest — include any contest they reviewed
-    # that isn't already covered by a jury assignment
     if user.role == models.RoleEnum.owner:
         owner_reviews = db.query(models.Review)\
             .options(joinedload(models.Review.article))\
@@ -1436,7 +1388,6 @@ def get_user_profile(username: str, db: Session = Depends(get_db)):
         owner_contest_ids = {r.article.contest_id for r in owner_reviews}
         for contest_id in owner_contest_ids:
             if contest_id in judged_contest_ids:
-                # Already present; upgrade role label to owner+jury if needed
                 for entry in judged:
                     if entry["code"] == db.query(models.Contest).filter_by(id=contest_id).first().code:
                         entry["role_in_contest"] = "owner"
@@ -1531,8 +1482,6 @@ def lock_article(article_id: int, current_user: models.User = Depends(get_curren
     is_jury = db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=current_user.id).first() is not None
     if not (is_owner or is_jury):
         raise HTTPException(status_code=403, detail="Not authorized to lock articles in this contest")
-
-    # Do not steal an active lock from another reviewer.
     existing_lock = db.query(models.ArticleLock).filter_by(article_id=article_id).first()
     if existing_lock and existing_lock.locked_at >= datetime.utcnow() - timedelta(minutes=15) \
             and existing_lock.locked_by != current_user.wiki_username:
@@ -1544,7 +1493,6 @@ def lock_article(article_id: int, current_user: models.User = Depends(get_curren
         locked_by=current_user.wiki_username,
         locked_at=datetime.utcnow()
     ))
-    # Purge expired locks older than 15 min to keep the table small
     db.query(models.ArticleLock).filter(
         models.ArticleLock.locked_at < datetime.utcnow() - timedelta(minutes=15)
     ).delete()
@@ -1605,7 +1553,7 @@ def review_article(
     if not (is_owner or is_jury):
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    if is_jury and not is_owner and article.submitter_id == current_user.id:
+    if is_jury and not is_owner and not contest.allow_self_review and article.submitter_id == current_user.id:
         raise HTTPException(status_code=403, detail="Jury members cannot review their own articles.")
 
     own_review = db.query(models.Review).filter_by(
@@ -1624,8 +1572,6 @@ def review_article(
 
     if data.decision not in ("accepted", "rejected", "skipped"):
         raise HTTPException(status_code=400, detail="Invalid decision")
-
-    # Update article status (skipped stays pending for other jurors)
     if data.decision in ("accepted", "rejected"):
         article.status = models.ArticleStatus[data.decision]
     elif own_review:
@@ -1642,8 +1588,6 @@ def review_article(
             status=models.ReviewStatus[data.decision],
             comment=data.comment
         ))
-    # Skip ends the temporary lock. Accept/Reject deliberately retain it so a
-    # finalized article cannot be reviewed again by another jury member.
     if data.decision == "skipped" and active_lock and active_lock.locked_by == current_user.wiki_username:
         db.delete(active_lock)
     db.commit()
@@ -1858,8 +1802,6 @@ def export_contest_wikitable(code: str, mode: str = "summary", _: models.User = 
                     juries[j]["total"] += 1
                     if r.status.value == "accepted": juries[j]["accepted"] += 1
                     elif r.status.value == "rejected": juries[j]["rejected"] += 1
-
-        # Submitters Table
         lines.append('{| class="wikitable sortable"')
         lines.append('|+ জমাদানকারীর পরিসংখ্যান: ' + contest.name)
         lines.append('|-')
@@ -1870,8 +1812,6 @@ def export_contest_wikitable(code: str, mode: str = "summary", _: models.User = 
             lines.append(f'| [[ব্যবহারকারী:{u}|{u}]] || {stats["total"]} || {stats["accepted"]} || {stats["rejected"]}')
         lines.append('|}')
         lines.append('')
-        
-        # Juries Table
         lines.append('{| class="wikitable sortable"')
         lines.append('|+ বিচারকের পরিসংখ্যান: ' + contest.name)
         lines.append('|-')
@@ -1889,33 +1829,21 @@ def export_contest_wikitable(code: str, mode: str = "summary", _: models.User = 
         media_type="text/plain",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
-
-
-# Serve SPA frontend static files in production / Toolforge
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 dist_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend-vue", "dist")
-
-# Mount assets — only if directory exists (built SPA)
 assets_dir = os.path.join(dist_dir, "assets")
 if os.path.exists(assets_dir):
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
-
-# Catch-all: ALWAYS registered so the root / never hits FastAPI's 404
 @app.get("/{path_name:path}")
 async def serve_spa(path_name: str):
-    # Let /api and /auth fall through to FastAPI's own routers
     if path_name.startswith("api") or path_name.startswith("auth"):
         raise HTTPException(status_code=404, detail="Not found")
-
-    # Serve exact static file if it exists
     if path_name:
         file_path = os.path.join(dist_dir, path_name)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
-
-    # Always fall back to index.html for SPA routing (including root "/")
     index_path = os.path.join(dist_dir, "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)

@@ -46,13 +46,11 @@ const greeting = computed(() => {
 <template>
   <div class="home-root">
 
-    <!-- ── Ambient background orbs ── -->
-    <div class="bg-orb orb-1"></div>
+        <div class="bg-orb orb-1"></div>
     <div class="bg-orb orb-2"></div>
     <div class="bg-orb orb-3"></div>
 
-    <!-- ── Hero ── -->
-    <section class="hero">
+        <section class="hero">
       <div class="hero-inner">
         <div class="hero-left">
           <div class="hero-greeting-row">
@@ -85,28 +83,24 @@ const greeting = computed(() => {
         </div>
       </div>
 
-      <!-- Animated wave divider -->
-      <div class="hero-wave">
+            <div class="hero-wave">
         <svg viewBox="0 0 1440 60" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M0,30 C360,60 1080,0 1440,30 L1440,60 L0,60 Z" fill="#0a0a0a"/>
         </svg>
       </div>
     </section>
 
-    <!-- ── Contests Section ── -->
-    <section class="contests-section">
+        <section class="contests-section">
       <div class="section-inner">
 
-        <!-- Section header -->
-        <div class="section-header">
+                <div class="section-header">
           <div class="section-label">
             <span class="section-label__dot"></span>
             Contests
           </div>
         </div>
 
-        <!-- Empty State -->
-        <div v-if="contests.length === 0" class="empty-state">
+                <div v-if="contests.length === 0" class="empty-state">
           <div class="empty-glow"></div>
           <div class="empty-icon">
             <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
@@ -117,8 +111,7 @@ const greeting = computed(() => {
           <p class="empty-msg">There are no active contests right now. Check back soon!</p>
         </div>
 
-        <!-- Contest Grid -->
-        <div v-else class="contest-grid">
+                <div v-else class="contest-grid">
           <div
             v-for="(contest, i) in contests"
             :key="contest.code"
@@ -129,17 +122,14 @@ const greeting = computed(() => {
             }"
             @click="router.push(`/${contest.code}`)"
           >
-            <!-- Top glow accent -->
-            <div class="card-top-bar"></div>
+                        <div class="card-top-bar"></div>
 
-            <!-- Status badge -->
-            <div class="card-status-badge" :class="isContestActive(contest) ? 'badge--active' : 'badge--ended'">
+                        <div class="card-status-badge" :class="isContestActive(contest) ? 'badge--active' : 'badge--ended'">
               <span class="badge-dot"></span>
               {{ isContestActive(contest) ? 'Active' : 'Ended' }}
             </div>
 
-            <!-- Card body -->
-            <div class="card-content">
+                        <div class="card-content">
               <h2 class="card-title">{{ contest.name }}</h2>
               <div class="card-meta">
                 <span class="card-code">
@@ -153,16 +143,14 @@ const greeting = computed(() => {
               </div>
             </div>
 
-            <!-- Card footer CTA -->
-            <div class="card-footer">
+                        <div class="card-footer">
               <span class="card-cta">
                 Enter contest
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
               </span>
             </div>
 
-            <!-- Hover glow overlay -->
-            <div class="card-hover-glow"></div>
+                        <div class="card-hover-glow"></div>
           </div>
         </div>
 

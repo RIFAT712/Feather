@@ -67,8 +67,7 @@ const formatDate = (dateStr) => {
       </div>
       
       <div class="tables-container">
-        <!-- Submissions Table -->
-        <div class="table-section">
+                <div class="table-section">
           <h3>Submissions</h3>
           <div class="table-wrapper">
             <table v-if="profile.submissions.length" class="data-table">
@@ -100,8 +99,7 @@ const formatDate = (dateStr) => {
           </div>
         </div>
         
-        <!-- Reviews Table -->
-        <div class="table-section" v-if="profile.reviews.length">
+                <div class="table-section" v-if="profile.reviews.length">
           <h3>Reviews</h3>
           <div class="table-wrapper">
             <table class="data-table">

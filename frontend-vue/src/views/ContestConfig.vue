@@ -14,8 +14,6 @@ const toastIsError = ref(false);
 const talkHeaderLabel = '{{আলাপ পাতা}}';
 
 const activeTab = ref('basic'); // 'basic', 'rules', 'talk', 'jury'
-
-// Contest form times use Bangladesh Standard Time (UTC+06:00); storage remains UTC.
 const bangladeshTimeToUtcIso = (date, time) =>
   new Date(`${date}T${time || '00:00'}:00+06:00`).toISOString();
 const utcToBangladeshParts = (value) => {
@@ -23,8 +21,6 @@ const utcToBangladeshParts = (value) => {
   const bd = new Date(utc.getTime() + 6 * 60 * 60 * 1000);
   return { date: bd.toISOString().slice(0, 10), time: bd.toISOString().slice(11, 16) };
 };
-
-// Form state
 const editName = ref('');
 const editStartDate = ref('');
 const editStartTime = ref('');
@@ -41,8 +37,6 @@ const editAllowSelfReview = ref(false);
 const editAddTalkTemplate = ref(false);
 const editTalkTemplateName = ref('');
 const editIncludeTalkHeader = ref(true);
-
-// Jury state
 const juries = ref([]);
 const jurySearchValue = ref('');
 const juryUsername = ref('');
@@ -128,7 +122,6 @@ const fetchContest = async () => {
 
 onMounted(() => {
   if (!user.value || user.value.role !== 'owner') {
-    // Note: the template handles rendering the access denied message
     isLoading.value = false;
     return;
   }

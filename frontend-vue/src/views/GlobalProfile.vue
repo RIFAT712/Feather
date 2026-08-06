@@ -7,11 +7,7 @@ const router = useRouter();
 const profile = ref(null);
 const isLoading = ref(true);
 const error = ref(null);
-
-// Active tab: 'participated' | 'judged'
 const activeTab = ref('participated');
-
-// Track which event is expanded (only one at a time per tab)
 const expandedParticipated = ref(null);
 const expandedJudged = ref(null);
 
@@ -25,15 +21,12 @@ const fetchProfile = async () => {
       throw new Error('Failed to load profile.');
     }
     profile.value = await res.json();
-    // Events are now collapsed by default (no auto-expand)
   } catch (e) {
     error.value = e.message;
   } finally {
     isLoading.value = false;
   }
 };
-
-// Refetch if username changes (e.g. navigating to another user)
 watch(() => route.params.username, fetchProfile);
 onMounted(fetchProfile);
 
@@ -93,16 +86,14 @@ const pctAccepted = (contest) => {
 <template>
   <div class="gp-page">
 
-    <!-- Loading -->
-    <div v-if="isLoading" class="state-center">
+        <div v-if="isLoading" class="state-center">
       <div class="spinner-wrap">
         <div class="spinner-ring"></div>
         <span class="spinner-label">Loading profile…</span>
       </div>
     </div>
 
-    <!-- Error -->
-    <div v-else-if="error" class="state-center">
+        <div v-else-if="error" class="state-center">
       <div class="error-box">
         <div class="error-icon">✕</div>
         <p>{{ error }}</p>
@@ -110,11 +101,9 @@ const pctAccepted = (contest) => {
       </div>
     </div>
 
-    <!-- Profile -->
-    <div v-else-if="profile" class="gp-content">
+        <div v-else-if="profile" class="gp-content">
 
-      <!-- ── Hero Header ── -->
-      <div class="hero-card">
+            <div class="hero-card">
         <div class="hero-bg-orb"></div>
         <div class="hero-bg-orb hero-bg-orb-2"></div>
 
@@ -139,8 +128,7 @@ const pctAccepted = (contest) => {
           </div>
         </div>
 
-        <!-- Quick stats in hero -->
-        <div class="hero-stats">
+                <div class="hero-stats">
           <div class="hero-stat">
             <span class="hs-val">{{ profile.participated_contests.length }}</span>
             <span class="hs-lbl">Contests Entered</span>
@@ -168,8 +156,7 @@ const pctAccepted = (contest) => {
         </div>
       </div>
 
-      <!-- ── Tab Bar ── -->
-      <div class="tab-bar">
+            <div class="tab-bar">
         <button
           class="tab-btn"
           :class="{ active: activeTab === 'participated' }"
@@ -191,8 +178,7 @@ const pctAccepted = (contest) => {
         <div class="tab-indicator" :class="activeTab"></div>
       </div>
 
-      <!-- ── PARTICIPATED TAB ── -->
-      <div v-if="activeTab === 'participated'" class="tab-content">
+            <div v-if="activeTab === 'participated'" class="tab-content">
         <div v-if="!profile.participated_contests.length" class="empty-state">
           <div class="empty-icon">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
@@ -208,8 +194,7 @@ const pctAccepted = (contest) => {
             :class="{ 'is-expanded': expandedParticipated === contest.code }"
             :style="{ '--accent': getAccent(i).color, '--accent-light': getAccent(i).light, '--accent-glow': getAccent(i).glow }"
           >
-            <!-- Card Header (click to expand) -->
-            <div class="ec-header" @click="toggleParticipated(contest.code)">
+                        <div class="ec-header" @click="toggleParticipated(contest.code)">
               <div class="ec-accent-strip"></div>
 
               <div class="ec-icon" :style="{ background: getAccent(i).light, color: getAccent(i).color }">
@@ -226,8 +211,7 @@ const pctAccepted = (contest) => {
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                     {{ formatDate(contest.start_date) }} – {{ formatDate(contest.end_date) }}
                   </span>
-                  <!-- Article status mini-pills -->
-                  <div class="ec-status-pills">
+                                    <div class="ec-status-pills">
                     <span v-if="contest.articles.filter(a => a.status === 'accepted').length" class="spill accepted">
                       ✓ {{ contest.articles.filter(a => a.status === 'accepted').length }} accepted
                     </span>
@@ -251,8 +235,7 @@ const pctAccepted = (contest) => {
               </div>
             </div>
 
-            <!-- Expanded: Articles Table -->
-            <div class="ec-body-grid" :class="{ 'is-open': expandedParticipated === contest.code }">
+                        <div class="ec-body-grid" :class="{ 'is-open': expandedParticipated === contest.code }">
               <div class="ec-body-inner">
                 <div class="ec-body">
                 <div class="ec-body-toolbar">
@@ -300,8 +283,7 @@ const pctAccepted = (contest) => {
         </div>
       </div>
 
-      <!-- ── JUDGED TAB ── -->
-      <div v-if="activeTab === 'judged'" class="tab-content">
+            <div v-if="activeTab === 'judged'" class="tab-content">
         <div v-if="!profile.judged_contests.length" class="empty-state">
           <div class="empty-icon judged-empty-icon">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
@@ -317,8 +299,7 @@ const pctAccepted = (contest) => {
             :class="{ 'is-expanded': expandedJudged === contest.code }"
             :style="{ '--accent': getAccent(i + 2).color, '--accent-light': getAccent(i + 2).light, '--accent-glow': getAccent(i + 2).glow }"
           >
-            <!-- Card Header -->
-            <div class="ec-header" @click="toggleJudged(contest.code)">
+                        <div class="ec-header" @click="toggleJudged(contest.code)">
               <div class="ec-accent-strip"></div>
 
               <div class="ec-icon" :style="{ background: getAccent(i + 2).light, color: getAccent(i + 2).color }">
@@ -329,8 +310,7 @@ const pctAccepted = (contest) => {
                 <div class="ec-title-row">
                   <h3 class="ec-title">{{ contest.name }}</h3>
                   <code class="ec-code">{{ contest.code }}</code>
-                  <!-- Role badge: owner or jury -->
-                  <span
+                                    <span
                     class="role-in-contest-badge"
                     :class="contest.role_in_contest || 'jury'"
                   >
@@ -349,8 +329,7 @@ const pctAccepted = (contest) => {
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                     {{ formatDate(contest.start_date) }} – {{ formatDate(contest.end_date) }}
                   </span>
-                  <!-- Jury mini stats inline -->
-                  <div v-if="contest.stats" class="jury-mini-pills">
+                                    <div v-if="contest.stats" class="jury-mini-pills">
                     <span class="j-pill accepted">✓ {{ contest.stats.accepted }}</span>
                     <span class="j-pill rejected">✕ {{ contest.stats.rejected }}</span>
                     <span class="j-pill skipped">⊘ {{ contest.stats.skipped }}</span>
@@ -360,8 +339,7 @@ const pctAccepted = (contest) => {
               </div>
 
               <div class="ec-right">
-                <!-- Donut-style pct -->
-                <div v-if="contest.stats && contest.stats.total" class="pct-ring">
+                                <div v-if="contest.stats && contest.stats.total" class="pct-ring">
                   <svg width="44" height="44" viewBox="0 0 44 44">
                     <circle cx="22" cy="22" r="18" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="4"/>
                     <circle
@@ -386,8 +364,7 @@ const pctAccepted = (contest) => {
               </div>
             </div>
 
-            <!-- Expanded: Judgment Info -->
-            <div class="ec-body-grid" :class="{ 'is-open': expandedJudged === contest.code }">
+                        <div class="ec-body-grid" :class="{ 'is-open': expandedJudged === contest.code }">
               <div class="ec-body-inner">
                 <div class="ec-body">
                 <div class="ec-body-toolbar">
@@ -398,8 +375,7 @@ const pctAccepted = (contest) => {
                   </button>
                 </div>
 
-                <!-- Stats Bar -->
-                <div v-if="contest.stats && contest.stats.total" class="stats-bar-wrap">
+                                <div v-if="contest.stats && contest.stats.total" class="stats-bar-wrap">
                   <div class="stats-bar">
                     <div class="bar-seg accepted-seg" :style="{ width: (contest.stats.accepted / contest.stats.total * 100) + '%' }"></div>
                     <div class="bar-seg rejected-seg" :style="{ width: (contest.stats.rejected / contest.stats.total * 100) + '%' }"></div>

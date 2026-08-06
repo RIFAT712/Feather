@@ -22,7 +22,6 @@ const routes = [
       { path: 'submit', component: SubmitArticles },
       { path: 'jury/review', component: ReviewQueue },
       { path: 'jury', component: JuryStats },
-      { path: 'jury-stats', component: JuryStats },
       { path: 'log', component: ActivityLog },
       { path: 'result', component: () => import('./views/ContestResult.vue') },
       { path: 'user/:username', component: UserProfile },

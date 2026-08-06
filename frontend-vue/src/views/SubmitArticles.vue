@@ -41,17 +41,12 @@ watch(onBehalfSearch, (newVal) => {
     } catch (err) {}
   }, 300);
 });
-
-// When on-behalf user changes, reset fetched articles
 watch([isOnBehalf, onBehalfUsername], () => {
   userCreatedArticles.value = [];
   selectedArticles.value = [];
   fetchError.value = null;
   articleSearch.value = '';
 });
-
-// Selection watcher - no upper limit needed with DB replica validation
-// selectedArticles can contain all user articles
 
 let fetchSeq = 0;
 
@@ -67,7 +62,6 @@ const fetchUserArticles = async () => {
   const end = new Date(props.contest.end_date + (!props.contest.end_date.endsWith('Z') ? 'Z' : '')).toISOString();
   
   try {
-    // 1. Fetch target user's already submitted articles for this contest
     const contestCode = route.params.code;
     const profileRes = await fetch(`/api/contests/${contestCode}/users/${encodeURIComponent(targetUser)}`);
     if (profileRes.ok) {
@@ -113,7 +107,6 @@ onMounted(async () => {
   try {
     const rolesRes = await fetch(`/api/contests/${route.params.code}/my-role`);
     if (rolesRes.ok) roles.value = await rolesRes.json();
-    // Pre-fetch articles automatically on load
     await fetchUserArticles();
   } catch (err) { console.error(err); }
 });
@@ -212,16 +205,14 @@ const targetDisplayName = computed(() =>
 
 <template>
   <div class="submit-page">
-    <!-- Page Header -->
-    <div class="page-header">
+        <div class="page-header">
       <h1 class="page-title">Submit Articles</h1>
       <p class="page-subtitle">
         Your eligible articles are automatically fetched. Select which ones to submit for review.
       </p>
     </div>
 
-    <!-- On-Behalf Banner (Jury / Owner only) -->
-    <div v-if="roles.is_jury || roles.is_owner" class="behalf-banner">
+        <div v-if="roles.is_jury || roles.is_owner" class="behalf-banner">
       <div class="behalf-banner__inner">
         <label class="behalf-toggle">
           <input type="checkbox" v-model="isOnBehalf" class="behalf-toggle__input" />
@@ -241,8 +232,7 @@ const targetDisplayName = computed(() =>
       </div>
     </div>
 
-    <!-- Fetch Card (full width) -->
-    <div class="card">
+        <div class="card">
       <div class="card__header">
         <div class="card__header-icon">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" /></svg>
@@ -275,8 +265,7 @@ const targetDisplayName = computed(() =>
       <div class="card__body">
         <p v-if="fetchError" class="fetch-error">{{ fetchError }}</p>
 
-        <!-- Article Search -->
-        <div v-if="userCreatedArticles.length > 0" class="article-search">
+                <div v-if="userCreatedArticles.length > 0" class="article-search">
           <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
           <input
             v-model="articleSearch"
@@ -290,8 +279,7 @@ const targetDisplayName = computed(() =>
           <p>No articles match your search "<strong>{{ articleSearch }}</strong>".</p>
         </div>
 
-        <!-- Available Articles -->
-        <div v-if="filteredAvailableArticles.length > 0" class="article-section">
+                <div v-if="filteredAvailableArticles.length > 0" class="article-section">
           <div class="article-section__header" @click="isAvailableOpen = !isAvailableOpen" style="cursor: pointer; user-select: none;">
             <span class="article-section__label">
               <svg :style="{ transform: isAvailableOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="16" height="16" style="margin-right: 4px; vertical-align: -2px;"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" /></svg>
@@ -327,8 +315,7 @@ const targetDisplayName = computed(() =>
           </div>
         </div>
 
-        <!-- Submitted Articles -->
-        <div v-if="filteredSubmittedArticles.length > 0" class="article-section" style="margin-top: 24px;">
+                <div v-if="filteredSubmittedArticles.length > 0" class="article-section" style="margin-top: 24px;">
           <div class="article-section__header" @click="isSubmittedOpen = !isSubmittedOpen" style="cursor: pointer; user-select: none;">
             <span class="article-section__label" style="color: #64748b;">
               <svg :style="{ transform: isSubmittedOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="16" height="16" style="margin-right: 4px; vertical-align: -2px;"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" /></svg>
@@ -351,8 +338,7 @@ const targetDisplayName = computed(() =>
           </div>
         </div>
 
-        <!-- Empty / prompt state -->
-        <div v-if="userCreatedArticles.length === 0 || (userCreatedArticles.length > 0 && availableArticles.length === 0 && submittedArticles.length === 0)" class="empty-state">
+                <div v-if="userCreatedArticles.length === 0 || (userCreatedArticles.length > 0 && availableArticles.length === 0 && submittedArticles.length === 0)" class="empty-state">
           <span v-if="isFetchingArticles" class="spinner" style="width:24px;height:24px;margin-bottom:12px;color:rgba(255,255,255,0.2);"></span>
           <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="40" height="40"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
           
@@ -365,8 +351,7 @@ const targetDisplayName = computed(() =>
       </div>
     </div>
 
-    <!-- Submit Button & Progress -->
-    <div class="submit-section">
+        <div class="submit-section">
       <div v-if="isLoading && totalToSubmit > 0" class="submit-progress">
         <div class="submit-progress__info">
           <span>Submitting articles...</span>
@@ -393,8 +378,7 @@ const targetDisplayName = computed(() =>
       </div>
     </div>
 
-    <!-- Results Card -->
-    <div v-if="results.length > 0" class="card results-card">
+        <div v-if="results.length > 0" class="card results-card">
       <div class="card__header">
         <div class="card__header-icon card__header-icon--green">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd" /></svg>

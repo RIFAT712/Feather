@@ -23,14 +23,10 @@ onMounted(async () => {
     const res = await fetch(`/api/contests/${route.params.code}/results`);
     if (res.ok) {
       const data = await res.json();
-      
-      // Sort submitters by accepted count (desc), then total count (desc)
       data.submitters.sort((a, b) => {
         if (b.accepted !== a.accepted) return b.accepted - a.accepted;
         return b.total - a.total;
       });
-      
-      // Sort juries by total reviewed (desc)
       data.juries.sort((a, b) => b.total - a.total);
       
       results.value = data;

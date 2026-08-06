@@ -114,8 +114,6 @@ const removeArticle = async (article) => {
     removingArticleId.value = null;
   }
 };
-
-// ── Doughnut chart data ──
 const doughnutData = computed(() => ({
   labels: ['Accepted', 'Rejected', 'Pending'],
   datasets: [{
@@ -150,8 +148,6 @@ const doughnutOptions = {
   },
   animation: { animateRotate: true, duration: 900 },
 };
-
-// ── Horizontal stacked bar chart data ──
 const barData = computed(() => ({
   labels: juryStats.value.map(j => j.name),
   datasets: [
@@ -276,8 +272,7 @@ const handleExportWikitable = () => {
       </nav>
 
       <template v-if="activeTab === 'overview'">
-      <!-- Jury Judge CTA Hero Banner -->
-      <div class="judge-hero-banner">
+            <div class="judge-hero-banner">
         <div class="judge-hero-bg"></div>
         <div class="judge-hero-inner">
           <div class="judge-hero-left">
@@ -297,8 +292,7 @@ const handleExportWikitable = () => {
         </div>
       </div>
 
-      <!-- Page header -->
-      <div class="page-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div class="page-header" style="display: flex; justify-content: space-between; align-items: center;">
         <div>
           <h2>Jury Statistics</h2>
           <p>Real-time overview of article submissions and jury activity.</p>
@@ -310,8 +304,7 @@ const handleExportWikitable = () => {
         </div>
       </div>
 
-      <!-- KPI Cards -->
-      <div class="kpi-grid">
+            <div class="kpi-grid">
         <div class="kpi-card kpi-blue">
           <div class="kpi-inner">
             <div class="kpi-value">{{ overallStats.total }}</div>
@@ -359,10 +352,8 @@ const handleExportWikitable = () => {
         </div>
       </div>
 
-      <!-- Charts Row -->
-      <div class="charts-row">
-        <!-- Doughnut -->
-        <div class="chart-card">
+            <div class="charts-row">
+                <div class="chart-card">
           <div class="chart-card-header">
             <span class="chart-title">Submission Breakdown</span>
             <span class="chart-subtitle">By status</span>
@@ -376,8 +367,7 @@ const handleExportWikitable = () => {
           </div>
         </div>
 
-        <!-- Jury Bar -->
-        <div class="chart-card chart-card-wide">
+                <div class="chart-card chart-card-wide">
           <div class="chart-card-header">
             <span class="chart-title">Jury Activity</span>
           <span class="chart-subtitle">Articles judged per member</span>
@@ -389,8 +379,7 @@ const handleExportWikitable = () => {
         </div>
       </div>
 
-      <!-- Jury Table -->
-      <div class="jury-section">
+            <div class="jury-section">
         <div class="section-title">Jury Activity Breakdown</div>
         <table class="jury-table">
           <thead>

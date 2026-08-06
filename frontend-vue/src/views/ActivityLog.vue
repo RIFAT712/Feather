@@ -83,21 +83,18 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- Loading -->
-    <div v-else-if="isLoading" class="state-center">
+        <div v-else-if="isLoading" class="state-center">
       <div class="spinner" />
       <p>Loading activity log…</p>
     </div>
 
-    <!-- Error -->
-    <div v-else-if="error" class="state-center error-box">
+        <div v-else-if="error" class="state-center error-box">
       <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:8px; display:block;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
       <p>{{ error }}</p>
     </div>
 
     <template v-else>
-      <!-- Stats Bar -->
-      <div class="stats-bar">
+            <div class="stats-bar">
         <div class="stat-chip chip-total">
           <span class="chip-label">Total</span>
           <span class="chip-val">{{ log.length }}</span>
@@ -120,8 +117,7 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- View Toggle -->
-      <div class="toggle-bar">
+            <div class="toggle-bar">
         <div class="segmented-control">
           <button
             class="seg-btn"
@@ -140,15 +136,13 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- ── PER-USER VIEW ── -->
-      <div v-if="viewMode === 'per-user'" class="view-section">
+            <div v-if="viewMode === 'per-user'" class="view-section">
         <div
           v-for="group in groupedByUser"
           :key="group.user"
           class="user-card"
         >
-          <!-- Collapsible Header -->
-          <button
+                    <button
             class="user-header"
             @click="toggleUser(group)"
             :aria-expanded="!!openGroups[group.user]"
@@ -161,8 +155,7 @@ onMounted(async () => {
             <span class="chevron" :class="{ open: openGroups[group.user] }">›</span>
           </button>
 
-          <!-- Expandable Table -->
-          <div v-if="openGroups[group.user]" class="user-table-wrap">
+                    <div v-if="openGroups[group.user]" class="user-table-wrap">
             <table class="user-table">
               <thead>
                 <tr>
@@ -205,8 +198,7 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- ── TIMELINE VIEW ── -->
-      <div v-if="viewMode === 'timeline'" class="view-section">
+            <div v-if="viewMode === 'timeline'" class="view-section">
         <div
           v-for="(entry, idx) in log"
           :key="entry.id || idx"
@@ -229,14 +221,12 @@ onMounted(async () => {
             </span>
           </div>
 
-          <!-- Error banner if validation_error present -->
-          <div v-if="entry.validation_error" class="tl-error-banner">
+                    <div v-if="entry.validation_error" class="tl-error-banner">
             <CdxIcon :icon="cdxIconAlert" class="err-icon" />
             <span class="err-msg"><strong>Error:</strong> {{ entry.validation_error }}</span>
           </div>
 
-          <!-- Review events mini-timeline -->
-          <div v-if="entry.reviews && entry.reviews.length" class="mini-timeline">
+                    <div v-if="entry.reviews && entry.reviews.length" class="mini-timeline">
             <div v-for="rev in entry.reviews" :key="rev.reviewer" class="mini-tl-item">
               <div class="mini-tl-dot" :class="`dot-${rev.decision}`" />
               <div class="mini-tl-line" />

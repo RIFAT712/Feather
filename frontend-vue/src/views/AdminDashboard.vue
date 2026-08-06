@@ -27,8 +27,6 @@ let statusInterval = null;
 const isLoadingContests = ref(false);
 const toastMessage = ref('');
 const toastIsError = ref(false);
-
-// Contest form times use Bangladesh Standard Time (UTC+06:00); storage remains UTC.
 const bangladeshTimeToUtcIso = (date, time) =>
   new Date(`${date}T${time || '00:00'}:00+06:00`).toISOString();
 const utcToBangladeshParts = (value) => {
@@ -80,7 +78,6 @@ const fetchLogs = async () => {
     const res = await fetch('/api/logs?limit=200');
     if (res.ok) {
       const all = await res.json();
-      // Only keep system-type entries (not article_submission noise)
       systemLogs.value = all.filter(l => l.type === 'system');
     }
   } catch(e) {}
@@ -117,8 +114,6 @@ watch(user, (newVal) => {
     statusInterval = null;
   }
 }, { immediate: true });
-
-// Contest Status Helper
 const getContestStatus = (c) => {
   const now = new Date();
   const start = new Date(c.start_date);
@@ -136,8 +131,6 @@ const getContestProgress = (c) => {
   if (now > end) return 100;
   return Math.round(((now - start) / (end - start)) * 100);
 };
-
-// Filtered Contests
 const filteredContests = computed(() => {
   return contests.value.filter(c => {
     const matchesSearch = c.name.toLowerCase().includes(searchFilter.value.toLowerCase()) ||
@@ -147,19 +140,13 @@ const filteredContests = computed(() => {
     return matchesSearch && matchesStatus;
   });
 });
-
-// Wizard Form Tabs
 const formSubTab = ref('basic'); // 'basic', 'rules', 'talk', 'governance'
 const editFormSubTab = ref('basic');
-
-// Create Contest State & Rules
 const name = ref('');
 const startDate = ref('');
 const startTime = ref('00:00');
 const endDate = ref('');
 const endTime = ref('23:59');
-
-// Rules Configuration
 const mustBeCreator = ref(true);
 const minBytes = ref(0);
 const minWords = ref(0);
@@ -168,8 +155,6 @@ const noRedirect = ref(true);
 const noDisambig = ref(true);
 const mainspaceOnly = ref(true);
 const allowSelfReview = ref(false);
-
-// Talk Page Automation
 const addTalkTemplate = ref(false);
 const talkTemplateName = ref('');
 const includeTalkHeader = ref(true);
@@ -218,7 +203,6 @@ const handleCreate = async () => {
     });
     if (!res.ok) throw new Error("Create failed");
     const created = await res.json();
-    // Auto-assign jury if any were added in the create form
     if (createJuryTags.value.length > 0) {
       await fetch('/api/admin/assign-jury', {
         method: 'POST',
@@ -246,8 +230,6 @@ const resetCreateForm = () => {
   createJuryTags.value = []; createJurySearchValue.value = ''; createJuryMenuItems.value = [];
   formSubTab.value = 'basic';
 };
-
-// Clone Contest Settings
 const handleCloneContest = (c) => {
   name.value = `Copy of ${c.name}`;
   const start = utcToBangladeshParts(c.start_date);
@@ -272,8 +254,6 @@ const handleCloneContest = (c) => {
   activeTab.value = 'create';
   showToast(`📋 Cloned rules from "${c.name}" into form!`);
 };
-
-// Export CSV & JSON
 const handleExportCSV = (code) => {
   window.open(`/api/admin/contests/${code}/export/csv`, '_blank');
   showToast(`📥 Exporting CSV for contest ${code}...`);
@@ -296,8 +276,6 @@ const handleExportJSON = async (code, cName) => {
     showToast("Failed to export contest JSON data", true);
   }
 };
-
-// Delete Contest
 const handleDelete = async (code, cName) => {
   if (!confirm(`Are you sure you want to permanently delete contest "${cName}"? All articles and reviews will be removed.`)) return;
   try {
@@ -310,8 +288,6 @@ const handleDelete = async (code, cName) => {
     showToast("Failed to delete contest", true);
   }
 };
-
-// Edit Contest Modal State
 const editingContest = ref(null);
 const editName = ref('');
 const editStartDate = ref('');
@@ -402,21 +378,14 @@ const saveEdit = async () => {
     showToast("Error updating contest.", true);
   }
 };
-
-// Jury Management Hub
 const selectedJuryContestCode = ref('');
 const selectedJuryContest = computed(() => {
   return contests.value.find(c => c.code === selectedJuryContestCode.value) || null;
 });
-
-// ----- Native jury username search (replaces CdxLookup) -----
-// Jury Command Center
 const jurySearchValue = ref('');
 const juryMenuItems = ref([]);
 const juryMenuVisible = ref(false);
 const juryTags = ref([]);
-
-// Create-form jury
 const createJurySearchValue = ref('');
 const createJuryMenuItems = ref([]);
 const createJuryMenuVisible = ref(false);
@@ -539,16 +508,14 @@ const formatDate = (iso) => {
 
 <template>
   <div class="admin-suite">
-    <!-- Floating Toast Notification -->
-    <transition name="toast">
+        <transition name="toast">
       <div v-if="toastMessage" class="toast-banner" :class="{ 'toast-error': toastIsError }">
         <span class="toast-icon">{{ toastIsError ? '⚠️' : '✨' }}</span>
         <span>{{ toastMessage }}</span>
       </div>
     </transition>
 
-    <!-- Unauthorized Banner -->
-    <div v-if="user && user.role !== 'owner'" class="unauthorized-banner">
+        <div v-if="user && user.role !== 'owner'" class="unauthorized-banner">
       <div class="unauthorized-content">
         <span class="icon">⛔</span>
         <h2>Owner Portal Restricted</h2>
@@ -557,8 +524,7 @@ const formatDate = (iso) => {
     </div>
 
     <template v-else-if="user && user.role === 'owner'">
-      <!-- Suite Header Banner -->
-      <div class="admin-header-card">
+            <div class="admin-header-card">
         <div class="header-main">
           <div class="header-title-group">
             <div class="owner-badge">
@@ -579,8 +545,7 @@ const formatDate = (iso) => {
           </div>
         </div>
 
-        <!-- Metric KPI Cards -->
-        <div class="kpi-grid">
+                <div class="kpi-grid">
           <div class="kpi-card indigo">
             <div class="kpi-icon">🏆</div>
             <div class="kpi-info">
@@ -645,8 +610,7 @@ const formatDate = (iso) => {
         </div>
       </div>
 
-      <!-- Navigation Tabs -->
-      <div class="suite-tabs-nav">
+            <div class="suite-tabs-nav">
         <button class="nav-tab" :class="{ active: activeTab === 'overview' }" @click="activeTab = 'overview'">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
           Contests & Rules Overview
@@ -668,10 +632,8 @@ const formatDate = (iso) => {
         </button>
       </div>
 
-      <!-- TAB 1: OVERVIEW & CONTESTS -->
-      <div v-if="activeTab === 'overview'" class="tab-pane">
-        <!-- Controls Bar -->
-        <div class="controls-card">
+            <div v-if="activeTab === 'overview'" class="tab-pane">
+                <div class="controls-card">
           <div class="search-box">
             <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input v-model="searchFilter" placeholder="Search contests by name or code..." class="search-input" />
@@ -697,8 +659,7 @@ const formatDate = (iso) => {
           </div>
         </div>
 
-        <!-- GRID VIEW -->
-        <div v-if="viewMode === 'grid'" class="contests-grid">
+                <div v-if="viewMode === 'grid'" class="contests-grid">
           <div v-for="c in filteredContests" :key="c.code" class="contest-card" :class="getContestStatus(c)">
             <div class="card-top">
               <div class="card-status-badge" :class="getContestStatus(c)">
@@ -716,16 +677,14 @@ const formatDate = (iso) => {
               <span>{{ formatDate(c.end_date) }}</span>
             </div>
 
-            <!-- Progress bar -->
-            <div class="progress-container">
+                        <div class="progress-container">
               <div class="progress-bar-bg">
                 <div class="progress-bar-fill" :style="{ width: getContestProgress(c) + '%' }"></div>
               </div>
               <span class="progress-txt">{{ getContestProgress(c) }}% elapsed</span>
             </div>
 
-            <!-- Rules Badges -->
-            <div class="card-rules-list">
+                        <div class="card-rules-list">
               <span v-if="c.rule_must_be_creator" class="rule-tag font-medium">👤 Must Be Creator</span>
               <span v-if="c.min_bytes > 0" class="rule-tag amber">📐 Min {{ c.min_bytes }} B</span>
               <span v-if="c.min_words > 0" class="rule-tag emerald">📝 Min {{ c.min_words }} words</span>
@@ -736,8 +695,7 @@ const formatDate = (iso) => {
               <span v-if="c.add_talk_template" class="rule-tag indigo">💬 Talk Template</span>
             </div>
 
-            <!-- Metrics footer -->
-            <div class="card-metrics-row">
+                        <div class="card-metrics-row">
               <div class="metric-item">
                 <span class="m-val">{{ c.articles_count ?? 0 }}</span>
                 <span class="m-lbl">Submitted</span>
@@ -752,8 +710,7 @@ const formatDate = (iso) => {
               </div>
             </div>
 
-            <!-- Card Actions Bar -->
-            <div class="card-actions-bar">
+                        <div class="card-actions-bar">
               <router-link :to="'/' + c.code" class="card-btn secondary" title="View Contest Dashboard">↗ View</router-link>
               <button class="card-btn primary" @click="openEditModal(c)" title="Edit Contest Rules & Settings">✏️ Edit</button>
               <button class="card-btn secondary" @click="handleCloneContest(c)" title="Clone as new contest template">📋 Clone</button>
@@ -770,8 +727,7 @@ const formatDate = (iso) => {
           </div>
         </div>
 
-        <!-- TABLE VIEW -->
-        <div v-else class="table-card">
+                <div v-else class="table-card">
           <table class="wikitable-modern">
             <thead>
               <tr>
@@ -838,16 +794,14 @@ const formatDate = (iso) => {
         </div>
       </div>
 
-      <!-- TAB 2: CREATE CONTEST WIZARD -->
-      <div v-if="activeTab === 'create'" class="tab-pane">
+            <div v-if="activeTab === 'create'" class="tab-pane">
         <div class="form-pane-card">
           <div class="form-pane-header">
             <h2>Create New Contest</h2>
             <p>Configure complete validation constraints, article requirements, jury rules, and talk page templates.</p>
           </div>
 
-          <!-- Wizard Sub-Tabs -->
-          <div class="wizard-sub-tabs mb-6">
+                    <div class="wizard-sub-tabs mb-6">
             <button class="w-tab" :class="{ active: formSubTab === 'basic' }" @click="formSubTab = 'basic'">
               📌 1. Basic Info & Dates
             </button>
@@ -862,8 +816,7 @@ const formatDate = (iso) => {
             </button>
           </div>
 
-          <!-- SUB-TAB 1: BASIC INFO -->
-          <div v-if="formSubTab === 'basic'" class="sub-tab-content">
+                    <div v-if="formSubTab === 'basic'" class="sub-tab-content">
             <div class="form-grid-2">
               <div class="form-group span-2">
                 <label class="field-label">Contest Name <span class="req">*</span></label>
@@ -897,43 +850,37 @@ const formatDate = (iso) => {
             </div>
           </div>
 
-          <!-- SUB-TAB 2: RULES -->
-          <div v-if="formSubTab === 'rules'" class="sub-tab-content">
+                    <div v-if="formSubTab === 'rules'" class="sub-tab-content">
             <div class="rules-config-grid">
-              <!-- Creator constraint -->
-              <div class="rule-card-toggle">
+                            <div class="rule-card-toggle">
                 <cdx-checkbox v-model="mustBeCreator">
                   <strong class="text-slate-100">👤 Rule: Submitter MUST be original article creator</strong>
                   <p class="toggle-desc">MediaWiki API / MariaDB replica verifies that the submitter is the original author who created the page.</p>
                 </cdx-checkbox>
               </div>
 
-              <!-- Mainspace Only -->
-              <div class="rule-card-toggle">
+                            <div class="rule-card-toggle">
                 <cdx-checkbox v-model="mainspaceOnly">
                   <strong class="text-slate-100">📁 Rule: Mainspace Only (Namespace 0)</strong>
                   <p class="toggle-desc">Blocks talk pages, user sandboxes, category pages, and template pages from submission.</p>
                 </cdx-checkbox>
               </div>
 
-              <!-- Disallow Redirects -->
-              <div class="rule-card-toggle">
+                            <div class="rule-card-toggle">
                 <cdx-checkbox v-model="noRedirect">
                   <strong class="text-slate-100">🚫 Rule: Disallow Redirect Pages</strong>
                   <p class="toggle-desc">Automatically rejects articles if they are hard or soft redirects to another entry.</p>
                 </cdx-checkbox>
               </div>
 
-              <!-- Disallow Disambiguation -->
-              <div class="rule-card-toggle">
+                            <div class="rule-card-toggle">
                 <cdx-checkbox v-model="noDisambig">
                   <strong class="text-slate-100">🔀 Rule: Disallow Disambiguation Pages</strong>
                   <p class="toggle-desc">Automatically rejects disambiguation / index pages (with {{disambig}} template).</p>
                 </cdx-checkbox>
               </div>
 
-              <!-- Page Size (Bytes) -->
-              <div class="rule-input-card span-2">
+                            <div class="rule-input-card span-2">
                 <label class="field-label">📐 Minimum Article Size (Bytes)</label>
                 <div class="flex-input-row">
                   <cdx-text-input v-model.number="minBytes" type="number" placeholder="0 = No limit (e.g. 3500)" />
@@ -947,8 +894,7 @@ const formatDate = (iso) => {
                 <p class="field-hint">Articles with total page length under this byte threshold will fail automatic validation.</p>
               </div>
 
-              <!-- Word Count -->
-              <div class="rule-input-card">
+                            <div class="rule-input-card">
                 <label class="field-label">📝 Minimum Word Count</label>
                 <div class="flex-input-row">
                   <cdx-text-input v-model.number="minWords" type="number" placeholder="0 = No limit" />
@@ -961,8 +907,7 @@ const formatDate = (iso) => {
                 <p class="field-hint">Minimum required text words inside the entry body.</p>
               </div>
 
-              <!-- References Count -->
-              <div class="rule-input-card">
+                            <div class="rule-input-card">
                 <label class="field-label">📚 Minimum References / Citations</label>
                 <div class="flex-input-row">
                   <cdx-text-input v-model.number="minRefs" type="number" placeholder="0 = No limit" />
@@ -982,8 +927,7 @@ const formatDate = (iso) => {
             </div>
           </div>
 
-          <!-- SUB-TAB 3: TALK PAGE TEMPLATE -->
-          <div v-if="formSubTab === 'talk'" class="sub-tab-content">
+                    <div v-if="formSubTab === 'talk'" class="sub-tab-content">
             <div class="rule-card-toggle">
               <cdx-checkbox v-model="addTalkTemplate">
                 <strong class="text-slate-100">💬 Feature: Auto-generate Talk Page Template (আলাপ পাতা)</strong>
@@ -1018,8 +962,7 @@ const formatDate = (iso) => {
             </div>
           </div>
 
-          <!-- SUB-TAB 4: GOVERNANCE & JURY -->
-          <div v-if="formSubTab === 'governance'" class="sub-tab-content">
+                    <div v-if="formSubTab === 'governance'" class="sub-tab-content">
             <div class="rule-card-toggle">
               <cdx-checkbox v-model="allowSelfReview">
                 <strong class="text-slate-100">🛡️ Allow Jury Self-Review</strong>
@@ -1027,8 +970,7 @@ const formatDate = (iso) => {
               </cdx-checkbox>
             </div>
 
-            <!-- Jury Assignment -->
-            <div class="jury-section mt-6">
+                        <div class="jury-section mt-6">
               <h3 class="jury-section-title">👥 Add Jury Members</h3>
               <p class="toggle-desc mb-3">Search and add jury members now. They will be assigned automatically when the contest is created.</p>
 
@@ -1071,16 +1013,14 @@ const formatDate = (iso) => {
         </div>
       </div>
 
-      <!-- TAB 3: JURY COMMAND CENTER -->
-      <div v-if="activeTab === 'jury'" class="tab-pane">
+            <div v-if="activeTab === 'jury'" class="tab-pane">
         <div class="jury-hub-card">
           <div class="form-pane-header">
             <h2>Jury Command Center</h2>
             <p>Assign and manage evaluation jury members for each active writing contest.</p>
           </div>
 
-          <!-- Contest Selector -->
-          <div class="form-group max-w-lg">
+                    <div class="form-group max-w-lg">
             <label class="field-label">Select Target Contest</label>
             <select v-model="selectedJuryContestCode" class="native-picker w-full">
               <option value="" disabled>-- Select a contest --</option>
@@ -1095,8 +1035,7 @@ const formatDate = (iso) => {
               Current Jury Roster for "{{ selectedJuryContest.name }}"
             </h3>
 
-            <!-- Existing Juror Badges with 1-click remove -->
-            <div class="assigned-jurors-grid">
+                        <div class="assigned-jurors-grid">
               <div v-for="username in selectedJuryContest.juries" :key="username" class="juror-chip">
                 <div class="juror-avatar">{{ username[0].toUpperCase() }}</div>
                 <span class="juror-name">{{ username }}</span>
@@ -1109,8 +1048,7 @@ const formatDate = (iso) => {
               </div>
             </div>
 
-            <!-- Add New Jury Members Section -->
-            <div class="add-jury-section mt-6 border-t border-slate-700/50 pt-4">
+                        <div class="add-jury-section mt-6 border-t border-slate-700/50 pt-4">
               <label class="field-label">Add New Jury Members (Type username prefix)</label>
               
               <div class="tag-input-wrapper mt-2" style="position:relative">
@@ -1145,16 +1083,14 @@ const formatDate = (iso) => {
           </div>
         </div>
       </div>
-      <!-- TAB 4: SYSTEM LOGS -->
-      <div v-if="activeTab === 'logs'" class="tab-pane">
+            <div v-if="activeTab === 'logs'" class="tab-pane">
         <div class="jury-hub-card">
           <div class="form-pane-header">
             <h2>System Logs</h2>
             <p>Background task status, talk page template errors, backups, and frontend errors.</p>
           </div>
 
-          <!-- Source filter chips -->
-          <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; align-items:center;">
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; align-items:center;">
             <button
               v-for="src in logSources"
               :key="src"
@@ -1189,8 +1125,7 @@ const formatDate = (iso) => {
             </button>
           </div>
 
-          <!-- Counts banner -->
-          <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
+                    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
             <span style="font-size:0.8rem; color:#94a3b8">Showing <strong style="color:#e2e8f0">{{ filteredLogs.length }}</strong> entries</span>
             <span v-if="filteredLogs.filter(l=>l.level==='error').length" style="font-size:0.8rem; color:#ef4444; font-weight:600">
               ⚠ {{ filteredLogs.filter(l=>l.level==='error').length }} error{{ filteredLogs.filter(l=>l.level==='error').length > 1 ? 's' : '' }}
@@ -1263,8 +1198,7 @@ const formatDate = (iso) => {
       </div>
     </template>
 
-    <!-- EDIT CONTEST MODAL OVERLAY -->
-    <div v-if="editingContest" class="modal-backdrop" @click.self="closeEditModal">
+        <div v-if="editingContest" class="modal-backdrop" @click.self="closeEditModal">
       <div class="modal-card">
         <div class="modal-header">
           <h3>Edit Contest Settings & Rules</h3>
@@ -1272,8 +1206,7 @@ const formatDate = (iso) => {
         </div>
 
         <div class="modal-body">
-          <!-- Wizard Sub-Tabs in Modal -->
-          <div class="wizard-sub-tabs mb-4">
+                    <div class="wizard-sub-tabs mb-4">
             <button class="w-tab" :class="{ active: editFormSubTab === 'basic' }" @click="editFormSubTab = 'basic'">
               📌 Basic Info
             </button>
@@ -1288,8 +1221,7 @@ const formatDate = (iso) => {
             </button>
           </div>
 
-          <!-- EDIT TAB 1: BASIC INFO -->
-          <div v-if="editFormSubTab === 'basic'">
+                    <div v-if="editFormSubTab === 'basic'">
             <div class="form-group">
               <label class="field-label">Contest Name</label>
               <cdx-text-input v-model="editName" />
@@ -1314,8 +1246,7 @@ const formatDate = (iso) => {
             </div>
           </div>
 
-          <!-- EDIT TAB 2: RULES -->
-          <div v-if="editFormSubTab === 'rules'" class="rules-config-grid">
+                    <div v-if="editFormSubTab === 'rules'" class="rules-config-grid">
             <div class="rule-card-toggle">
               <cdx-checkbox v-model="editMustBeCreator">
                 <strong class="text-slate-100">👤 Rule: Submitter MUST be original article creator</strong>
@@ -1385,8 +1316,7 @@ const formatDate = (iso) => {
             </div>
           </div>
 
-          <!-- EDIT TAB 3: TALK TEMPLATE -->
-          <div v-if="editFormSubTab === 'talk'">
+                    <div v-if="editFormSubTab === 'talk'">
             <div class="rule-card-toggle">
               <cdx-checkbox v-model="editAddTalkTemplate">
                 <strong class="text-slate-100">💬 Feature: Auto-generate Talk Page Template (আলাপ পাতা)</strong>
@@ -1416,8 +1346,7 @@ const formatDate = (iso) => {
             </div>
           </div>
 
-          <!-- EDIT TAB 4: GOVERNANCE -->
-          <div v-if="editFormSubTab === 'governance'">
+                    <div v-if="editFormSubTab === 'governance'">
             <div class="rule-card-toggle">
               <cdx-checkbox v-model="editAllowSelfReview">
                 <strong class="text-slate-100">🛡️ Governance: Allow Jury Self-Review</strong>

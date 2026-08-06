@@ -31,8 +31,6 @@ const isLoading = ref(true);
 const isSubmitting = ref(false);
 const isLoadingPreview = ref(false);
 const reviewError = ref('');
-
-// Mobile tab: 'list' | 'review'
 const mobileTab = ref('list');
 const sidebarCollapsed = ref(false);
 const reviewPanelCollapsed = ref(false);
@@ -45,12 +43,9 @@ const roles = ref({ is_jury: false, is_owner: false });
 const isAuthorized = computed(() => roles.value.is_jury || roles.value.is_owner);
 
 const selectedForBulk = ref([]);
-// Accepted/rejected articles retain their lock permanently to prevent double review.
 const permanentlyLockedArticleIds = new Set();
 
 const WIKI_BASE = 'https://bn.wiktionary.org/wiki/';
-
-// Dark-mode CSS injected into the preview iframe
 const DARK_CSS = `
   :root { color-scheme: dark; }
   html, body {
@@ -63,8 +58,16 @@ const DARK_CSS = `
     padding: 20px 24px 64px;
     max-width: 860px;
   }
-  a { color: #d1d5db !important; }
+  /* Wikipedia-style link colors */
+  a { color: #3366cc !important; }
+  a:visited { color: #795cb2 !important; }
+  a.new, a.new:visited { color: #d33 !important; }  /* red-links (missing pages) */
   a:hover { text-decoration: underline; }
+
+  /* TOC, reflist, catlinks links inherit wiki-blue */
+  .toc a, .toc a:visited { color: #3366cc !important; }
+  .reflist a, .references a { color: #3366cc !important; }
+  .catlinks a { color: #3366cc !important; }
 
   /* --- strip ALL inline light-background colors from every element --- */
   * { background-color: unset !important; }
@@ -125,7 +128,6 @@ const DARK_CSS = `
 
   /* TOC */
   #toc, .toc { background: #1f1f1f !important; border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 6px; padding: 12px 18px; }
-  .toc a { color: #d1d5db !important; }
   .toctitle { color: #e5e7eb !important; }
 
   /* hide edit links */
@@ -137,11 +139,9 @@ const DARK_CSS = `
 
   /* references */
   .reflist, ol.references { color: #94a3b8 !important; font-size: 0.85em; }
-  .reflist a, .references a { color: #d1d5db !important; }
 
   /* categories */
   .catlinks { background: #1f1f1f !important; border: 1px solid rgba(255,255,255,0.1) !important; color: #94a3b8 !important; margin-top: 24px; padding: 8px 14px; border-radius: 6px; }
-  .catlinks a { color: #d1d5db !important; }
 
   /* hatnote/notices */
   .hatnote, .dablink { background: rgba(255,255,255,0.04) !important; border-left: 3px solid #ffffff !important; padding: 6px 12px; color: #94a3b8 !important; }
@@ -154,8 +154,6 @@ const DARK_CSS = `
   /* keep text-align / font-weight from inline styles but neutralise colour */
   [style*='color:rgb'], [style*='color: rgb'] { color: #e2e8f0 !important; }
 `;
-
-// JS injected into preview iframe for full collapsible support
 const COLLAPSIBLE_JS = `
   (function() {
     function initNavFrames() {
@@ -384,7 +382,6 @@ const selectArticle = (article) => {
   comment.value = getMyLatestComment(article);
   fetchPreview(article.title);
   fetch(`/api/articles/${article.article_id}/lock`, { method: 'POST' }).catch(() => {});
-  // On mobile, auto-switch to review tab
   mobileTab.value = 'review';
 };
 
@@ -396,8 +393,7 @@ onMounted(async () => {
     fetchArticles(false).catch(error => console.error('Failed to refresh review queue', error));
   }, 5000);
   if (availableNewArticles.value.length > 0 && !currentArticle.value) {
-    const randomIdx = Math.floor(Math.random() * availableNewArticles.value.length);
-    selectArticle(availableNewArticles.value[randomIdx]);
+    selectArticle(availableNewArticles.value[0]);
     if (window.innerWidth <= 768) {
       mobileTab.value = 'list';
     }
@@ -518,8 +514,7 @@ const handleBulkDecision = async (decision) => {
     await fetchArticles();
     if (!currentArticle.value || !availableNewArticles.value.find(a => a.article_id === currentArticle.value.article_id)) {
       if (availableNewArticles.value.length > 0) {
-        const randomIdx = Math.floor(Math.random() * availableNewArticles.value.length);
-        selectArticle(availableNewArticles.value[randomIdx]);
+        selectArticle(availableNewArticles.value[0]);
       } else {
         currentArticle.value = null;
         mobileTab.value = 'list';
@@ -584,8 +579,7 @@ const copyTalkSnippet = () => {
 
 <template>
   <div class="review-queue">
-    <!-- Unauthorized -->
-    <div v-if="!isLoading && !isAuthorized" class="center-state">
+        <div v-if="!isLoading && !isAuthorized" class="center-state">
       <div class="unauth-card">
         <span class="unauth-icon">⛔</span>
         <h2>Access Denied</h2>
@@ -593,16 +587,13 @@ const copyTalkSnippet = () => {
       </div>
     </div>
 
-    <!-- Loading -->
-    <div v-else-if="isLoading" class="center-state">
+        <div v-else-if="isLoading" class="center-state">
       <div class="loading-spinner"></div>
       <p class="loading-text">Loading review queue…</p>
     </div>
 
-    <!-- Main Layout -->
-    <div v-else class="main-layout">
-      <!-- ═══════════════ SIDEBAR ═══════════════ -->
-      <aside class="sidebar" :class="{ 'mobile-hidden': mobileTab !== 'list', collapsed: sidebarCollapsed }">
+        <div v-else class="main-layout">
+            <aside class="sidebar" :class="{ 'mobile-hidden': mobileTab !== 'list', collapsed: sidebarCollapsed }">
         <button
           type="button"
           class="sidebar-toggle"
@@ -617,8 +608,7 @@ const copyTalkSnippet = () => {
           </div>
           <span class="queue-live">Live</span>
         </div>
-        <!-- Stats row -->
-        <div class="sidebar-stats">
+                <div class="sidebar-stats">
           <div class="stat-pill total">
             <span class="stat-num">{{ statusStats.total }}</span>
             <span class="stat-lbl">Total</span>
@@ -637,8 +627,7 @@ const copyTalkSnippet = () => {
           </div>
         </div>
 
-        <!-- Bulk Actions Banner -->
-        <div v-if="selectedForBulk.length > 0" class="bulk-banner">
+                <div v-if="selectedForBulk.length > 0" class="bulk-banner">
           <span class="bulk-label">{{ selectedForBulk.length }} selected</span>
           <div class="bulk-btns">
             <button class="bbtn accept" @click="handleBulkDecision('accepted')" title="Accept Selected"><CdxIcon :icon="cdxIconCheck" /></button>
@@ -649,8 +638,7 @@ const copyTalkSnippet = () => {
         </div>
 
         <div class="sidebar-scroll">
-        <!-- New Articles section -->
-        <div class="section-head" @click="showNewArticles = !showNewArticles">
+                <div class="section-head" @click="showNewArticles = !showNewArticles">
           <span class="section-title">
             <span class="section-dot pending-dot"></span>
             Pending Review
@@ -682,8 +670,7 @@ const copyTalkSnippet = () => {
           </ul>
         </transition>
 
-        <!-- Articles reviewed by other judges -->
-        <div v-if="otherReviewedArticles.length" class="section-head other-reviewed-head" @click="showOtherReviewed = !showOtherReviewed">
+                <div v-if="otherReviewedArticles.length" class="section-head other-reviewed-head" @click="showOtherReviewed = !showOtherReviewed">
           <span class="section-title">
             <span class="section-dot judged-dot"></span>
             Reviewed by Other Judges
@@ -707,8 +694,7 @@ const copyTalkSnippet = () => {
           </li>
         </ul>
 
-        <!-- Judged Articles section -->
-        <div class="section-head" @click="showJudgedArticles = !showJudgedArticles">
+                <div class="section-head" @click="showJudgedArticles = !showJudgedArticles">
           <span class="section-title">
             <span class="section-dot judged-dot"></span>
             My Judged
@@ -745,10 +731,8 @@ const copyTalkSnippet = () => {
         </div>
       </aside>
 
-      <!-- ═══════════════ REVIEW AREA ═══════════════ -->
-      <div class="review-area" :class="{ 'mobile-hidden': mobileTab !== 'review' }">
-        <!-- Empty state -->
-        <div v-if="!currentArticle" class="center-state full">
+            <div class="review-area" :class="{ 'mobile-hidden': mobileTab !== 'review' }">
+                <div v-if="!currentArticle" class="center-state full">
           <div class="done-state">
             <div class="done-icon"><CdxIcon :icon="cdxIconArticleCheck" /></div>
             <h3>All Caught Up!</h3>
@@ -757,10 +741,8 @@ const copyTalkSnippet = () => {
         </div>
 
         <template v-else>
-          <!-- Article Header Bar -->
-          <div class="article-header">
-            <!-- Mobile back button -->
-            <button class="back-btn mobile-only" @click="mobileTab = 'list'">
+                    <div class="article-header">
+                        <button class="back-btn mobile-only" @click="mobileTab = 'list'">
               <CdxIcon :icon="cdxIconArrowPrevious" /> Back
             </button>
             <div class="article-header-info">
@@ -785,8 +767,7 @@ const copyTalkSnippet = () => {
             </a>
           </div>
 
-          <!-- Talk Template Card -->
-          <div v-if="false && props.contest?.add_talk_template && talkPageSnippet" class="talk-card">
+                    <div v-if="false && props.contest?.add_talk_template && talkPageSnippet" class="talk-card">
             <CdxIcon :icon="cdxIconSpeechBubbles" class="talk-icon" />
             <div class="talk-info">
               <span class="talk-label">Talk Template</span>
@@ -803,8 +784,7 @@ const copyTalkSnippet = () => {
             </div>
           </div>
 
-          <!-- Preview Area -->
-          <div class="preview-wrap">
+                    <div class="preview-wrap">
             <div v-if="isLoadingPreview" class="preview-loading">
               <div class="loading-spinner small"></div>
               <span>Loading preview…</span>
@@ -818,8 +798,7 @@ const copyTalkSnippet = () => {
             ></iframe>
           </div>
 
-          <!-- Review Action Bar (sticky at bottom) -->
-          <div class="review-bar" :class="{ 'is-collapsed': reviewPanelCollapsed }">
+                    <div class="review-bar" :class="{ 'is-collapsed': reviewPanelCollapsed }">
             <div class="review-bar-inner">
               <button
                 type="button"
@@ -884,8 +863,7 @@ const copyTalkSnippet = () => {
       </div>
     </div>
 
-    <!-- ═══════════════ MOBILE BOTTOM NAV ═══════════════ -->
-    <nav class="mobile-bottom-nav mobile-only">
+        <nav class="mobile-bottom-nav mobile-only">
       <button
         class="mob-nav-btn"
         :class="{ active: mobileTab === 'list' }"
@@ -1518,9 +1496,14 @@ const copyTalkSnippet = () => {
     height: 100%;
     flex: 0 0 100%;
     min-height: 0;
-    overflow: hidden;
+    /* Allow vertical scroll so content under fixed bars is reachable */
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     background: #080a10;
-    padding-bottom: 110px;
+    /* Reserve space for fixed review-bar (~110px) + bottom nav (60px) */
+    padding-bottom: 174px;
     box-sizing: border-box;
   }
   .review-area.mobile-hidden,

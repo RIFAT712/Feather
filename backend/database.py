@@ -29,12 +29,7 @@ DB_PORT = os.getenv("DB_PORT", "3306")
 DB_USER = os.getenv("DB_USER", os.getenv("TOOL_TOOLSDB_USER"))
 DB_PASSWORD = os.getenv("DB_PASSWORD", os.getenv("TOOL_TOOLSDB_PASSWORD"))
 
-# Fallback to replica.my.cnf if toolforge env vars are missing
-# NOTE: Do NOT fall back to replica.my.cnf for the app DB —
-# those are read-only replica credentials. App DB requires TOOL_TOOLSDB_USER/PASSWORD.
-
 if DB_NAME and DB_USER:
-    # Use MySQL/MariaDB for Toolforge
     SQLALCHEMY_DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4"
     engine = create_engine(
         SQLALCHEMY_DATABASE_URL,
@@ -44,10 +39,7 @@ if DB_NAME and DB_USER:
         pool_pre_ping=True
     )
 else:
-    # Fallback to SQLite
     SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./app.db")
-    
-    # Enable TRUNCATE journal mode once at startup on the database file (compatible with NFS on Toolforge)
     try:
         db_path = SQLALCHEMY_DATABASE_URL.replace("sqlite:///", "")
         conn = sqlite3.connect(db_path)
@@ -91,7 +83,6 @@ def run_auto_migrations(db_engine):
                     except Exception as ex:
                         print(f"[Migration] WARN ({table}.{col_name}): {ex}")
             else:
-                # SQLite: inspect first since it doesn't support IF NOT EXISTS on ALTER
                 cols = [c['name'] for c in inspect(db_engine).get_columns(table)]
                 if col_name not in cols:
                     sql = f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}"
@@ -104,12 +95,8 @@ def run_auto_migrations(db_engine):
                             print(f"[Migration] WARN ({table}.{col_name}): {ex}")
                 else:
                     print(f"[Migration] Skip: {table}.{col_name} already exists")
-
-        # ── users table ──────────────────────────────────────────────────
         if 'users' in existing_tables:
-            # Add column if missing (new installs)
             add_col_if_missing('users', 'oauth_access_token', 'TEXT')
-            # Widen existing VARCHAR(1000) → TEXT (Wikimedia OAuth2 JWTs exceed 1000 chars)
             if is_mysql:
                 with db_engine.connect() as conn:
                     try:
@@ -120,8 +107,6 @@ def run_auto_migrations(db_engine):
                         print(f"[Migration] WARN modifying oauth_access_token type: {ex}")
         else:
             print("[Migration] 'users' table not found — create_all will handle it.")
-
-        # ── contests table ───────────────────────────────────────────────
         if 'contests' in existing_tables:
             for col_name, col_type in [
                 ("min_bytes",           "INTEGER DEFAULT 0"),
@@ -138,10 +123,6 @@ def run_auto_migrations(db_engine):
                 add_col_if_missing('contests', col_name, col_type)
         else:
             print("[Migration] 'contests' table not found — create_all will handle it.")
-
-        # ── article_locks table ──────────────────────────────────────────
-        # Existing contest dates were entered as Bangladesh time but stored as UTC
-        # by the old form. Shift them once by -6 hours for BST-correct UTC windows.
         migration_table_sql = """
             CREATE TABLE IF NOT EXISTS contest_timezone_migrations (
                 migration_key VARCHAR(100) PRIMARY KEY,
@@ -204,8 +185,6 @@ def run_auto_migrations(db_engine):
                     print(f"[Migration] WARN creating article_locks: {ex}")
         else:
             print("[Migration] 'article_locks' table already exists.")
-
-        # ── system_logs table ────────────────────────────────────────────
         if 'system_logs' not in existing_tables:
             with db_engine.connect() as conn:
                 try:
@@ -298,7 +277,6 @@ def query_wiki_replica_batch(titles: list) -> dict:
             if db_fmt not in title_map:
                 title_map[db_fmt] = clean
             db_titles_set.add(db_fmt)
-            # Add capitalized title variant (MediaWiki standard title capitalization)
             db_fmt_cap = db_fmt[0].upper() + db_fmt[1:] if db_fmt else db_fmt
             if db_fmt_cap not in title_map:
                 title_map[db_fmt_cap] = clean

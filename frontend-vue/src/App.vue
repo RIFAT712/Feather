@@ -5,14 +5,28 @@ import { CdxButton } from '@wikimedia/codex';
 const user = ref(null);
 const isLoading = ref(true);
 const isOverloaded = ref(false);
+const showCookieBanner = ref(false);
+const loginError = ref('');
 
 onMounted(async () => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('error') === 'login_failed') {
+    loginError.value = 'Login failed. Please try again — make sure you authorise the app on Wikimedia.';
+    const url = new URL(window.location.href);
+    url.searchParams.delete('error');
+    window.history.replaceState({}, '', url.toString());
+  }
+
   try {
     const res = await fetch('/api/me');
     if (res.ok) user.value = await res.json();
   } catch { user.value = null; }
   finally { isLoading.value = false; }
-  
+  if (user.value) {
+    const consent = localStorage.getItem('cookie_consent');
+    if (!consent) showCookieBanner.value = true;
+  }
+
   setInterval(async () => {
     try {
       const res = await fetch('/api/system/status');
@@ -30,6 +44,15 @@ const handleLogout = async () => {
   await fetch('/auth/logout', { method: 'POST' });
   window.location.href = '/';
 };
+
+const acceptCookies = () => {
+  localStorage.setItem('cookie_consent', 'accepted');
+  showCookieBanner.value = false;
+};
+const declineCookies = () => {
+  localStorage.setItem('cookie_consent', 'declined');
+  showCookieBanner.value = false;
+};
 </script>
 
 <template>
@@ -44,6 +67,7 @@ const handleLogout = async () => {
       </div>
       <h1>Feather</h1>
       <p>Sign in with your Wikimedia account to participate in writing contests, submit articles, and track your contributions.</p>
+      <div v-if="loginError" class="login-error" role="alert">{{ loginError }}</div>
       <cdx-button action="progressive" weight="primary" @click="handleLogin">
         Log in with Wikimedia
       </cdx-button>
@@ -90,6 +114,24 @@ const handleLogout = async () => {
     <main class="app-main">
       <router-view />
     </main>
+
+        <transition name="cookie-slide">
+      <div v-if="showCookieBanner" class="cookie-banner" role="alertdialog" aria-label="Cookie consent">
+        <div class="cookie-banner-inner">
+          <div class="cookie-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+          </div>
+          <div class="cookie-text">
+            <strong>Stay signed in</strong>
+            <span>We use a session cookie to keep you logged in across visits. Accept to avoid signing in every time.</span>
+          </div>
+          <div class="cookie-actions">
+            <button class="cookie-btn cookie-btn--accept" @click="acceptCookies" id="cookie-accept-btn">Accept</button>
+            <button class="cookie-btn cookie-btn--decline" @click="declineCookies" id="cookie-decline-btn">Decline</button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -137,7 +179,18 @@ const handleLogout = async () => {
   font-family: 'Inter', sans-serif;
 }
 .login-card p {
-  margin-bottom: 28px; color: #6b7280; font-size: 0.9rem; line-height: 1.65;
+  margin-bottom: 20px; color: #6b7280; font-size: 0.9rem; line-height: 1.65;
+}
+.login-error {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  color: #fca5a5;
+  font-size: 0.83rem;
+  line-height: 1.5;
+  text-align: left;
 }
 
 /* ── App Layout ── */
@@ -247,4 +300,92 @@ const handleLogout = async () => {
   .user-pill { padding: 3px; border: none; background: transparent; }
   .logout-btn span, .logout-btn { padding: 4px 6px; font-size: 0.72rem; }
 }
+
+/* ── Cookie Consent Banner ── */
+.cookie-banner {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  width: calc(100% - 40px);
+  max-width: 680px;
+}
+.cookie-banner-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(22, 22, 28, 0.92);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 14px 18px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255,255,255,0.04);
+}
+.cookie-icon {
+  flex-shrink: 0;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+}
+.cookie-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cookie-text strong {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #e5e7eb;
+  line-height: 1.3;
+}
+.cookie-text span {
+  font-size: 0.78rem;
+  color: #6b7280;
+  line-height: 1.5;
+}
+.cookie-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.cookie-btn {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 7px 16px;
+  border-radius: 7px;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s, opacity 0.15s;
+  white-space: nowrap;
+}
+.cookie-btn--accept {
+  background: #2563eb;
+  color: #fff;
+}
+.cookie-btn--accept:hover { background: #1d4ed8; }
+.cookie-btn--decline {
+  background: rgba(255, 255, 255, 0.06);
+  color: #6b7280;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.cookie-btn--decline:hover { background: rgba(255, 255, 255, 0.1); color: #9ca3af; }
+
+/* Slide-up transition */
+.cookie-slide-enter-active { transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.25s ease; }
+.cookie-slide-leave-active { transition: transform 0.2s ease, opacity 0.2s ease; }
+.cookie-slide-enter-from { transform: translateX(-50%) translateY(20px); opacity: 0; }
+.cookie-slide-leave-to  { transform: translateX(-50%) translateY(20px); opacity: 0; }
+
+@media (max-width: 600px) {
+  .cookie-banner { bottom: 12px; width: calc(100% - 24px); }
+  .cookie-banner-inner { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .cookie-actions { width: 100%; }
+  .cookie-btn { flex: 1; text-align: center; }
+  .cookie-icon { display: none; }
+}
 </style>
+

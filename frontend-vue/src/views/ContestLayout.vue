@@ -66,7 +66,8 @@ onMounted(async () => {
 .contest-layout {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 54px);
+  /* 100dvh = dynamic viewport height, excludes mobile browser chrome */
+  height: calc(100dvh - 54px);
   overflow: hidden;
   background: #0a0a0a;
 }
@@ -117,13 +118,28 @@ onMounted(async () => {
 .contest-content {
   flex: 1; display: flex; flex-direction: column;
   overflow-y: auto; min-height: 0;
+  /* Ensure touch scroll works smoothly on iOS */
+  -webkit-overflow-scrolling: touch;
 }
 
 @media (max-width: 640px) {
-  .contest-layout { height: calc(100vh - 54px); min-height: 0; }
-  .contest-content { min-height: 0; overflow: hidden; }
+  /* dvh handles browser chrome correctly; fallback to vh for older browsers */
+  .contest-layout {
+    height: calc(100dvh - 54px);
+    min-height: 0;
+  }
+  /* Non-review pages (Submit, Dashboard, Results): allow natural scrolling */
+  .contest-content {
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* Review page manages its own scroll inside the panels; lock the shell */
   .review-layout .contest-header { display: none; }
-  .review-layout .contest-content { overflow: hidden; }
+  .review-layout .contest-content {
+    overflow: hidden;
+    height: 100%;
+  }
   .contest-header-inner { padding: 8px 12px; }
   .contest-dates-chip { display: none; }
   .contest-nav { width: 100%; justify-content: flex-start; }
