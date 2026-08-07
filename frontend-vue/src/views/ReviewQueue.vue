@@ -7,6 +7,7 @@ import {
   cdxIconArticleCheck,
   cdxIconArrowPrevious,
   cdxIconCheck,
+  cdxIconClear,
   cdxIconCollapse,
   cdxIconCopy,
   cdxIconDownTriangle,
@@ -578,312 +579,350 @@ const copyTalkSnippet = () => {
 </script>
 
 <template>
-  <div class="review-queue">
-        <div v-if="!isLoading && !isAuthorized" class="center-state">
-      <div class="unauth-card">
-        <span class="unauth-icon">⛔</span>
+  <div class="rq-app">
+    <div v-if="!isLoading && !isAuthorized" class="rq-center-state">
+      <div class="rq-card-unauth">
+        <div class="rq-icon-large">⛔</div>
         <h2>Access Denied</h2>
         <p>This area is restricted to Contest Jury members and Owners.</p>
       </div>
     </div>
 
-        <div v-else-if="isLoading" class="center-state">
-      <div class="loading-spinner"></div>
-      <p class="loading-text">Loading review queue…</p>
+    <div v-else-if="isLoading" class="rq-center-state">
+      <div class="rq-spinner"></div>
+      <p class="rq-loading-text">Loading review queue…</p>
     </div>
 
-        <div v-else class="main-layout">
-            <aside class="sidebar" :class="{ 'mobile-hidden': mobileTab !== 'list', collapsed: sidebarCollapsed }">
-
-          <!-- ── Sidebar Header ── -->
-          <div class="sidebar-header">
-            <div class="sidebar-title-row">
-              <span class="queue-eyebrow">JURY WORKSPACE</span>
-              <span class="queue-live">Live</span>
+    <div v-else class="rq-main-layout" :class="{ 'is-mobile-review': mobileTab === 'review' }">
+      <aside class="rq-sidebar" :class="{ 'is-collapsed': sidebarCollapsed }">
+        <header class="rq-sidebar-header">
+          <div class="rq-sidebar-top">
+            <div class="rq-brand-eyebrow">
+              <span class="rq-eyebrow-text">Jury Workspace</span>
+              <span class="rq-badge-live">Live</span>
             </div>
-            <div class="sidebar-heading-row">
-              <h2 class="sidebar-h2">Review Queue</h2>
-              <button
-                type="button"
-                class="sidebar-toggle"
-                :aria-label="sidebarCollapsed ? 'Expand' : 'Collapse'"
-                :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
-                @click="sidebarCollapsed = !sidebarCollapsed"
-              ><CdxIcon :icon="sidebarCollapsed ? cdxIconExpand : cdxIconCollapse" /></button>
-            </div>
-
-            <!-- compact stat strip -->
-            <div class="stat-strip">
-              <span class="sstat total"><span class="snum">{{ statusStats.total }}</span><span class="slbl">Total</span></span>
-              <span class="sstat-sep">·</span>
-              <span class="sstat pending"><span class="snum">{{ statusStats.pending }}</span><span class="slbl">Pending</span></span>
-              <span class="sstat-sep">·</span>
-              <span class="sstat accepted"><span class="snum">{{ statusStats.accepted }}</span><span class="slbl">OK</span></span>
-              <span class="sstat-sep">·</span>
-              <span class="sstat rejected"><span class="snum">{{ statusStats.rejected }}</span><span class="slbl">Rej</span></span>
-            </div>
+            <button
+              type="button"
+              class="rq-icon-btn rq-collapse-btn"
+              @click="sidebarCollapsed = !sidebarCollapsed"
+              :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+            >
+              <CdxIcon :icon="sidebarCollapsed ? cdxIconExpand : cdxIconCollapse" />
+            </button>
+          </div>
+          
+          <div class="rq-sidebar-title-row" v-show="!sidebarCollapsed">
+            <h2 class="rq-sidebar-title">Review Queue</h2>
           </div>
 
-          <!-- bulk action banner -->
-          <div v-if="selectedForBulk.length > 0" class="bulk-banner">
-            <span class="bulk-label">{{ selectedForBulk.length }} selected</span>
-            <div class="bulk-btns">
-              <button class="bbtn accept" @click="handleBulkDecision('accepted')" title="Accept Selected"><CdxIcon :icon="cdxIconCheck" /></button>
-              <button class="bbtn reject" @click="handleBulkDecision('rejected')" title="Reject Selected"><CdxIcon :icon="cdxIconClear" /></button>
-              <button class="bbtn skip" @click="handleBulkDecision('skipped')" title="Skip Selected"><CdxIcon :icon="cdxIconNext" /></button>
-              <button class="bbtn remove" @click="handleBulkRemove" title="Remove Selected"><CdxIcon :icon="cdxIconTrash" /></button>
+          <div class="rq-stats-strip" v-show="!sidebarCollapsed">
+            <div class="rq-stat"><span class="rq-stat-val">{{ statusStats.total }}</span><span class="rq-stat-lbl">Total</span></div>
+            <div class="rq-stat rq-stat-pending"><span class="rq-stat-val">{{ statusStats.pending }}</span><span class="rq-stat-lbl">Pending</span></div>
+            <div class="rq-stat rq-stat-ok"><span class="rq-stat-val">{{ statusStats.accepted }}</span><span class="rq-stat-lbl">OK</span></div>
+            <div class="rq-stat rq-stat-rej"><span class="rq-stat-val">{{ statusStats.rejected }}</span><span class="rq-stat-lbl">Rej</span></div>
+          </div>
+        </header>
+
+        <transition name="rq-fade">
+          <div v-if="selectedForBulk.length > 0 && !sidebarCollapsed" class="rq-bulk-banner">
+            <span class="rq-bulk-count">{{ selectedForBulk.length }} selected</span>
+            <div class="rq-bulk-actions">
+              <button class="rq-bbtn rq-bbtn-accept" @click="handleBulkDecision('accepted')" title="Accept"><CdxIcon :icon="cdxIconCheck" /></button>
+              <button class="rq-bbtn rq-bbtn-reject" @click="handleBulkDecision('rejected')" title="Reject"><CdxIcon :icon="cdxIconClear" /></button>
+              <button class="rq-bbtn rq-bbtn-skip" @click="handleBulkDecision('skipped')" title="Skip"><CdxIcon :icon="cdxIconNext" /></button>
+              <button class="rq-bbtn rq-bbtn-remove" @click="handleBulkRemove" title="Remove"><CdxIcon :icon="cdxIconTrash" /></button>
             </div>
           </div>
+        </transition>
 
-          <!-- ── Scrollable list ── -->
-          <div class="sidebar-scroll">
-
-            <!-- Pending Review -->
-            <div class="section-head" @click="showNewArticles = !showNewArticles">
-              <span class="section-dot pending-dot"></span>
-              <span class="section-title">Pending Review</span>
-              <span class="section-count">{{ newArticles.length }}</span>
-              <CdxIcon :icon="showNewArticles ? cdxIconUpTriangle : cdxIconDownTriangle" class="section-chevron" />
-            </div>
-            <transition name="section-slide">
-              <ul v-show="showNewArticles" class="article-list">
+        <div class="rq-sidebar-scroll" v-show="!sidebarCollapsed">
+          <div class="rq-group">
+            <button class="rq-group-header" @click="showNewArticles = !showNewArticles">
+              <div class="rq-group-header-left">
+                <span class="rq-dot rq-dot-pending"></span>
+                <span class="rq-group-title">Pending Review</span>
+                <span class="rq-group-count">{{ newArticles.length }}</span>
+              </div>
+              <CdxIcon :icon="showNewArticles ? cdxIconUpTriangle : cdxIconDownTriangle" class="rq-group-chevron" />
+            </button>
+            
+            <transition name="rq-slide">
+              <ul v-show="showNewArticles" class="rq-list">
                 <li
                   v-for="a in newArticles"
                   :key="a.article_id"
-                  class="article-item pending-item"
-                  :class="{ active: currentArticle?.article_id === a.article_id, locked: a.locked_by && a.locked_by !== myUsername }"
+                  class="rq-list-item rq-item-pending"
+                  :class="{ 'is-active': currentArticle?.article_id === a.article_id, 'is-locked': a.locked_by && a.locked_by !== myUsername }"
                   @click="selectArticle(a)"
                 >
-                  <label class="cb-wrap" @click.stop>
-                    <input type="checkbox" :checked="selectedForBulk.includes(a.article_id)" @change="toggleBulkSelection(a.article_id, $event)" class="bulk-cb" />
+                  <label class="rq-cb-wrapper" @click.stop>
+                    <input type="checkbox" :checked="selectedForBulk.includes(a.article_id)" @change="toggleBulkSelection(a.article_id, $event)" class="rq-cb" />
                   </label>
-                  <div class="item-body">
-                    <span class="item-title">{{ a.title }}</span>
-                    <span class="item-sub">{{ a.submitted_by }}</span>
+                  <div class="rq-item-content">
+                    <span class="rq-item-title">{{ a.title }}</span>
+                    <span class="rq-item-meta">{{ a.submitted_by }}</span>
                   </div>
-                  <CdxIcon v-if="a.locked_by && a.locked_by !== myUsername" :icon="cdxIconLock" class="lock-badge" title="Being reviewed by someone" />
+                  <CdxIcon v-if="a.locked_by && a.locked_by !== myUsername" :icon="cdxIconLock" class="rq-icon-lock" title="Being reviewed by someone" />
                 </li>
-                <li v-if="!newArticles.length" class="empty-item">
-                  <CdxIcon :icon="cdxIconArticleCheck" /> All reviewed!
+                <li v-if="!newArticles.length" class="rq-list-empty">
+                  <CdxIcon :icon="cdxIconArticleCheck" class="rq-empty-icon" />
+                  <span>All caught up!</span>
                 </li>
               </ul>
             </transition>
+          </div>
 
-            <!-- Reviewed by Other Judges -->
-            <div v-if="otherReviewedArticles.length" class="section-head" @click="showOtherReviewed = !showOtherReviewed">
-              <span class="section-dot other-dot"></span>
-              <span class="section-title">Other Judges</span>
-              <span class="section-count">{{ otherReviewedArticles.length }}</span>
-              <CdxIcon :icon="showOtherReviewed ? cdxIconUpTriangle : cdxIconDownTriangle" class="section-chevron" />
-            </div>
-            <ul v-if="showOtherReviewed && otherReviewedArticles.length" class="article-list">
-              <li
-                v-for="a in otherReviewedArticles"
-                :key="`other-${a.article_id}`"
-                class="article-item read-only-item"
-                :class="a.status"
-              >
-                <div class="item-body">
-                  <span class="item-title">{{ a.title }}</span>
-                  <span class="item-sub">{{ a.reviews.map(r => r.reviewer).join(', ') }}</span>
-                </div>
-              </li>
-            </ul>
+          <div class="rq-group" v-if="otherReviewedArticles.length">
+            <button class="rq-group-header" @click="showOtherReviewed = !showOtherReviewed">
+              <div class="rq-group-header-left">
+                <span class="rq-dot rq-dot-other"></span>
+                <span class="rq-group-title">Other Judges</span>
+                <span class="rq-group-count">{{ otherReviewedArticles.length }}</span>
+              </div>
+              <CdxIcon :icon="showOtherReviewed ? cdxIconUpTriangle : cdxIconDownTriangle" class="rq-group-chevron" />
+            </button>
+            <transition name="rq-slide">
+              <ul v-show="showOtherReviewed" class="rq-list">
+                <li
+                  v-for="a in otherReviewedArticles"
+                  :key="`other-${a.article_id}`"
+                  class="rq-list-item rq-item-readonly"
+                >
+                  <div class="rq-item-content">
+                    <span class="rq-item-title">{{ a.title }}</span>
+                    <span class="rq-item-meta">{{ a.reviews.map(r => r.reviewer).join(', ') }}</span>
+                  </div>
+                </li>
+              </ul>
+            </transition>
+          </div>
 
-            <!-- My Judged -->
-            <div class="section-head" @click="showJudgedArticles = !showJudgedArticles">
-              <span class="section-dot judged-dot"></span>
-              <span class="section-title">My Judged</span>
-              <span class="section-count">{{ judgedArticles.length }}</span>
-              <CdxIcon :icon="showJudgedArticles ? cdxIconUpTriangle : cdxIconDownTriangle" class="section-chevron" />
-            </div>
-            <transition name="section-slide">
-              <ul v-show="showJudgedArticles" class="article-list">
+          <div class="rq-group">
+            <button class="rq-group-header" @click="showJudgedArticles = !showJudgedArticles">
+              <div class="rq-group-header-left">
+                <span class="rq-dot rq-dot-judged"></span>
+                <span class="rq-group-title">My Judged</span>
+                <span class="rq-group-count">{{ judgedArticles.length }}</span>
+              </div>
+              <CdxIcon :icon="showJudgedArticles ? cdxIconUpTriangle : cdxIconDownTriangle" class="rq-group-chevron" />
+            </button>
+            
+            <transition name="rq-slide">
+              <ul v-show="showJudgedArticles" class="rq-list">
                 <li
                   v-for="a in judgedArticles"
                   :key="a.article_id"
-                  class="article-item"
-                  :class="[getMyLatestDecision(a), { active: currentArticle?.article_id === a.article_id }]"
+                  class="rq-list-item"
+                  :class="['rq-item-' + getMyLatestDecision(a), { 'is-active': currentArticle?.article_id === a.article_id }]"
                   @click="selectArticle(a)"
                 >
-                  <div class="item-body">
-                    <span class="item-title">{{ a.title }}</span>
-                    <span class="item-sub">{{ a.submitted_by }}</span>
+                  <div class="rq-item-content">
+                    <span class="rq-item-title">{{ a.title }}</span>
+                    <span class="rq-item-meta">{{ a.submitted_by }}</span>
                   </div>
                 </li>
-                <li v-if="!judgedArticles.length" class="empty-item">Nothing judged yet</li>
+                <li v-if="!judgedArticles.length" class="rq-list-empty">
+                  <span>Nothing judged yet</span>
+                </li>
               </ul>
             </transition>
-
           </div>
-        </aside>
+        </div>
+      </aside>
 
-            <div class="review-area" :class="{ 'mobile-hidden': mobileTab !== 'review' }">
-                <div v-if="!currentArticle" class="center-state full">
-          <div class="done-state">
-            <div class="done-icon"><CdxIcon :icon="cdxIconArticleCheck" /></div>
-            <h3>All Caught Up!</h3>
-            <p>You have reviewed all available articles.</p>
+      <main class="rq-main-content">
+        <div v-if="!currentArticle" class="rq-center-state rq-center-full">
+          <div class="rq-card-done">
+            <div class="rq-done-icon">
+              <CdxIcon :icon="cdxIconArticleCheck" />
+            </div>
+            <h3>Queue is Clear</h3>
+            <p>You have reviewed all available articles in your queue.</p>
           </div>
         </div>
 
         <template v-else>
-                    <div class="article-header">
-                        <button class="back-btn mobile-only" @click="mobileTab = 'list'">
+          <header class="rq-article-header">
+            <button class="rq-back-btn" @click="mobileTab = 'list'">
               <CdxIcon :icon="cdxIconArrowPrevious" /> Back
             </button>
-            <div class="article-header-info">
-              <a :href="articleUrl(currentArticle.title)" target="_blank" class="article-title-link" :title="currentArticle.title">
+            
+            <div class="rq-article-meta-area">
+              <a :href="articleUrl(currentArticle.title)" target="_blank" class="rq-article-title-link" :title="currentArticle.title">
                 {{ currentArticle.title }}
               </a>
-              <div class="article-meta">
-                <span class="meta-chip">by {{ currentArticle.submitted_by }}</span>
-                <span v-if="currentArticle.wiki_creation_date" class="meta-chip">
+              <div class="rq-tags">
+                <span class="rq-tag">by {{ currentArticle.submitted_by }}</span>
+                <span v-if="currentArticle.wiki_creation_date" class="rq-tag rq-tag-date">
                   {{ new Date(currentArticle.wiki_creation_date).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) }}
                 </span>
-                <span v-if="currentArticle.locked_by && currentArticle.locked_by !== myUsername" class="lock-chip">
+                <span v-if="currentArticle.locked_by && currentArticle.locked_by !== myUsername" class="rq-tag rq-tag-locked">
                   <CdxIcon :icon="cdxIconLock" /> {{ currentArticle.locked_by }} reviewing
                 </span>
-                <span v-if="getMyLatestDecision(currentArticle)" class="verdict-chip" :class="getMyLatestDecision(currentArticle)">
+                <span v-if="getMyLatestDecision(currentArticle)" class="rq-tag rq-tag-verdict" :class="'rq-tag-' + getMyLatestDecision(currentArticle)">
                   {{ getMyLatestDecision(currentArticle) === 'accepted' ? '✓ Accepted' : getMyLatestDecision(currentArticle) === 'rejected' ? '✕ Rejected' : '→ Skipped' }}
                 </span>
               </div>
             </div>
-            <a :href="articleUrl(currentArticle.title)" target="_blank" class="open-wiki-btn" title="Open on Wiktionary">
-              <CdxIcon :icon="cdxIconLinkExternal" /> Wiki
+            
+            <a :href="articleUrl(currentArticle.title)" target="_blank" class="rq-btn-secondary" title="Open on Wiktionary">
+              <CdxIcon :icon="cdxIconLinkExternal" /> <span class="rq-desktop-only">Wiki</span>
             </a>
-          </div>
+          </header>
 
-                    <div v-if="false && props.contest?.add_talk_template && talkPageSnippet" class="talk-card">
-            <CdxIcon :icon="cdxIconSpeechBubbles" class="talk-icon" />
-            <div class="talk-info">
-              <span class="talk-label">Talk Template</span>
-              <code class="talk-code">{{ talkPageSnippet.replace(/\n\n/g, '  |  ') }}</code>
-            </div>
-            <div class="talk-actions">
-              <button class="talk-copy-btn" @click="copyTalkSnippet">
-                <CdxIcon :icon="isCopiedTalkSnippet ? cdxIconCheck : cdxIconCopy" />
-                {{ isCopiedTalkSnippet ? 'Copied!' : 'Copy' }}
-              </button>
-              <a :href="'https://bn.wiktionary.org/wiki/আলাপ:' + encodeURIComponent(currentArticle.title)" target="_blank" class="talk-open-btn">
-              <CdxIcon :icon="cdxIconLinkExternal" /> Talk
-              </a>
-            </div>
-          </div>
-
-                    <div class="preview-wrap">
-            <div v-if="isLoadingPreview" class="preview-loading">
-              <div class="loading-spinner small"></div>
-              <span>Loading preview…</span>
+          <div class="rq-preview-container">
+            <div v-if="isLoadingPreview" class="rq-center-state">
+              <div class="rq-spinner rq-spinner-sm"></div>
+              <span class="rq-loading-text">Loading Wikipedia preview…</span>
             </div>
             <iframe
               v-else
-              class="wiki-iframe"
+              class="rq-wiki-iframe"
               sandbox="allow-scripts"
               :srcdoc="previewSrcdoc"
               referrerpolicy="no-referrer"
             ></iframe>
           </div>
 
-                    <div class="review-bar" :class="{ 'is-collapsed': reviewPanelCollapsed }">
-            <div class="review-bar-inner">
+          <footer class="rq-review-panel" :class="{ 'is-collapsed': reviewPanelCollapsed }">
+            <div class="rq-panel-header" @click="reviewPanelCollapsed = !reviewPanelCollapsed">
+              <div class="rq-panel-title">
+                <span class="rq-panel-kicker">DECISION PANEL</span>
+                <h3>Review this article</h3>
+              </div>
               <button
                 type="button"
-                class="review-panel-toggle"
-                :aria-label="reviewPanelCollapsed ? 'Expand review panel' : 'Collapse review panel'"
+                class="rq-icon-btn"
                 :title="reviewPanelCollapsed ? 'Expand review panel' : 'Collapse review panel'"
-                @click="reviewPanelCollapsed = !reviewPanelCollapsed"
-              ><CdxIcon :icon="reviewPanelCollapsed ? cdxIconExpand : cdxIconCollapse" /></button>
-              <div class="review-panel-heading">
-                <span class="review-panel-kicker">DECISION</span>
-                <h3>Review this article</h3>
-                <p>Leave an optional note, then choose a verdict.</p>
+              >
+                <CdxIcon :icon="reviewPanelCollapsed ? cdxIconExpand : cdxIconCollapse" />
+              </button>
+            </div>
+            
+            <div class="rq-panel-body" v-show="!reviewPanelCollapsed">
+              <div v-if="reviewError" class="rq-error-msg">{{ reviewError }}</div>
+              
+              <div class="rq-comment-field">
+                <input
+                  type="text"
+                  class="rq-input"
+                  v-model="comment"
+                  placeholder="Leave a note (optional)…"
+                />
               </div>
-              <template v-if="!reviewPanelCollapsed">
-                <div v-if="reviewError" class="review-error">{{ reviewError }}</div>
-                <div class="review-comment">
-                  <label for="jury-comment">Jury comment</label>
-                  <cdx-text-input
-                    id="jury-comment"
-                    v-model="comment"
-                    placeholder="Leave a note (optional)…"
-                  />
-                </div>
-                <div class="review-actions">
+
+              <div class="rq-action-buttons">
                 <button
-                  class="action-btn accept-btn"
+                  class="rq-btn rq-btn-accept"
                   :disabled="isSubmitting"
                   @click="handleDecision('accepted')"
                 >
-                  <CdxIcon :icon="cdxIconCheck" class="action-icon" />
-                  <span class="action-label">Accept</span>
+                  <CdxIcon :icon="cdxIconCheck" />
+                  <span>Accept</span>
                 </button>
                 <button
-                  class="action-btn reject-btn"
+                  class="rq-btn rq-btn-reject"
                   :disabled="isSubmitting"
                   @click="handleDecision('rejected')"
                 >
-                  <CdxIcon :icon="cdxIconClear" class="action-icon" />
-                  <span class="action-label">Reject</span>
+                  <CdxIcon :icon="cdxIconClear" />
+                  <span>Reject</span>
                 </button>
                 <button
-                  class="action-btn skip-btn"
+                  class="rq-btn rq-btn-skip"
                   :disabled="isSubmitting"
                   @click="skipArticle"
                 >
-                  <CdxIcon :icon="cdxIconNext" class="action-icon" />
-                  <span class="action-label">Skip</span>
+                  <CdxIcon :icon="cdxIconNext" />
+                  <span>Skip</span>
                 </button>
                 <button
-                  class="action-btn remove-btn"
+                  class="rq-btn rq-btn-remove"
                   :disabled="isSubmitting"
                   @click="handleRemove"
                 >
-                  <CdxIcon :icon="cdxIconTrash" class="action-icon" />
-                  <span class="action-label">Remove</span>
+                  <CdxIcon :icon="cdxIconTrash" />
+                  <span class="rq-desktop-only">Remove</span>
                 </button>
-                </div>
-              </template>
+              </div>
             </div>
-          </div>
+          </footer>
         </template>
-      </div>
+      </main>
     </div>
 
-        <nav class="mobile-bottom-nav mobile-only">
+    <nav class="rq-mobile-nav">
       <button
-        class="mob-nav-btn"
-        :class="{ active: mobileTab === 'list' }"
+        class="rq-nav-btn"
+        :class="{ 'is-active': mobileTab === 'list' }"
         @click="mobileTab = 'list'"
       >
-        <CdxIcon :icon="cdxIconMenu" class="mob-nav-icon" />
-        <span class="mob-nav-lbl">Articles <span class="mob-badge">{{ newArticles.length }}</span></span>
+        <CdxIcon :icon="cdxIconMenu" class="rq-nav-icon" />
+        <span class="rq-nav-label">Articles</span>
+        <span class="rq-nav-badge" v-if="newArticles.length">{{ newArticles.length }}</span>
       </button>
       <button
-        class="mob-nav-btn"
-        :class="{ active: mobileTab === 'review' }"
+        class="rq-nav-btn"
+        :class="{ 'is-active': mobileTab === 'review' }"
         @click="mobileTab = 'review'"
         :disabled="!currentArticle"
       >
-        <CdxIcon :icon="cdxIconArticle" class="mob-nav-icon" />
-        <span class="mob-nav-lbl">Review</span>
+        <CdxIcon :icon="cdxIconArticle" class="rq-nav-icon" />
+        <span class="rq-nav-label">Review</span>
       </button>
     </nav>
   </div>
 </template>
 
 <style scoped>
-/* ─── Base ─────────────────────────────────────────── */
-.review-queue {
+:root {
+  --rq-bg: #0b0f19;
+  --rq-surface: #121826;
+  --rq-surface-hover: #1c2438;
+  --rq-border: rgba(255, 255, 255, 0.08);
+  --rq-border-light: rgba(255, 255, 255, 0.12);
+  --rq-text: #f8fafc;
+  --rq-text-muted: #94a3b8;
+  --rq-accent: #6366f1;
+  --rq-accent-hover: #818cf8;
+  --rq-accent-bg: rgba(99, 102, 241, 0.15);
+  
+  --rq-success: #10b981;
+  --rq-success-dark: #059669;
+  --rq-danger: #ef4444;
+  --rq-danger-dark: #dc2626;
+  --rq-warning: #f59e0b;
+  
+  --rq-font: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.rq-app {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: #0a0a0a;
+  background: var(--rq-bg);
+  font-family: var(--rq-font);
+  color: var(--rq-text);
+  overflow: hidden;
   position: relative;
 }
 
-.center-state {
+/* Scrollbars */
+.rq-app *::-webkit-scrollbar { width: 6px; height: 6px; }
+.rq-app *::-webkit-scrollbar-track { background: transparent; }
+.rq-app *::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+.rq-app *::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+button, input { font-family: inherit; }
+button { cursor: pointer; }
+
+/* ─── Center States ─── */
+.rq-center-state {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -891,1169 +930,442 @@ const copyTalkSnippet = () => {
   flex: 1;
   padding: 40px 24px;
   gap: 16px;
-  color: #9ca3af;
+  color: var(--rq-text-muted);
 }
-
-.unauth-card {
+.rq-center-full { height: 100%; }
+.rq-card-unauth, .rq-card-done {
   text-align: center;
-  background: #1f1f1f;
-  border: 1px solid rgba(239, 68, 68, 0.25);
-  border-radius: 16px;
-  padding: 40px 48px;
-  max-width: 440px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-}
-.unauth-icon { font-size: 3rem; display: block; margin-bottom: 12px; }
-.unauth-card h2 { color: #f1f5f9; margin: 0 0 8px; font-size: 1.4rem; }
-.unauth-card p { color: #94a3b8; margin: 0; font-size: 0.9rem; line-height: 1.6; }
-
-.loading-spinner {
-  width: 36px; height: 36px;
-  border: 3px solid rgba(255,255,255,0.1);
-  border-top-color: #4f46e5;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-.loading-spinner.small { width: 20px; height: 20px; border-width: 2px; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.loading-text { color: #94a3b8; font-size: 0.9rem; margin: 0; }
-
-/* ─── Main Layout (desktop: sidebar + panel) ────────── */
-.main-layout {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-/* ─── Sidebar ───────────────────────────────────────── */
-.sidebar {
-  width: 260px;
-  flex-shrink: 0;
-  background: #0f1117;
-  border-right: 1px solid rgba(255,255,255,0.06);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  box-sizing: border-box;
-  z-index: 20;
-}
-
-/* Sidebar Header (pinned, never scrolls) */
-.sidebar-header {
-  flex-shrink: 0;
-  padding: 12px 14px 10px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  background: #0f1117;
-}
-.sidebar-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 4px;
-}
-.queue-eyebrow {
-  font-size: 0.58rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  color: #2e3a4a;
-  text-transform: uppercase;
-}
-.queue-live {
-  font-size: 0.58rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #1e4a2e;
-  border: 1px solid #1e3a2a;
-  border-radius: 4px;
-  padding: 1px 5px;
-}
-.sidebar-heading-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.sidebar-h2 {
-  margin: 0;
-  font-size: 0.92rem;
-  font-weight: 600;
-  color: #4a5568;
-  line-height: 1.2;
-}
-
-/* Sidebar collapse toggle — inline in heading row, no overlap */
-.sidebar-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 5px;
-  background: rgba(255,255,255,0.03);
-  color: #3d4a5c;
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-}
-.sidebar-toggle:hover { background: rgba(255,255,255,0.07); color: #6b7280; }
-
-/* Compact stat strip */
-.stat-strip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.sstat {
-  display: flex;
-  align-items: baseline;
-  gap: 3px;
-}
-.snum {
-  font-size: 0.88rem;
-  font-weight: 700;
-  line-height: 1;
-}
-.slbl {
-  font-size: 0.62rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.sstat-sep { color: #1e2635; font-size: 0.75rem; }
-.sstat.total .snum  { color: #3d4a5c; }
-.sstat.total .slbl  { color: #2a3444; }
-.sstat.pending .snum { color: #7c5a1a; }
-.sstat.pending .slbl { color: #5a4212; }
-.sstat.accepted .snum { color: #1a5c32; }
-.sstat.accepted .slbl { color: #133d22; }
-.sstat.rejected .snum { color: #7c1a1a; }
-.sstat.rejected .slbl { color: #5a1212; }
-
-/* Bulk Banner */
-.bulk-banner {
-  flex-shrink: 0;
-  padding: 8px 12px;
-  background: #111111;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.bulk-label { font-size: 0.75rem; font-weight: 600; color: #5a6478; white-space: nowrap; }
-.bulk-btns { display: flex; gap: 5px; flex-wrap: wrap; }
-.bbtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px; height: 28px;
-  padding: 0;
-  border: none;
-  border-radius: 5px;
-  font-size: 0.75rem;
-  cursor: pointer;
-  color: #fff;
-  transition: filter 0.15s, transform 0.1s;
-}
-.bbtn:disabled { opacity: 0.4; cursor: not-allowed; }
-.bbtn:active:not(:disabled) { transform: scale(0.93); }
-.bbtn.accept { background: #15532a; }
-.bbtn.accept:hover:not(:disabled) { background: #166534; }
-.bbtn.reject { background: #7f1d1d; }
-.bbtn.reject:hover:not(:disabled) { background: #991b1b; }
-.bbtn.skip { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); }
-.bbtn.skip:hover:not(:disabled) { background: rgba(255,255,255,0.1); }
-.bbtn.remove { background: #450a0a; }
-.bbtn.remove:hover:not(:disabled) { background: #7f1d1d; }
-
-/* ── Sidebar Scroll container ── */
-.sidebar-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  display: flex;
-  flex-direction: column;
-}
-.sidebar-scroll::-webkit-scrollbar { width: 2px; }
-.sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 2px; }
-
-/* Section Headers — sticky within sidebar-scroll */
-.section-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 8px 14px;
-  cursor: pointer;
-  user-select: none;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  background: #0f1117;
-  transition: background 0.12s;
-  flex-shrink: 0;
-}
-.section-head:hover { background: rgba(255,255,255,0.03); }
-.section-title {
-  flex: 1;
-  font-size: 0.67rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #2e3a4a;
-}
-.section-dot {
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.pending-dot  { background: #78450a; }
-.judged-dot   { background: #14532d; }
-.other-dot    { background: #1e3a5a; }
-.section-count {
-  font-size: 0.67rem;
-  font-weight: 600;
-  color: #2a3444;
-  background: rgba(255,255,255,0.04);
-  border-radius: 8px;
-  padding: 1px 6px;
-}
-.section-chevron { color: #2a3444; flex-shrink: 0; }
-
-/* Article List */
-.article-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-/* Article Items — color coded by status via left border */
-.article-item {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 8px 12px 8px 14px;
-  cursor: pointer;
-  transition: background 0.1s;
-  border-bottom: 1px solid rgba(255,255,255,0.025);
-  border-left: 3px solid transparent;
-}
-.article-item:hover { background: rgba(255,255,255,0.035); }
-
-/* Pending = amber left bar */
-.article-item.pending-item { border-left-color: #78450a; }
-.article-item.pending-item:hover { background: rgba(120,69,10,0.07); }
-
-/* Active = indigo left bar */
-.article-item.active {
-  background: rgba(55,48,163,0.14);
-  border-left-color: #4338ca;
-}
-.article-item.active .item-title { color: #6366f1; }
-
-/* Judged items colored by verdict */
-.article-item.accepted { border-left-color: #14532d; }
-.article-item.accepted:hover { background: rgba(20,83,45,0.07); }
-.article-item.rejected { border-left-color: #7f1d1d; }
-.article-item.rejected:hover { background: rgba(127,29,29,0.07); }
-.article-item.skipped  { border-left-color: #2a3444; }
-.article-item.locked   { opacity: 0.55; }
-.article-item.read-only-item { cursor: default; }
-
-.cb-wrap { flex-shrink: 0; display: flex; align-items: center; }
-.bulk-cb {
-  width: 13px; height: 13px;
-  cursor: pointer;
-  accent-color: #4338ca;
-}
-
-.item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.item-title {
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: #3d4a5c;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.3;
-}
-.item-sub {
-  font-size: 0.67rem;
-  color: #252f3d;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.lock-badge { color: #3d4a5c; flex-shrink: 0; }
-
-.empty-item {
-  padding: 18px 14px;
-  color: rgba(255,255,255,0.14);
-  font-size: 0.75rem;
-  font-style: italic;
-  text-align: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-
-/* Section slide animation */
-.section-slide-enter-active,
-.section-slide-leave-active { transition: opacity 0.15s ease; }
-.section-slide-enter-from,
-.section-slide-leave-to { opacity: 0; }
-
-/* ─── Review Area ────────────────────────────────────── */
-.review-area {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: #0a0a0a;
-  min-width: 0;
-}
-.review-area.full { flex: 1; }
-
-.done-state {
-  text-align: center;
-  background: #131520;
-  border: 1px solid rgba(99,102,241,0.2);
+  background: var(--rq-surface);
+  border: 1px solid var(--rq-border);
   border-radius: 16px;
   padding: 48px;
-  max-width: 360px;
+  max-width: 400px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.3);
 }
-.done-icon { font-size: 3rem; margin-bottom: 12px; }
-.done-state h3 { color: #e2e8f0; margin: 0 0 8px; font-size: 1.2rem; }
-.done-state p { color: #64748b; margin: 0; font-size: 0.9rem; }
+.rq-card-unauth { border-color: rgba(239, 68, 68, 0.3); }
+.rq-icon-large, .rq-done-icon { font-size: 3rem; margin-bottom: 16px; }
+.rq-done-icon { color: var(--rq-success); }
+.rq-card-unauth h2, .rq-card-done h3 { color: var(--rq-text); margin: 0 0 8px; font-size: 1.4rem; font-weight: 600; }
+.rq-card-unauth p, .rq-card-done p { color: var(--rq-text-muted); margin: 0; font-size: 0.95rem; line-height: 1.6; }
 
-/* Article Header Bar */
-.article-header {
+.rq-spinner {
+  width: 40px; height: 40px;
+  border: 3px solid rgba(255,255,255,0.1);
+  border-top-color: var(--rq-accent);
+  border-radius: 50%;
+  animation: rq-spin 0.8s linear infinite;
+}
+.rq-spinner-sm { width: 24px; height: 24px; border-width: 2px; }
+@keyframes rq-spin { to { transform: rotate(360deg); } }
+.rq-loading-text { font-size: 0.95rem; font-weight: 500; }
+
+/* ─── Main Layout ─── */
+.rq-main-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ─── Sidebar ─── */
+.rq-sidebar {
+  width: 320px;
+  flex-shrink: 0;
+  background: var(--rq-surface);
+  border-right: 1px solid var(--rq-border);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 20;
+}
+.rq-sidebar.is-collapsed { width: 68px; }
+
+.rq-sidebar-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--rq-border);
+  background: rgba(18, 24, 38, 0.95);
+  backdrop-filter: blur(8px);
+  z-index: 10;
+}
+.rq-sidebar.is-collapsed .rq-sidebar-header { padding: 16px 12px; }
+
+.rq-sidebar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.rq-sidebar.is-collapsed .rq-sidebar-top { justify-content: center; margin-bottom: 0; }
+.rq-sidebar.is-collapsed .rq-brand-eyebrow { display: none; }
+
+.rq-brand-eyebrow { display: flex; align-items: center; gap: 8px; }
+.rq-eyebrow-text { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--rq-text-muted); }
+.rq-badge-live { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; background: rgba(16, 185, 129, 0.15); color: var(--rq-success); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.2); }
+
+.rq-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px; height: 32px;
+  padding: 0;
+  border: 1px solid var(--rq-border);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.03);
+  color: var(--rq-text-muted);
+  transition: all 0.2s;
+}
+.rq-icon-btn:hover { background: rgba(255,255,255,0.08); color: var(--rq-text); }
+
+.rq-sidebar-title-row { margin-bottom: 16px; }
+.rq-sidebar-title { margin: 0; font-size: 1.2rem; font-weight: 600; color: var(--rq-text); }
+
+.rq-stats-strip { display: flex; gap: 8px; }
+.rq-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(0,0,0,0.2);
+  border: 1px solid var(--rq-border);
+  border-radius: 8px;
+  padding: 6px 4px;
+}
+.rq-stat-pending { border-color: rgba(245, 158, 11, 0.2); }
+.rq-stat-ok { border-color: rgba(16, 185, 129, 0.2); }
+.rq-stat-rej { border-color: rgba(239, 68, 68, 0.2); }
+
+.rq-stat-val { font-size: 0.95rem; font-weight: 700; color: var(--rq-text); }
+.rq-stat-pending .rq-stat-val { color: var(--rq-warning); }
+.rq-stat-ok .rq-stat-val { color: var(--rq-success); }
+.rq-stat-rej .rq-stat-val { color: var(--rq-danger); }
+
+.rq-stat-lbl { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--rq-text-muted); margin-top: 2px; }
+
+/* Bulk Banner */
+.rq-bulk-banner {
+  padding: 12px 20px;
+  background: rgba(99, 102, 241, 0.1);
+  border-bottom: 1px solid var(--rq-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.rq-bulk-count { font-size: 0.8rem; font-weight: 600; color: var(--rq-accent); }
+.rq-bulk-actions { display: flex; gap: 6px; }
+.rq-bbtn {
+  width: 30px; height: 30px;
+  border-radius: 6px;
+  border: none;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff;
+  transition: transform 0.1s, filter 0.2s;
+}
+.rq-bbtn:hover:not(:disabled) { filter: brightness(1.2); }
+.rq-bbtn:active:not(:disabled) { transform: scale(0.95); }
+.rq-bbtn:disabled { opacity: 0.5; cursor: not-allowed; }
+.rq-bbtn-accept { background: var(--rq-success-dark); }
+.rq-bbtn-reject { background: var(--rq-danger-dark); }
+.rq-bbtn-skip { background: rgba(255,255,255,0.1); border: 1px solid var(--rq-border-light); }
+.rq-bbtn-remove { background: #450a0a; border: 1px solid rgba(239,68,68,0.3); }
+
+/* Sidebar Scroll */
+.rq-sidebar-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 24px;
+}
+.rq-group { margin-bottom: 8px; }
+.rq-group-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--rq-surface);
+}
+.rq-group-header:hover { background: var(--rq-surface-hover); }
+.rq-group-header-left { display: flex; align-items: center; gap: 10px; }
+.rq-dot { width: 8px; height: 8px; border-radius: 50%; }
+.rq-dot-pending { background: var(--rq-warning); box-shadow: 0 0 8px rgba(245, 158, 11, 0.4); }
+.rq-dot-other { background: var(--rq-text-muted); }
+.rq-dot-judged { background: var(--rq-success); }
+.rq-group-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--rq-text); }
+.rq-group-count { background: rgba(255,255,255,0.08); padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; font-weight: 600; color: var(--rq-text-muted); }
+.rq-group-chevron { color: var(--rq-text-muted); font-size: 1.2rem; transition: transform 0.2s; }
+
+.rq-list { list-style: none; padding: 0; margin: 0; }
+.rq-list-item {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 12px 20px;
-  background: #131520;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  flex-shrink: 0;
-  flex-wrap: wrap;
-  min-height: 56px;
-}
-.article-header-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.article-title-link {
-  font-size: 1rem;
-  font-weight: 700;
-  color: #e2e8f0;
-  text-decoration: none;
-  font-family: 'Linux Libertine', Georgia, Times, serif;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: block;
-}
-.article-title-link:hover { color: #a5b4fc; }
-.article-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-}
-.meta-chip {
-  font-size: 0.72rem;
-  color: #64748b;
-  background: rgba(255,255,255,0.05);
-  padding: 2px 8px;
-  border-radius: 6px;
-}
-.lock-chip {
-  font-size: 0.72rem;
-  color: #f59e0b;
-  background: rgba(245,158,11,0.1);
-  padding: 2px 8px;
-  border-radius: 6px;
-}
-.verdict-chip {
-  font-size: 0.72rem;
-  font-weight: 600;
-  padding: 2px 9px;
-  border-radius: 6px;
-}
-.verdict-chip.accepted { background: rgba(34,197,94,0.15); color: #22c55e; }
-.verdict-chip.rejected { background: rgba(239,68,68,0.15); color: #ef4444; }
-.verdict-chip.skipped { background: rgba(148,163,184,0.12); color: #94a3b8; }
-.open-wiki-btn {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: #a5b4fc;
-  background: rgba(99,102,241,0.1);
-  border: 1px solid rgba(99,102,241,0.2);
-  padding: 5px 12px;
-  border-radius: 8px;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: background 0.15s;
-  flex-shrink: 0;
-}
-.open-wiki-btn:hover { background: rgba(99,102,241,0.2); }
-
-/* Talk Template Card */
-.talk-card {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 16px;
-  background: #111;
-  border-bottom: 1px solid rgba(255,255,255,0.12);
-  flex-shrink: 0;
-  flex-wrap: wrap;
-}
-.talk-icon { font-size: 1rem; flex-shrink: 0; }
-.talk-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.talk-label { font-size: 0.67rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #fff; }
-.talk-code { font-size: 0.8rem; color: #e5e5e5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: monospace; }
-.talk-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
-.talk-copy-btn {
-  background: #222;
-  color: #fff;
-  border: none;
-  padding: 5px 12px;
-  border-radius: 7px;
-  font-size: 0.75rem;
-  font-weight: 600;
+  border-bottom: 1px solid rgba(255,255,255,0.02);
+  border-left: 3px solid transparent;
   cursor: pointer;
   transition: background 0.15s;
-  white-space: nowrap;
 }
-.talk-copy-btn:hover { background: #333; }
-.talk-open-btn {
-  color: #e5e5e5;
-  font-size: 0.75rem;
-  font-weight: 500;
-  text-decoration: none;
-  white-space: nowrap;
+.rq-list-item:hover { background: rgba(255,255,255,0.02); }
+.rq-list-item.is-active {
+  background: var(--rq-accent-bg);
+  border-left-color: var(--rq-accent);
 }
-.talk-open-btn:hover { text-decoration: underline; }
+.rq-item-pending { border-left-color: rgba(245, 158, 11, 0.4); }
+.rq-item-accepted { border-left-color: rgba(16, 185, 129, 0.4); }
+.rq-item-rejected { border-left-color: rgba(239, 68, 68, 0.4); }
+.rq-item-skipped { border-left-color: rgba(148, 163, 184, 0.4); }
+.rq-item-readonly { cursor: default; }
 
-/* Preview */
-.preview-wrap {
+.rq-cb-wrapper { display: flex; align-items: center; }
+.rq-cb { width: 16px; height: 16px; accent-color: var(--rq-accent); cursor: pointer; }
+
+.rq-item-content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.rq-item-title { font-size: 0.9rem; font-weight: 500; color: var(--rq-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rq-list-item.is-active .rq-item-title { color: var(--rq-accent-hover); font-weight: 600; }
+.rq-item-meta { font-size: 0.75rem; color: var(--rq-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rq-list-item.is-locked { opacity: 0.6; }
+.rq-icon-lock { color: var(--rq-text-muted); font-size: 1.1rem; }
+
+.rq-list-empty { padding: 24px; text-align: center; color: var(--rq-text-muted); font-size: 0.85rem; font-style: italic; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.rq-empty-icon { font-size: 1.5rem; opacity: 0.5; }
+
+/* ─── Main Content (Review Area) ─── */
+.rq-main-content {
   flex: 1;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: #0a0a0a;
-  min-height: 0;
-}
-.preview-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  gap: 12px;
-  color: #64748b;
-  font-size: 0.85rem;
-}
-.wiki-iframe {
-  flex: 1;
-  width: 100%;
-  border: none;
-  background: #0a0a0a;
-  min-height: 0;
-}
-
-/* Review Action Bar */
-.review-bar {
-  background: #131520;
-  border-top: 1px solid rgba(255,255,255,0.07);
-  box-shadow: 0 -4px 24px rgba(0,0,0,0.35);
-  flex-shrink: 0;
-  padding: 12px 16px;
-  z-index: 10;
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
-}
-.review-bar-inner {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  width: 100%;
   min-width: 0;
+  background: var(--rq-bg);
   position: relative;
 }
-.review-comment { flex: 1; min-width: 180px; }
-.review-actions { display: flex; gap: 8px; flex-shrink: 0; }
-.action-btn {
+
+.rq-article-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 9px 18px;
-  border: none;
-  border-radius: 10px;
-  font-size: 0.85rem;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background: var(--rq-surface);
+  border-bottom: 1px solid var(--rq-border);
+  gap: 16px;
+  z-index: 10;
+}
+.rq-back-btn { display: none; }
+.rq-article-meta-area { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.rq-article-title-link {
+  font-size: 1.25rem;
   font-weight: 700;
-  cursor: pointer;
-  transition: filter 0.15s, transform 0.1s;
-  color: #fff;
+  color: var(--rq-text);
+  text-decoration: none;
+  font-family: 'Linux Libertine', Georgia, Times, serif;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: color 0.2s;
 }
-.action-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.action-btn:active:not(:disabled) { transform: scale(0.96); }
-.action-btn .action-icon { font-size: 1rem; }
-.accept-btn { background: linear-gradient(135deg, #16a34a, #15803d); box-shadow: 0 2px 12px rgba(22,163,74,0.3); }
-.accept-btn:hover:not(:disabled) { filter: brightness(1.1); }
-.reject-btn { background: linear-gradient(135deg, #dc2626, #b91c1c); box-shadow: 0 2px 12px rgba(220,38,38,0.3); }
-.reject-btn:hover:not(:disabled) { filter: brightness(1.1); }
-.remove-btn { background: linear-gradient(135deg, #991b1b, #7f1d1d); box-shadow: 0 2px 12px rgba(153,27,27,0.3); }
-.remove-btn:hover:not(:disabled) { filter: brightness(1.1); }
-.skip-btn { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); color: #94a3b8; }
-.skip-btn:hover:not(:disabled) { background: rgba(255,255,255,0.12); color: #e2e8f0; }
+.rq-article-title-link:hover { color: var(--rq-accent-hover); }
 
-/* Back button (mobile) */
-.back-btn {
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.1);
-  color: #94a3b8;
-  padding: 5px 12px;
-  border-radius: 8px;
-  font-size: 0.8rem;
+.rq-tags { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rq-tag { font-size: 0.75rem; font-weight: 500; color: var(--rq-text-muted); background: rgba(255,255,255,0.05); padding: 4px 10px; border-radius: 6px; }
+.rq-tag-locked { background: rgba(245, 158, 11, 0.15); color: var(--rq-warning); display: flex; align-items: center; gap: 4px; }
+.rq-tag-verdict { font-weight: 600; }
+.rq-tag-accepted { background: rgba(16, 185, 129, 0.15); color: var(--rq-success); }
+.rq-tag-rejected { background: rgba(239, 68, 68, 0.15); color: var(--rq-danger); }
+.rq-tag-skipped { background: rgba(148, 163, 184, 0.15); color: var(--rq-text-muted); }
+
+.rq-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
   font-weight: 600;
-  cursor: pointer;
-  flex-shrink: 0;
-  white-space: nowrap;
-  transition: background 0.15s;
+  color: var(--rq-accent-hover);
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  padding: 8px 16px;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: background 0.2s;
 }
-.back-btn:hover { background: rgba(255,255,255,0.12); color: #e2e8f0; }
+.rq-btn-secondary:hover { background: rgba(99, 102, 241, 0.2); }
 
-/* ─── Mobile Bottom Nav ─────────────────────────────── */
-.mobile-bottom-nav {
+.rq-preview-container {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+}
+.rq-wiki-iframe { flex: 1; width: 100%; border: none; }
+
+/* Review Panel */
+.rq-review-panel {
+  flex-shrink: 0;
+  background: rgba(18, 24, 38, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--rq-border-light);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
+  z-index: 20;
+}
+.rq-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  cursor: pointer;
+}
+.rq-panel-title { display: flex; align-items: center; gap: 16px; }
+.rq-panel-kicker { font-size: 0.65rem; font-weight: 700; color: var(--rq-text-muted); letter-spacing: 0.1em; text-transform: uppercase; border-right: 1px solid var(--rq-border); padding-right: 16px; }
+.rq-panel-title h3 { margin: 0; font-size: 1rem; font-weight: 600; color: var(--rq-text); }
+.rq-review-panel.is-collapsed .rq-panel-header { border-bottom: none; }
+
+.rq-panel-body {
+  padding: 0 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.rq-error-msg { color: var(--rq-danger); font-size: 0.85rem; padding: 8px; background: rgba(239,68,68,0.1); border-radius: 6px; }
+
+.rq-comment-field { width: 100%; }
+.rq-input {
+  width: 100%;
+  background: rgba(0,0,0,0.2);
+  border: 1px solid var(--rq-border-light);
+  border-radius: 8px;
+  padding: 12px 16px;
+  color: var(--rq-text);
+  font-size: 0.95rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.rq-input:focus { outline: none; border-color: var(--rq-accent); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2); }
+.rq-input::placeholder { color: rgba(255,255,255,0.3); }
+
+.rq-action-buttons {
+  display: flex;
+  gap: 12px;
+}
+.rq-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border: none;
+  color: #fff;
+  transition: transform 0.1s, filter 0.2s, box-shadow 0.2s;
+}
+.rq-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.rq-btn:active:not(:disabled) { transform: translateY(1px); }
+.rq-btn:hover:not(:disabled) { filter: brightness(1.1); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+
+.rq-btn-accept { background: linear-gradient(135deg, var(--rq-success), var(--rq-success-dark)); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2); }
+.rq-btn-reject { background: linear-gradient(135deg, var(--rq-danger), var(--rq-danger-dark)); box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2); }
+.rq-btn-skip { background: rgba(255,255,255,0.08); border: 1px solid var(--rq-border-light); color: var(--rq-text); }
+.rq-btn-remove { background: #450a0a; border: 1px solid rgba(239,68,68,0.3); flex: 0 0 auto; padding: 12px 16px; }
+.rq-btn-remove:hover:not(:disabled) { background: var(--rq-danger-dark); }
+
+/* ─── Mobile Bottom Nav ─── */
+.rq-mobile-nav {
   display: none;
-  position: fixed;
-  bottom: 0;
-  left: 0; right: 0;
-  background: #131520;
-  border-top: 1px solid rgba(255,255,255,0.08);
-  z-index: 100;
-  box-shadow: 0 -4px 24px rgba(0,0,0,0.5);
+  background: rgba(18, 24, 38, 0.98);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--rq-border);
   padding-bottom: env(safe-area-inset-bottom);
 }
-.mob-nav-btn {
+.rq-nav-btn {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
-  padding: 10px 8px;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 8px;
   background: none;
   border: none;
-  color: #64748b;
-  font-size: 0.7rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: color 0.15s;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  color: var(--rq-text-muted);
+  transition: color 0.2s;
+  position: relative;
 }
-.mob-nav-btn:disabled { opacity: 0.35; cursor: default; }
-.mob-nav-btn.active { color: #818cf8; }
-.mob-nav-icon { font-size: 1.2rem; }
-.mob-nav-lbl { display: flex; align-items: center; gap: 4px; }
-.mob-badge {
-  background: #4f46e5;
-  color: #fff;
-  font-size: 0.6rem;
-  padding: 1px 5px;
-  border-radius: 8px;
-  font-weight: 700;
-}
+.rq-nav-btn.is-active { color: var(--rq-accent-hover); }
+.rq-nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.rq-nav-icon { font-size: 1.4rem; }
+.rq-nav-label { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.rq-nav-badge { position: absolute; top: 6px; right: 25%; background: var(--rq-accent); color: #fff; font-size: 0.6rem; font-weight: 700; padding: 2px 6px; border-radius: 10px; }
 
-/* ─── Responsive Breakpoints ────────────────────────── */
-.mobile-only { display: none; }
-
+/* ─── Responsive (Mobile) ─── */
 @media (max-width: 768px) {
-  .mobile-only { display: flex; }
+  .rq-desktop-only { display: none; }
+  
+  .rq-sidebar.is-collapsed { width: 100%; } /* prevent desktop collapse styling on mobile */
 
-  .review-queue {
-    height: 100%;
-    min-height: 0;
-    background: #080a10;
+  .rq-main-layout {
+    flex-direction: row;
+    width: 200%;
+    transform: translateX(0);
+    transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
-
-  .main-layout {
-    flex-direction: column;
-    height: calc(100% - 60px);
-    flex: 0 0 calc(100% - 60px);
-    min-height: 0;
-    overflow: hidden;
+  .rq-main-layout.is-mobile-review {
+    transform: translateX(-50%);
   }
 
-  .sidebar {
-    width: 100%;
-    height: 100%;
-    min-height: 0;
-    padding: 12px 12px 18px;
-    gap: 8px;
-    background: linear-gradient(180deg, #111522 0%, #080a10 100%);
-    border: 0;
-    overflow-y: auto;
-    overflow-x: hidden;
-    box-sizing: border-box;
-    flex-shrink: 0;
-  }
-  .sidebar > * { flex-shrink: 0; }
-  .sidebar-stats {
-    gap: 8px;
-    padding: 0 0 4px;
-  }
-  .stat-pill {
-    min-height: 58px;
-    border-radius: 12px;
-    border: 1px solid rgba(255,255,255,0.07);
-    background: rgba(255,255,255,0.035);
-  }
-  .stat-num { font-size: 1.25rem; }
-  .section-head {
-    min-height: 46px;
-    padding: 0 12px;
-    border: 1px solid rgba(255,255,255,0.07);
-    border-radius: 12px;
-    background: rgba(255,255,255,0.035);
-  }
-  .article-list {
-    max-height: none;
-    overflow: visible;
-    padding: 0;
-  }
-  .article-item {
-    min-height: 62px;
-    margin: 4px 0;
-    padding: 11px 12px;
-    border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 12px;
-    background: rgba(255,255,255,0.025);
-  }
-  .article-item.active {
-    background: rgba(99,102,241,0.16);
-    border-color: rgba(129,140,248,0.45);
-    box-shadow: 0 4px 18px rgba(0,0,0,0.18);
-  }
-  .item-title { font-size: 0.92rem; }
-  .item-sub { font-size: 0.72rem; }
-  .bulk-banner {
-    margin: 0;
-    padding: 10px 12px;
-    border-radius: 12px;
-  }
-  .sidebar-toggle { display: none !important; }
-  .sidebar.collapsed { width: 100%; background: #080a10; }
+  .rq-sidebar { width: 50%; border-right: none; }
+  .rq-main-content { width: 50%; }
 
-  .review-area {
-    width: 100%;
-    height: 100%;
-    flex: 0 0 100%;
-    min-height: 0;
-    /* Allow vertical scroll so content under fixed bars is reachable */
-    overflow-y: auto;
-    overflow-x: hidden;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
-    background: #080a10;
-    /* Reserve space for fixed review-bar (~110px) + bottom nav (60px) */
-    padding-bottom: 174px;
-    box-sizing: border-box;
-  }
-  .review-area.mobile-hidden,
-  .sidebar.mobile-hidden {
-    display: none !important;
-  }
+  .rq-mobile-nav { display: flex; }
+  .rq-app { padding-bottom: 0; } /* We place the nav inside the flex column instead */
+  
+  /* Layout tweaks for mobile */
+  .rq-sidebar-header { padding: 12px 16px; }
+  .rq-sidebar-top { margin-bottom: 8px; }
+  .rq-collapse-btn { display: none; } /* Hide sidebar toggle on mobile */
+  .rq-sidebar-title { font-size: 1.1rem; }
+  .rq-stats-strip { overflow-x: auto; padding-bottom: 4px; }
+  .rq-stat { flex: 0 0 auto; min-width: 70px; }
 
-  .article-header {
-    flex: 0 0 auto;
-    min-height: 62px;
-    padding: 10px 12px;
-    gap: 8px;
-    background: rgba(17,21,34,0.98);
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-  }
-  .back-btn {
+  .rq-list-item { padding: 12px 16px; }
+
+  .rq-article-header { padding: 12px 16px; gap: 12px; }
+  .rq-back-btn { 
     display: inline-flex;
-    flex-shrink: 0;
-    padding: 7px 9px;
-    border-radius: 9px;
-    font-size: 0.76rem;
-  }
-  .article-header-info { gap: 4px; }
-  .article-title-link {
-    max-width: 52vw;
-    font-size: 0.94rem;
-  }
-  .article-meta { gap: 4px; }
-  .meta-chip {
-    max-width: 38vw;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .open-wiki-btn {
-    flex-shrink: 0;
-    padding: 7px 9px;
-    border-radius: 9px;
-    font-size: 0.72rem;
-  }
-
-  .preview-wrap {
-    flex: 1 1 0;
-    min-height: 0;
-    height: auto;
-    background: #0a0a0a;
-  }
-  .wiki-iframe {
-    display: block;
-    width: 100%;
-    height: 100%;
-    min-height: 0;
-  }
-
-  .review-bar {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 60px;
-    width: 100%;
-    z-index: 40;
-    flex: none;
-    margin: 0;
-    padding: 9px 10px 10px;
-    background: #111522;
-    border-top: 1px solid rgba(255,255,255,0.1);
-    box-shadow: 0 -8px 24px rgba(0,0,0,0.28);
-  }
-  .review-bar-inner {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-  }
-  .review-comment { width: 100%; min-width: 0; }
-  .review-comment .cdx-text-input { width: 100%; }
-  .review-actions {
-    width: 100%;
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 6px;
-  }
-  .action-btn {
-    width: 100%;
-    min-width: 0;
-    min-height: 40px;
-    padding: 8px 4px;
-    border-radius: 9px;
-    justify-content: center;
-  }
-  .action-btn .action-label { display: none; }
-  .action-btn .action-icon { font-size: 1.05rem; }
-
-  .mobile-bottom-nav {
-    display: flex;
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    flex: none;
-    height: 60px;
-    min-height: 60px;
-    padding: 5px 10px calc(5px + env(safe-area-inset-bottom));
-    box-sizing: border-box;
-    background: rgba(13,16,26,0.98);
-    border-top: 1px solid rgba(255,255,255,0.1);
-    z-index: 30;
-  }
-  .mob-nav-btn {
-    min-height: 46px;
-    border-radius: 11px;
-    color: #64748b;
-  }
-  .mob-nav-btn.active {
-    color: #c7d2fe;
-    background: rgba(99,102,241,0.16);
-  }
-
-  .mobile-hidden { display: none !important; }
-  .review-queue { padding-bottom: 0; }
-}
-
-.review-error {
-  flex: 0 0 100%;
-  color: #fca5a5;
-  font-size: 0.85rem;
-  padding: 0 0 6px;
-}
-
-@media (max-width: 480px) {
-  .sidebar { padding: 10px 10px 16px; }
-  .stat-pill { min-height: 54px; }
-  .action-btn { min-height: 38px; }
-}
-
-/* Retained desktop collapse rules; mobile uses the dedicated two-screen layout above. */
-@media (min-width: 769px) {
-  .review-area { min-height: 0; }
-}
-
-/* Calm monochrome review workspace */
-.review-queue,
-.review-area,
-.preview-wrap { background: var(--background-color-base); }
-.main-layout { background: var(--background-color-base); }
-.sidebar {
-  width: 320px;
-  background: var(--background-color-neutral-subtle);
-  border-right: 1px solid var(--border-color-muted);
-}
-.sidebar-toggle,
-.sidebar.collapsed .sidebar-toggle {
-  background: var(--background-color-interactive);
-  border-color: var(--border-color-base);
-  color: var(--color-emphasized);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.55);
-}
-.sidebar-toggle:hover { background: var(--background-color-interactive--hover); }
-.sidebar-stats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  padding: 16px;
-  border-bottom-color: #292929;
-}
-.stat-pill,
-.stat-pill.pending,
-.stat-pill.accepted,
-.stat-pill.rejected,
-.stat-pill.total {
-  background: var(--background-color-interactive-subtle);
-  border: 1px solid var(--border-color-muted);
-  border-radius: 7px;
-  padding: 10px 8px;
-}
-.stat-pill:hover { background: var(--background-color-interactive); }
-.stat-num { color: var(--color-emphasized); font-size: 1.15rem; }
-.stat-lbl { color: var(--color-subtle); }
-.section-head {
-  position: static;
-  background: var(--background-color-neutral-subtle);
-  border-bottom: 1px solid var(--border-color-muted);
-  padding: 13px 16px;
-}
-.section-head:hover { background: var(--background-color-interactive-subtle--hover); }
-.section-title { color: var(--color-neutral); }
-.section-dot,
-.pending-dot,
-.judged-dot { background: var(--color-subtle); }
-.section-count {
-  color: var(--color-base);
-  background: var(--background-color-neutral);
-  border: 1px solid var(--border-color-muted);
-}
-.section-chevron { color: var(--color-subtle); }
-.article-list { padding: 6px 8px; }
-.article-item {
-  padding: 12px 10px;
-  border: 1px solid transparent;
-  border-bottom-color: var(--border-color-muted);
-}
-.article-item:hover { background: var(--background-color-interactive-subtle--hover); }
-.article-item.active {
-  background: var(--background-color-interactive);
-  border-left: 3px solid var(--color-emphasized);
-  border-top-color: var(--border-color-base);
-  border-right-color: var(--border-color-base);
-}
-.article-item.active .item-title { color: var(--color-emphasized); }
-.item-title { color: var(--color-base); }
-.item-sub { color: var(--color-subtle); }
-.verdict-badge,
-.verdict-badge.accepted,
-.verdict-badge.rejected,
-.verdict-badge.skipped {
-  background: var(--background-color-neutral);
-  color: var(--color-neutral);
-  border: 1px solid var(--border-color-muted);
-}
-.review-area { border-left: 1px solid #1e1e1e; }
-.article-header {
-  padding: 18px 28px;
-  background: var(--background-color-neutral-subtle);
-  border-bottom-color: var(--border-color-muted);
-}
-.article-title-link { color: var(--color-emphasized); font-size: 1.08rem; }
-.article-title-link:hover { color: var(--color-base--hover); }
-.meta-chip {
-  background: var(--background-color-interactive-subtle);
-  color: var(--color-subtle);
-  border: 1px solid var(--border-color-muted);
-}
-.open-wiki-btn {
-  color: var(--color-base);
-  background: var(--background-color-interactive-subtle);
-  border-color: var(--border-color-muted);
-}
-.open-wiki-btn:hover { background: var(--background-color-interactive--hover); }
-.preview-wrap { padding: 18px 24px 0; }
-.wiki-iframe {
-  border: 1px solid var(--border-color-muted);
-  border-bottom: 0;
-  border-radius: 8px 8px 0 0;
-}
-.review-bar {
-  background: var(--background-color-neutral-subtle);
-  border-top-color: var(--border-color-base);
-  box-shadow: 0 -8px 24px rgba(0,0,0,0.4);
-  padding: 16px 24px;
-}
-.review-comment .cdx-text-input__input {
-  background: var(--background-color-disabled-subtle);
-  border-color: var(--border-color-muted);
-  color: var(--color-emphasized);
-}
-.skip-btn,
-.back-btn {
-  background: var(--background-color-interactive-subtle);
-  border-color: var(--border-color-muted);
-  color: var(--color-neutral);
-}
-.skip-btn:hover:not(:disabled),
-.back-btn:hover { background: var(--background-color-interactive--hover); color: var(--color-emphasized); }
-.loading-spinner { border-top-color: #f0f0f0; }
-.mobile-bottom-nav { background: var(--background-color-neutral-subtle); border-top-color: var(--border-color-muted); }
-.mob-nav-btn.active { color: var(--color-emphasized); background: var(--background-color-neutral); }
-.mob-badge { background: var(--background-color-interactive); }
-
-@media (max-width: 768px) {
-  .sidebar {
-    width: 100%;
-    background: var(--background-color-base);
-    border: 0;
-  }
-  .sidebar-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 0 0 4px; }
-  .stat-pill,
-  .stat-pill.pending,
-  .stat-pill.accepted,
-  .stat-pill.rejected,
-  .stat-pill.total { background: #171717; }
-  .section-head { background: var(--background-color-neutral-subtle); }
-  .section-head:hover { background: var(--background-color-interactive-subtle--hover); }
-  .article-item { background: var(--background-color-interactive-subtle); }
-  .article-item.active { background: var(--background-color-interactive); border-color: var(--border-color-base); border-left-color: var(--color-emphasized); }
-  .article-item:hover { background: var(--background-color-interactive-subtle--hover); }
-  .review-area { border-left: 0; background: var(--background-color-base); }
-  .article-header { padding: 10px 12px; background: var(--background-color-neutral-subtle); }
-  .preview-wrap { padding: 0; }
-  .wiki-iframe { border: 0; border-radius: 0; }
-  .review-bar { padding: 9px 10px 10px; background: var(--background-color-neutral-subtle); }
-}
-@media (min-width: 769px) {
-  .main-layout { position: relative; }
-  .sidebar { width: 300px; }
-  .queue-heading {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 22px 18px 18px;
-    border-bottom: 1px solid var(--border-color-muted);
-  }
-  .queue-eyebrow,
-  .review-panel-kicker {
-    display: block;
-    color: var(--color-subtle);
-    font-size: 0.68rem;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-  }
-  .queue-heading h2,
-  .review-panel-heading h3 {
-    margin: 5px 0 0;
-    color: var(--color-emphasized);
-    font-size: 1.12rem;
-    line-height: 1.2;
-  }
-  .queue-live {
-    padding: 4px 8px;
-    border: 1px solid var(--border-color-muted);
-    border-radius: 4px;
-    color: var(--color-subtle);
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-  .review-area { position: relative; display: flex; }
-  .article-header { margin-right: 360px; padding: 22px 28px; }
-  .preview-wrap { margin-right: 360px; padding: 22px 26px 0; }
-  .review-bar {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: 360px;
-    box-sizing: border-box;
-    padding: 26px 24px;
-    border-top: 0;
-    border-left: 1px solid var(--border-color-muted);
-    box-shadow: none;
-  }
-  .review-bar-inner {
-    height: 100%;
-    flex-direction: column;
-    align-items: stretch;
-    flex-wrap: nowrap;
-    gap: 18px;
-  }
-  .review-panel-heading p {
-    margin: 8px 0 0;
-    color: var(--color-subtle);
-    font-size: 0.82rem;
-    line-height: 1.5;
-  }
-  .review-comment { flex: 0 0 auto; }
-  .review-comment label {
-    display: block;
-    margin-bottom: 8px;
-    color: var(--color-neutral);
-    font-size: 0.78rem;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid var(--rq-border-light);
+    color: var(--rq-text);
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 0.85rem;
     font-weight: 600;
   }
-  .review-comment .cdx-text-input,
-  .review-comment .cdx-text-input__input { width: 100%; box-sizing: border-box; }
-  .review-actions {
-    flex-direction: column;
-    gap: 10px;
-    margin-top: auto;
-  }
-  .action-btn {
-    width: 100%;
-    min-height: 44px;
-    justify-content: center;
-  }
-  .review-error { flex: 0 0 auto; }
+  .rq-article-title-link { font-size: 1.1rem; }
+  .rq-tags { gap: 6px; }
+
+  /* Make sure Review bar leaves room for Bottom Nav */
+  .rq-main-content { padding-bottom: 0; } 
+  .rq-main-layout { margin-bottom: 0; height: calc(100% - 65px); flex: none; }
+  .rq-app { padding-bottom: 65px; } /* fixed space for mobile nav */
+  .rq-mobile-nav { position: fixed; bottom: 0; left: 0; right: 0; height: 65px; z-index: 50; }
+
+  .rq-review-panel { padding: 12px 16px; gap: 12px; }
+  .rq-panel-header { padding: 8px 0; }
+  .rq-panel-body { padding: 0 0 12px; }
+  .rq-btn { padding: 10px; font-size: 0.9rem; }
 }
 
-@media (max-width: 768px) {
-  .review-panel-heading { display: none; }
-}
-
-/* Compact desktop ribbons: keep the original bottom review workflow. */
-@media (min-width: 769px) {
-  .sidebar { width: 260px; }
-  .section-head { padding: 7px 12px; }
-  .article-item { padding: 7px 10px 7px 12px; gap: 8px; }
-  .article-header { margin-right: 0; padding: 10px 16px; min-height: 52px; }
-  .article-title-link { font-size: 0.98rem; }
-  .preview-wrap { margin-right: 0; padding: 12px 16px 0; }
-  .review-bar {
-    position: static;
-    width: 100%;
-    padding: 9px 14px;
-    border-top: 1px solid var(--border-color-base);
-    border-left: 0;
-    box-shadow: none;
-  }
-  .review-bar-inner {
-    height: auto;
-    flex-direction: row;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 10px;
-  }
-  .review-panel-heading { display: none; }
-  .review-comment { flex: 1 1 240px; }
-  .review-comment label { display: none; }
-  .review-actions { flex-direction: row; gap: 6px; margin-top: 0; }
-  .action-btn { width: auto; min-height: 36px; padding: 7px 13px; border-radius: 6px; }
-}
-
-/* sidebar-scroll: article-lists don't need individual scroll, parent handles it */
-.sidebar-scroll .article-list {
-  flex: none;
-  overflow: visible;
-}
-.sidebar-scroll .section-head {
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  background: #0f1117;
-}
-
-/* Collapsed sidebar */
-.sidebar.collapsed {
-  width: 44px;
-}
-.sidebar.collapsed .sidebar-header {
-  padding: 8px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-}
-.sidebar.collapsed .sidebar-title-row,
-.sidebar.collapsed .sidebar-h2,
-.sidebar.collapsed .stat-strip,
-.sidebar.collapsed .sidebar-scroll,
-.sidebar.collapsed .bulk-banner { display: none; }
-.sidebar.collapsed .sidebar-heading-row {
-  justify-content: center;
-  margin-bottom: 0;
-}
-
-.section-chevron {
-  width: 16px;
-  height: 16px;
-  color: var(--color-subtle);
-  flex: 0 0 16px;
-}
-.article-header {
-  min-height: 44px;
-  padding: 6px 12px;
-  gap: 8px;
-}
-.article-header-info { gap: 2px; }
-.article-title-link { font-size: 0.96rem; }
-.article-meta { gap: 4px; }
-.review-panel-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 1px solid var(--border-color-muted);
-  border-radius: 4px;
-  background: var(--background-color-interactive-subtle);
-  color: var(--color-subtle);
-  cursor: pointer;
-}
-.review-panel-toggle:hover {
-  background: var(--background-color-interactive-subtle--hover);
-  color: var(--color-emphasized);
-}
-.review-bar.is-collapsed { padding: 6px 10px; }
-.review-bar.is-collapsed .review-bar-inner {
-  min-height: 28px;
-  justify-content: flex-end;
-}
-@media (max-width: 768px) {
-  .sidebar-scroll { overflow-y: auto; }
-  .sidebar-toggle { display: none; }
-  .sidebar.collapsed { width: 100%; }
-  .article-header { min-height: 46px; padding: 6px 10px; }
-  .article-title-link { font-size: 0.92rem; }
-  .review-bar.is-collapsed { padding: 5px 8px; }
-}
+/* Animations */
+.rq-slide-enter-active, .rq-slide-leave-active { transition: all 0.3s ease; }
+.rq-slide-enter-from, .rq-slide-leave-to { opacity: 0; transform: translateY(-10px); }
+.rq-fade-enter-active, .rq-fade-leave-active { transition: opacity 0.2s; }
+.rq-fade-enter-from, .rq-fade-leave-to { opacity: 0; }
 </style>
