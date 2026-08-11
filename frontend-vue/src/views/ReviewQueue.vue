@@ -402,17 +402,17 @@ onMounted(async () => {
 });
 
 const skipArticle = () => {
-  const previousArticleId = currentArticle.value?.article_id;
+  if (!currentArticle.value) return;
+  const previousArticleId = currentArticle.value.article_id;
+  const list = availableNewArticles.value;
+  
+  if (list.length <= 1) return;
+  
+  const currentIndex = list.findIndex(a => a.article_id === previousArticleId);
+  const nextIndex = (currentIndex + 1) % list.length;
+  
   releaseArticleLock(previousArticleId);
-  const next = availableNewArticles.value.find(a => a.article_id !== currentArticle.value?.article_id);
-  if (next) {
-    selectArticle(next);
-  } else if (newArticles.value.length > 0) {
-    const fallback = newArticles.value.find(a => a.article_id !== currentArticle.value?.article_id) || newArticles.value[0];
-    selectArticle(fallback);
-  } else {
-    currentArticle.value = articles.value.find(a => a.article_id === currentArticle.value?.article_id) || null;
-  }
+  selectArticle(list[nextIndex]);
 };
 
 watch(mobileTab, (tab) => {
@@ -498,12 +498,13 @@ const handleBulkDecision = async (decision) => {
   if (isSubmitting.value || !selectedForBulk.value.length) return;
   isSubmitting.value = true;
   const errors = [];
+  const bulkComment = comment.value || 'Bulk reviewed';
   try {
     for (const article_id of selectedForBulk.value) {
       const res = await fetch(`/api/articles/${article_id}/review`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ decision, comment: 'Bulk reviewed' }),
+        body: JSON.stringify({ decision, comment: bulkComment }),
       });
       if (!res.ok) {
         errors.push(article_id);
@@ -512,6 +513,7 @@ const handleBulkDecision = async (decision) => {
       }
     }
     selectedForBulk.value = [];
+    comment.value = '';
     await fetchArticles();
     if (!currentArticle.value || !availableNewArticles.value.find(a => a.article_id === currentArticle.value.article_id)) {
       if (availableNewArticles.value.length > 0) {
@@ -623,7 +625,6 @@ const copyTalkSnippet = () => {
             <div class="rq-bulk-actions">
               <button class="rq-bbtn rq-bbtn-accept" @click="handleBulkDecision('accepted')" title="Accept"><CdxIcon :icon="cdxIconCheck" /></button>
               <button class="rq-bbtn rq-bbtn-reject" @click="handleBulkDecision('rejected')" title="Reject"><CdxIcon :icon="cdxIconClear" /></button>
-              <button class="rq-bbtn rq-bbtn-skip" @click="handleBulkDecision('skipped')" title="Skip"><CdxIcon :icon="cdxIconNext" /></button>
               <button class="rq-bbtn rq-bbtn-remove" @click="handleBulkRemove" title="Remove"><CdxIcon :icon="cdxIconTrash" /></button>
             </div>
           </div>
