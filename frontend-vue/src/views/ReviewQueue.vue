@@ -637,33 +637,35 @@ const copyTalkSnippet = () => {
                 <span class="rq-group-title">Pending Review</span>
                 <span class="rq-group-count">{{ newArticles.length }}</span>
               </div>
-              <CdxIcon :icon="showNewArticles ? cdxIconUpTriangle : cdxIconDownTriangle" class="rq-group-chevron" />
+              <CdxIcon :icon="showNewArticles ? cdxIconUpTriangle : cdxIconDownTriangle" class="rq-group-chevron" :class="{ 'is-reversed': !showNewArticles }" />
             </button>
             
-            <transition name="rq-slide">
-              <ul v-show="showNewArticles" class="rq-list">
-                <li
-                  v-for="a in newArticles"
-                  :key="a.article_id"
-                  class="rq-list-item rq-item-pending"
-                  :class="{ 'is-active': currentArticle?.article_id === a.article_id, 'is-locked': a.locked_by && a.locked_by !== myUsername }"
-                  @click="selectArticle(a)"
-                >
-                  <label class="rq-cb-wrapper" @click.stop>
-                    <input type="checkbox" :checked="selectedForBulk.includes(a.article_id)" @change="toggleBulkSelection(a.article_id, $event)" class="rq-cb" />
-                  </label>
-                  <div class="rq-item-content">
-                    <span class="rq-item-title">{{ a.title }}</span>
-                    <span class="rq-item-meta">{{ a.submitted_by }}</span>
-                  </div>
-                  <CdxIcon v-if="a.locked_by && a.locked_by !== myUsername" :icon="cdxIconLock" class="rq-icon-lock" title="Being reviewed by someone" />
-                </li>
-                <li v-if="!newArticles.length" class="rq-list-empty">
-                  <CdxIcon :icon="cdxIconArticleCheck" class="rq-empty-icon" />
-                  <span>All caught up!</span>
-                </li>
-              </ul>
-            </transition>
+            <div class="rq-group-content" :class="{ 'is-open': showNewArticles }">
+              <div class="rq-group-inner">
+                <ul class="rq-list">
+                  <li
+                    v-for="a in newArticles"
+                    :key="a.article_id"
+                    class="rq-list-item rq-item-pending"
+                    :class="{ 'is-active': currentArticle?.article_id === a.article_id, 'is-locked': a.locked_by && a.locked_by !== myUsername }"
+                    @click="selectArticle(a)"
+                  >
+                    <label class="rq-cb-wrapper" @click.stop>
+                      <input type="checkbox" :checked="selectedForBulk.includes(a.article_id)" @change="toggleBulkSelection(a.article_id, $event)" class="rq-cb" />
+                    </label>
+                    <div class="rq-item-content">
+                      <span class="rq-item-title">{{ a.title }}</span>
+                      <span class="rq-item-meta">{{ a.submitted_by }}</span>
+                    </div>
+                    <CdxIcon v-if="a.locked_by && a.locked_by !== myUsername" :icon="cdxIconLock" class="rq-icon-lock" title="Being reviewed by someone" />
+                  </li>
+                  <li v-if="!newArticles.length" class="rq-list-empty">
+                    <CdxIcon :icon="cdxIconArticleCheck" class="rq-empty-icon" />
+                    <span>All caught up!</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
           </div>
 
           <div class="rq-group" v-if="otherReviewedArticles.length">
@@ -673,22 +675,24 @@ const copyTalkSnippet = () => {
                 <span class="rq-group-title">Other Judges</span>
                 <span class="rq-group-count">{{ otherReviewedArticles.length }}</span>
               </div>
-              <CdxIcon :icon="showOtherReviewed ? cdxIconUpTriangle : cdxIconDownTriangle" class="rq-group-chevron" />
+              <CdxIcon :icon="showOtherReviewed ? cdxIconUpTriangle : cdxIconDownTriangle" class="rq-group-chevron" :class="{ 'is-reversed': !showOtherReviewed }" />
             </button>
-            <transition name="rq-slide">
-              <ul v-show="showOtherReviewed" class="rq-list">
-                <li
-                  v-for="a in otherReviewedArticles"
-                  :key="`other-${a.article_id}`"
-                  class="rq-list-item rq-item-readonly"
-                >
-                  <div class="rq-item-content">
-                    <span class="rq-item-title">{{ a.title }}</span>
-                    <span class="rq-item-meta">{{ a.reviews.map(r => r.reviewer).join(', ') }}</span>
-                  </div>
-                </li>
-              </ul>
-            </transition>
+            <div class="rq-group-content" :class="{ 'is-open': showOtherReviewed }">
+              <div class="rq-group-inner">
+                <ul class="rq-list">
+                  <li
+                    v-for="a in otherReviewedArticles"
+                    :key="`other-${a.article_id}`"
+                    class="rq-list-item rq-item-readonly"
+                  >
+                    <div class="rq-item-content">
+                      <span class="rq-item-title">{{ a.title }}</span>
+                      <span class="rq-item-meta">{{ a.reviews.map(r => r.reviewer).join(', ') }}</span>
+                    </div>
+                  </li>
+                </ul>
+              </div>
+            </div>
           </div>
 
           <div class="rq-group">
@@ -698,28 +702,30 @@ const copyTalkSnippet = () => {
                 <span class="rq-group-title">My Judged</span>
                 <span class="rq-group-count">{{ judgedArticles.length }}</span>
               </div>
-              <CdxIcon :icon="showJudgedArticles ? cdxIconUpTriangle : cdxIconDownTriangle" class="rq-group-chevron" />
+              <CdxIcon :icon="showJudgedArticles ? cdxIconUpTriangle : cdxIconDownTriangle" class="rq-group-chevron" :class="{ 'is-reversed': !showJudgedArticles }" />
             </button>
             
-            <transition name="rq-slide">
-              <ul v-show="showJudgedArticles" class="rq-list">
-                <li
-                  v-for="a in judgedArticles"
-                  :key="a.article_id"
-                  class="rq-list-item"
-                  :class="['rq-item-' + getMyLatestDecision(a), { 'is-active': currentArticle?.article_id === a.article_id }]"
-                  @click="selectArticle(a)"
-                >
-                  <div class="rq-item-content">
-                    <span class="rq-item-title">{{ a.title }}</span>
-                    <span class="rq-item-meta">{{ a.submitted_by }}</span>
-                  </div>
-                </li>
-                <li v-if="!judgedArticles.length" class="rq-list-empty">
-                  <span>Nothing judged yet</span>
-                </li>
-              </ul>
-            </transition>
+            <div class="rq-group-content" :class="{ 'is-open': showJudgedArticles }">
+              <div class="rq-group-inner">
+                <ul class="rq-list">
+                  <li
+                    v-for="a in judgedArticles"
+                    :key="a.article_id"
+                    class="rq-list-item"
+                    :class="['rq-item-' + getMyLatestDecision(a), { 'is-active': currentArticle?.article_id === a.article_id }]"
+                    @click="selectArticle(a)"
+                  >
+                    <div class="rq-item-content">
+                      <span class="rq-item-title">{{ a.title }}</span>
+                      <span class="rq-item-meta">{{ a.submitted_by }}</span>
+                    </div>
+                  </li>
+                  <li v-if="!judgedArticles.length" class="rq-list-empty">
+                    <span>Nothing judged yet</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
           </div>
         </div>
       </aside>
@@ -999,28 +1005,37 @@ button { cursor: pointer; }
 .rq-dot-judged { background: var(--rq-success); }
 .rq-group-title { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--rq-text); }
 .rq-group-count { background: #27272a; padding: 2px 8px; border-radius: 8px; font-size: 0.7rem; font-weight: 600; color: var(--rq-text-muted); }
-.rq-group-chevron { color: var(--rq-text-muted); font-size: 1.2rem; transition: transform 0.2s; }
+.rq-group-chevron { color: var(--rq-text-muted); font-size: 1.2rem; transition: transform 250ms var(--ease-out); }
+.rq-group-chevron.is-reversed { transform: rotate(-90deg); }
+
+.rq-group-content {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 250ms var(--ease-out);
+}
+.rq-group-content.is-open {
+  grid-template-rows: 1fr;
+}
+.rq-group-inner {
+  overflow: hidden;
+}
 
 .rq-list { list-style: none; padding: 0; margin: 0; }
 .rq-list-item {
   display: flex; align-items: center; gap: 8px; padding: 8px 12px;
   border-bottom: 1px solid #1f1f22; border-left: 3px solid transparent;
-  cursor: pointer; transition: background 160ms var(--ease-out);
-  animation: fadeInList 300ms var(--ease-out) forwards;
-  opacity: 0; transform: translateY(8px);
-}
-.rq-list-item:nth-child(1) { animation-delay: 0ms; }
-.rq-list-item:nth-child(2) { animation-delay: 40ms; }
-.rq-list-item:nth-child(3) { animation-delay: 80ms; }
-.rq-list-item:nth-child(4) { animation-delay: 120ms; }
-.rq-list-item:nth-child(5) { animation-delay: 160ms; }
-.rq-list-item:nth-child(n+6) { animation-delay: 200ms; }
-
-@keyframes fadeInList {
-  to { opacity: 1; transform: translateY(0); }
+  cursor: pointer; transition: background 160ms var(--ease-out), opacity 200ms var(--ease-out), transform 200ms var(--ease-out);
 }
 .rq-list-item:hover { background: var(--rq-surface-hover); }
 .rq-list-item.is-active { background: var(--rq-accent-bg); border-left-color: var(--rq-accent); }
+
+.rq-fade-enter-active, .rq-fade-leave-active {
+  transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out);
+}
+.rq-fade-enter-from, .rq-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
 .rq-item-pending { border-left-color: #78350f; }
 .rq-item-accepted { border-left-color: #064e3b; }
 .rq-item-rejected { border-left-color: #7f1d1d; }
