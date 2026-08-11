@@ -580,9 +580,6 @@ const copyTalkSnippet = () => {
 
 <template>
   <div class="rq-app">
-    <!-- Overlay for Sidebar -->
-    <div class="rq-sidebar-overlay" v-if="!sidebarCollapsed" @click="sidebarCollapsed = true"></div>
-
     <div v-if="!isLoading && !isAuthorized" class="rq-center-state">
       <div class="rq-card-unauth">
         <div class="rq-icon-large">⛔</div>
@@ -596,29 +593,22 @@ const copyTalkSnippet = () => {
       <p class="rq-loading-text">Loading review queue…</p>
     </div>
 
-    <div v-else class="rq-main-layout" :class="{ 'is-mobile-review': mobileTab === 'review' }">
-      <!-- Sidebar Drawer -->
-      <aside class="rq-sidebar" :class="{ 'is-open': !sidebarCollapsed }">
-        <header class="rq-sidebar-header">
-          <div class="rq-sidebar-top">
+    <div v-else class="rq-layout" :class="{ 'is-mobile-review': mobileTab === 'review' }">
+      
+      <!-- LEFT COLUMN: QUEUE -->
+      <aside class="rq-panel rq-queue-panel" :class="{ 'mobile-hidden': mobileTab !== 'list', 'is-collapsed': sidebarCollapsed }">
+        <header class="rq-panel-header">
+          <div class="rq-panel-header-top">
             <div class="rq-brand-eyebrow">
               <span class="rq-eyebrow-text">Jury Workspace</span>
               <span class="rq-badge-live">Live</span>
             </div>
-            <button
-              type="button"
-              class="rq-icon-btn rq-collapse-btn"
-              @click="sidebarCollapsed = true"
-              title="Close sidebar"
-            >
+            <button class="rq-icon-btn rq-desktop-only" @click="sidebarCollapsed = true" title="Collapse Sidebar">
               <CdxIcon :icon="cdxIconCollapse" />
             </button>
           </div>
+          <h2 class="rq-panel-title">Review Queue</h2>
           
-          <div class="rq-sidebar-title-row">
-            <h2 class="rq-sidebar-title">Review Queue</h2>
-          </div>
-
           <div class="rq-stats-strip">
             <div class="rq-stat"><span class="rq-stat-val">{{ statusStats.total }}</span><span class="rq-stat-lbl">Total</span></div>
             <div class="rq-stat rq-stat-pending"><span class="rq-stat-val">{{ statusStats.pending }}</span><span class="rq-stat-lbl">Pending</span></div>
@@ -639,7 +629,7 @@ const copyTalkSnippet = () => {
           </div>
         </transition>
 
-        <div class="rq-sidebar-scroll">
+        <div class="rq-panel-scroll">
           <div class="rq-group">
             <button class="rq-group-header" @click="showNewArticles = !showNewArticles">
               <div class="rq-group-header-left">
@@ -734,154 +724,118 @@ const copyTalkSnippet = () => {
         </div>
       </aside>
 
-      <main class="rq-main-content">
-        <div v-if="!currentArticle" class="rq-center-state rq-center-full">
+      <!-- CENTER AREA (Preview + Decision) -->
+      <div class="rq-review-area" :class="{ 'mobile-hidden': mobileTab !== 'review' }">
+        
+        <div v-if="!currentArticle" class="rq-center-state rq-center-full rq-panel">
           <div class="rq-card-done">
-            <div class="rq-done-icon">
-              <CdxIcon :icon="cdxIconArticleCheck" />
-            </div>
+            <div class="rq-done-icon"><CdxIcon :icon="cdxIconArticleCheck" /></div>
             <h3>Queue is Clear</h3>
             <p>You have reviewed all available articles in your queue.</p>
             <button class="rq-btn-secondary" @click="sidebarCollapsed = false" style="margin-top: 16px;">
-              <CdxIcon :icon="cdxIconMenu" /> Open Menu
+              <CdxIcon :icon="cdxIconMenu" /> Open Sidebar
             </button>
           </div>
         </div>
 
         <template v-else>
-          <header class="rq-article-header">
-            <!-- Hamburger Menu Button -->
-            <button class="rq-hamburger-btn" @click="sidebarCollapsed = !sidebarCollapsed" title="Toggle Menu">
-              <CdxIcon :icon="cdxIconMenu" />
-            </button>
-
-            <!-- Mobile back button (only visible on mobile layout) -->
-            <button class="rq-back-btn" @click="mobileTab = 'list'">
-              <CdxIcon :icon="cdxIconArrowPrevious" />
-            </button>
-            
-            <div class="rq-article-meta-area">
-              <a :href="articleUrl(currentArticle.title)" target="_blank" class="rq-article-title-link" :title="currentArticle.title">
-                {{ currentArticle.title }}
-              </a>
-              <div class="rq-tags">
-                <span class="rq-tag">by {{ currentArticle.submitted_by }}</span>
-                <span v-if="currentArticle.wiki_creation_date" class="rq-tag rq-tag-date">
-                  {{ new Date(currentArticle.wiki_creation_date).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) }}
-                </span>
-                <span v-if="currentArticle.locked_by && currentArticle.locked_by !== myUsername" class="rq-tag rq-tag-locked">
-                  <CdxIcon :icon="cdxIconLock" /> {{ currentArticle.locked_by }} reviewing
-                </span>
-                <span v-if="getMyLatestDecision(currentArticle)" class="rq-tag rq-tag-verdict" :class="'rq-tag-' + getMyLatestDecision(currentArticle)">
-                  {{ getMyLatestDecision(currentArticle) === 'accepted' ? '✓ Accepted' : getMyLatestDecision(currentArticle) === 'rejected' ? '✕ Rejected' : '→ Skipped' }}
-                </span>
-              </div>
-            </div>
-            
-            <a :href="articleUrl(currentArticle.title)" target="_blank" class="rq-btn-secondary rq-wiki-link-btn" title="Open on Wiktionary">
-              <CdxIcon :icon="cdxIconLinkExternal" /> <span class="rq-desktop-only">Wiki</span>
-            </a>
-          </header>
-
-          <div class="rq-preview-container">
-            <div v-if="isLoadingPreview" class="rq-center-state">
-              <div class="rq-spinner rq-spinner-sm"></div>
-              <span class="rq-loading-text">Loading Wikipedia preview…</span>
-            </div>
-            <iframe
-              v-else
-              class="rq-wiki-iframe"
-              sandbox="allow-scripts"
-              :srcdoc="previewSrcdoc"
-              referrerpolicy="no-referrer"
-            ></iframe>
-          </div>
-
-          <footer class="rq-review-panel" :class="{ 'is-collapsed': reviewPanelCollapsed }">
-            <div class="rq-panel-header" @click="reviewPanelCollapsed = !reviewPanelCollapsed">
-              <div class="rq-panel-title">
-                <span class="rq-panel-kicker">DECISION PANEL</span>
-                <h3 class="rq-desktop-only">Review this article</h3>
-              </div>
-              <button
-                type="button"
-                class="rq-icon-btn rq-panel-toggle-btn"
-                :title="reviewPanelCollapsed ? 'Expand review panel' : 'Collapse review panel'"
-              >
-                <CdxIcon :icon="reviewPanelCollapsed ? cdxIconExpand : cdxIconCollapse" />
+          <!-- PREVIEW (Top) -->
+          <main class="rq-panel rq-preview-panel">
+            <header class="rq-article-header">
+              <!-- Sidebar Toggle (Desktop) -->
+              <button v-if="sidebarCollapsed" class="rq-hamburger-btn rq-desktop-only" @click="sidebarCollapsed = false" title="Open Sidebar">
+                <CdxIcon :icon="cdxIconMenu" />
               </button>
+
+              <button class="rq-back-btn rq-mobile-only" @click="mobileTab = 'list'">
+                <CdxIcon :icon="cdxIconArrowPrevious" />
+              </button>
+              
+              <div class="rq-article-meta-area">
+                <a :href="articleUrl(currentArticle.title)" target="_blank" class="rq-article-title-link" :title="currentArticle.title">
+                  {{ currentArticle.title }}
+                </a>
+                <div class="rq-tags">
+                  <span class="rq-tag">by {{ currentArticle.submitted_by }}</span>
+                  <span v-if="currentArticle.wiki_creation_date" class="rq-tag rq-tag-date">
+                    {{ new Date(currentArticle.wiki_creation_date).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) }}
+                  </span>
+                  <span v-if="currentArticle.locked_by && currentArticle.locked_by !== myUsername" class="rq-tag rq-tag-locked">
+                    <CdxIcon :icon="cdxIconLock" /> {{ currentArticle.locked_by }} reviewing
+                  </span>
+                  <span v-if="getMyLatestDecision(currentArticle)" class="rq-tag rq-tag-verdict" :class="'rq-tag-' + getMyLatestDecision(currentArticle)">
+                    {{ getMyLatestDecision(currentArticle) === 'accepted' ? '✓ Accepted' : getMyLatestDecision(currentArticle) === 'rejected' ? '✕ Rejected' : '→ Skipped' }}
+                  </span>
+                </div>
+              </div>
+              
+              <a :href="articleUrl(currentArticle.title)" target="_blank" class="rq-btn-secondary rq-wiki-link-btn" title="Open on Wiktionary">
+                <CdxIcon :icon="cdxIconLinkExternal" /> <span class="rq-desktop-only">Wiki</span>
+              </a>
+            </header>
+
+            <div class="rq-preview-container">
+              <div v-if="isLoadingPreview" class="rq-center-state">
+                <div class="rq-spinner rq-spinner-sm"></div>
+                <span class="rq-loading-text">Loading Wikipedia preview…</span>
+              </div>
+              <iframe
+                v-else
+                class="rq-wiki-iframe"
+                sandbox="allow-scripts"
+                :srcdoc="previewSrcdoc"
+                referrerpolicy="no-referrer"
+              ></iframe>
             </div>
-            
-            <div class="rq-panel-body" v-show="!reviewPanelCollapsed">
+          </main>
+
+          <!-- DECISION PANEL (Bottom) -->
+          <footer class="rq-panel rq-decision-panel">
+            <div class="rq-decision-body">
               <div v-if="reviewError" class="rq-error-msg">{{ reviewError }}</div>
               
-              <div class="rq-panel-content-row">
-                <div class="rq-comment-field">
-                  <input
-                    type="text"
-                    class="rq-input"
-                    v-model="comment"
-                    placeholder="Leave a note (optional)…"
-                  />
-                </div>
-
-                <div class="rq-action-buttons">
-                  <button
-                    class="rq-btn rq-btn-accept"
-                    :disabled="isSubmitting"
-                    @click="handleDecision('accepted')"
-                  >
-                    <CdxIcon :icon="cdxIconCheck" />
-                    <span>Accept</span>
-                  </button>
-                  <button
-                    class="rq-btn rq-btn-reject"
-                    :disabled="isSubmitting"
-                    @click="handleDecision('rejected')"
-                  >
-                    <CdxIcon :icon="cdxIconClear" />
-                    <span>Reject</span>
-                  </button>
-                  <button
-                    class="rq-btn rq-btn-skip"
-                    :disabled="isSubmitting"
-                    @click="skipArticle"
-                  >
-                    <CdxIcon :icon="cdxIconNext" />
-                    <span>Skip</span>
-                  </button>
-                  <button
-                    class="rq-btn rq-btn-remove"
-                    :disabled="isSubmitting"
-                    @click="handleRemove"
-                  >
-                    <CdxIcon :icon="cdxIconTrash" />
-                    <span class="rq-desktop-only">Remove</span>
-                  </button>
+              <div class="rq-decision-form">
+                <textarea
+                  class="rq-input rq-textarea"
+                  v-model="comment"
+                  placeholder="Leave a note for the submitter (optional)…"
+                  rows="2"
+                ></textarea>
+                
+                <div class="rq-actions-wrapper">
+                  <div class="rq-primary-actions">
+                    <button class="rq-btn rq-btn-accept" :disabled="isSubmitting" @click="handleDecision('accepted')">
+                      <CdxIcon :icon="cdxIconCheck" /> <span>Accept</span>
+                    </button>
+                    <button class="rq-btn rq-btn-reject" :disabled="isSubmitting" @click="handleDecision('rejected')">
+                      <CdxIcon :icon="cdxIconClear" /> <span>Reject</span>
+                    </button>
+                  </div>
+                  
+                  <div class="rq-secondary-actions">
+                    <button class="rq-btn-ghost rq-btn-skip" :disabled="isSubmitting" @click="skipArticle">
+                      <CdxIcon :icon="cdxIconNext" /> <span class="rq-desktop-only">Skip</span>
+                    </button>
+                    <button class="rq-btn-ghost rq-btn-remove" :disabled="isSubmitting" @click="handleRemove">
+                      <CdxIcon :icon="cdxIconTrash" /> <span class="rq-desktop-only">Remove</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           </footer>
         </template>
-      </main>
+      </div>
     </div>
 
+    <!-- Mobile Nav Tabs -->
     <nav class="rq-mobile-nav">
-      <button
-        class="rq-nav-btn"
-        :class="{ 'is-active': mobileTab === 'list' }"
-        @click="mobileTab = 'list'"
-      >
+      <button class="rq-nav-btn" :class="{ 'is-active': mobileTab === 'list' }" @click="mobileTab = 'list'">
         <CdxIcon :icon="cdxIconMenu" class="rq-nav-icon" />
-        <span class="rq-nav-label">Articles</span>
+        <span class="rq-nav-label">Queue</span>
         <span class="rq-nav-badge" v-if="newArticles.length">{{ newArticles.length }}</span>
       </button>
-      <button
-        class="rq-nav-btn"
-        :class="{ 'is-active': mobileTab === 'review' }"
-        @click="mobileTab = 'review'"
-        :disabled="!currentArticle"
-      >
+      <button class="rq-nav-btn" :class="{ 'is-active': mobileTab === 'review' }" @click="mobileTab = 'review'" :disabled="!currentArticle">
         <CdxIcon :icon="cdxIconArticle" class="rq-nav-icon" />
         <span class="rq-nav-label">Review</span>
       </button>
@@ -891,16 +845,21 @@ const copyTalkSnippet = () => {
 
 <style scoped>
 :root {
-  --rq-bg: #0b0f19;
-  --rq-surface: #121826;
-  --rq-surface-hover: #1c2438;
-  --rq-border: rgba(255, 255, 255, 0.08);
-  --rq-border-light: rgba(255, 255, 255, 0.12);
-  --rq-text: #f8fafc;
-  --rq-text-muted: #94a3b8;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  
+  /* Solid colors - removed transparency */
+  --rq-bg: #09090b; /* Zinc 950 */
+  --rq-surface: #18181b; /* Zinc 900 */
+  --rq-surface-hover: #27272a; /* Zinc 800 */
+  --rq-border: #27272a; /* Solid Zinc 800 */
+  --rq-border-light: #3f3f46; /* Solid Zinc 700 */
+  
+  --rq-text: #fafafa;
+  --rq-text-muted: #a1a1aa;
+  
   --rq-accent: #6366f1;
   --rq-accent-hover: #818cf8;
-  --rq-accent-bg: rgba(99, 102, 241, 0.15);
+  --rq-accent-bg: #1e1b4b; /* Solid deep indigo */
   
   --rq-success: #10b981;
   --rq-success-dark: #059669;
@@ -908,469 +867,370 @@ const copyTalkSnippet = () => {
   --rq-danger-dark: #dc2626;
   --rq-warning: #f59e0b;
   
-  --rq-font: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --rq-font: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 .rq-app {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  min-height: 0;
+  height: 100vh;
+  height: 100dvh;
   background: var(--rq-bg);
   font-family: var(--rq-font);
   color: var(--rq-text);
   overflow: hidden;
-  position: relative;
 }
 
 .rq-app *::-webkit-scrollbar { width: 6px; height: 6px; }
 .rq-app *::-webkit-scrollbar-track { background: transparent; }
-.rq-app *::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
-.rq-app *::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+.rq-app *::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+.rq-app *::-webkit-scrollbar-thumb:hover { background: #52525b; }
 
-button, input { font-family: inherit; }
+button, input, textarea { font-family: inherit; }
 button { cursor: pointer; }
 
 .rq-center-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  padding: 40px 24px;
-  gap: 16px;
-  color: var(--rq-text-muted);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  flex: 1; padding: 40px 24px; gap: 12px; color: var(--rq-text-muted);
 }
 .rq-center-full { height: 100%; }
+
 .rq-card-unauth, .rq-card-done {
-  text-align: center;
-  background: var(--rq-surface);
-  border: 1px solid var(--rq-border);
-  border-radius: 16px;
-  padding: 48px;
-  max-width: 400px;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+  text-align: center; background: var(--rq-surface); border: 1px solid var(--rq-border);
+  border-radius: 8px; padding: 48px; max-width: 400px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.5);
 }
-.rq-card-unauth { border-color: rgba(239, 68, 68, 0.3); }
 .rq-icon-large, .rq-done-icon { font-size: 3rem; margin-bottom: 16px; }
 .rq-done-icon { color: var(--rq-success); }
-.rq-card-unauth h2, .rq-card-done h3 { color: var(--rq-text); margin: 0 0 8px; font-size: 1.4rem; font-weight: 600; }
-.rq-card-unauth p, .rq-card-done p { color: var(--rq-text-muted); margin: 0; font-size: 0.95rem; line-height: 1.6; }
+.rq-card-done h3 { color: var(--rq-text); margin: 0 0 8px; font-size: 1.4rem; font-weight: 600; }
+.rq-card-done p { margin: 0; font-size: 0.85rem; line-height: 1.6; }
 
 .rq-spinner {
-  width: 40px; height: 40px;
-  border: 3px solid rgba(255,255,255,0.1);
-  border-top-color: var(--rq-accent);
-  border-radius: 50%;
+  width: 40px; height: 40px; border: 3px solid #27272a;
+  border-top-color: var(--rq-accent); border-radius: 50%;
   animation: rq-spin 0.8s linear infinite;
 }
 .rq-spinner-sm { width: 24px; height: 24px; border-width: 2px; }
 @keyframes rq-spin { to { transform: rotate(360deg); } }
-.rq-loading-text { font-size: 0.95rem; font-weight: 500; }
 
-.rq-main-layout {
+/* --- 2-COLUMN LAYOUT (DESKTOP) --- */
+.rq-layout {
   display: flex;
-  flex: 1;
+  flex-direction: row;
+  gap: 8px;
+  padding: 8px;
+  height: 100%;
   min-height: 0;
-  overflow: hidden;
-  position: relative;
 }
 
-/* ─── Sidebar Drawer overlay ─── */
-.rq-sidebar-overlay {
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 30;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-}
-
-/* ─── Sidebar (Drawer) ─── */
-.rq-sidebar {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 340px;
-  max-width: 100%;
+.rq-panel {
   background: var(--rq-surface);
-  border-right: 1px solid var(--rq-border);
+  border: 1px solid var(--rq-border);
+  border-radius: 8px;
   display: flex;
   flex-direction: column;
-  transform: translateX(-100%);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  z-index: 40;
-  box-shadow: 4px 0 24px rgba(0,0,0,0.4);
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
 }
-.rq-sidebar.is-open { transform: translateX(0); }
 
-.rq-sidebar-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--rq-border);
-  background: rgba(18, 24, 38, 0.95);
+/* --- QUEUE PANEL (COLLAPSIBLE) --- */
+.rq-queue-panel {
+  width: 340px;
+  flex-shrink: 0;
+  transition: width 300ms var(--ease-out), opacity 300ms var(--ease-out), margin 300ms var(--ease-out);
 }
-.rq-sidebar-top {
+.rq-queue-panel.is-collapsed {
+  width: 0;
+  opacity: 0;
+  margin: 0;
+  border: none;
+}
+.rq-panel-header-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
+}
+.rq-icon-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 6px; border: 1px solid var(--rq-border);
+  background: var(--rq-surface); color: var(--rq-text-muted);
+  transition: transform 160ms var(--ease-out), background 160ms var(--ease-out);
+}
+.rq-icon-btn:hover { background: var(--rq-surface-hover); color: var(--rq-text); }
+.rq-icon-btn:active { transform: scale(0.95); }
+
+.rq-panel-header {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--rq-border);
+  background: #121214;
 }
 .rq-brand-eyebrow { display: flex; align-items: center; gap: 8px; }
 .rq-eyebrow-text { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--rq-text-muted); }
-.rq-badge-live { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; background: rgba(16, 185, 129, 0.15); color: var(--rq-success); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.2); }
-
-.rq-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px; height: 32px;
-  padding: 0;
-  border: 1px solid var(--rq-border);
-  border-radius: 8px;
-  background: rgba(255,255,255,0.03);
-  color: var(--rq-text-muted);
-  transition: all 0.2s;
-}
-.rq-icon-btn:hover { background: rgba(255,255,255,0.08); color: var(--rq-text); }
-
-.rq-sidebar-title-row { margin-bottom: 16px; }
-.rq-sidebar-title { margin: 0; font-size: 1.2rem; font-weight: 600; color: var(--rq-text); }
+.rq-badge-live { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; background: #064e3b; color: var(--rq-success); padding: 2px 6px; border-radius: 4px; }
+.rq-panel-title { margin: 0 0 16px 0; font-size: 1.1rem; font-weight: 600; color: var(--rq-text); }
 
 .rq-stats-strip { display: flex; gap: 8px; }
-.rq-stat {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  background: rgba(0,0,0,0.2);
-  border: 1px solid var(--rq-border);
-  border-radius: 8px;
-  padding: 6px 4px;
-}
-.rq-stat-pending { border-color: rgba(245, 158, 11, 0.2); }
-.rq-stat-ok { border-color: rgba(16, 185, 129, 0.2); }
-.rq-stat-rej { border-color: rgba(239, 68, 68, 0.2); }
-
-.rq-stat-val { font-size: 0.95rem; font-weight: 700; color: var(--rq-text); }
+.rq-stat { flex: 1; display: flex; flex-direction: column; align-items: center; background: #18181b; border: 1px solid var(--rq-border); border-radius: 8px; padding: 8px 4px; }
+.rq-stat-pending { border-color: #78350f; }
+.rq-stat-ok { border-color: #064e3b; }
+.rq-stat-rej { border-color: #7f1d1d; }
+.rq-stat-val { font-size: 0.9rem; font-weight: 700; color: var(--rq-text); }
 .rq-stat-pending .rq-stat-val { color: var(--rq-warning); }
 .rq-stat-ok .rq-stat-val { color: var(--rq-success); }
 .rq-stat-rej .rq-stat-val { color: var(--rq-danger); }
-.rq-stat-lbl { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--rq-text-muted); margin-top: 2px; }
+.rq-stat-lbl { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--rq-text-muted); margin-top: 4px; }
 
-.rq-bulk-banner {
-  padding: 12px 20px;
-  background: rgba(99, 102, 241, 0.1);
-  border-bottom: 1px solid var(--rq-border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.rq-bulk-count { font-size: 0.8rem; font-weight: 600; color: var(--rq-accent); }
-.rq-bulk-actions { display: flex; gap: 6px; }
-.rq-bbtn {
-  width: 30px; height: 30px;
-  border-radius: 6px;
-  border: none;
-  display: flex; align-items: center; justify-content: center;
-  color: #fff;
-  transition: transform 0.1s, filter 0.2s;
-}
-.rq-bbtn:hover:not(:disabled) { filter: brightness(1.2); }
-.rq-bbtn:active:not(:disabled) { transform: scale(0.95); }
-.rq-bbtn:disabled { opacity: 0.5; cursor: not-allowed; }
-.rq-bbtn-accept { background: var(--rq-success-dark); }
-.rq-bbtn-reject { background: var(--rq-danger-dark); }
-.rq-bbtn-skip { background: rgba(255,255,255,0.1); border: 1px solid var(--rq-border-light); }
-.rq-bbtn-remove { background: #450a0a; border: 1px solid rgba(239,68,68,0.3); }
+.rq-panel-scroll { flex: 1; overflow-y: auto; padding-bottom: 24px; }
 
-.rq-sidebar-scroll {
-  flex: 1;
-  overflow-y: auto;
-  padding-bottom: 24px;
-}
 .rq-group { margin-bottom: 8px; }
 .rq-group-header {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 20px;
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid rgba(255,255,255,0.03);
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  background: var(--rq-surface);
+  width: 100%; display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 16px; background: #121214; border: none; border-bottom: 1px solid var(--rq-border);
+  position: sticky; top: 0; z-index: 5; transition: background 160ms var(--ease-out);
 }
 .rq-group-header:hover { background: var(--rq-surface-hover); }
 .rq-group-header-left { display: flex; align-items: center; gap: 10px; }
 .rq-dot { width: 8px; height: 8px; border-radius: 50%; }
-.rq-dot-pending { background: var(--rq-warning); box-shadow: 0 0 8px rgba(245, 158, 11, 0.4); }
+.rq-dot-pending { background: var(--rq-warning); }
 .rq-dot-other { background: var(--rq-text-muted); }
 .rq-dot-judged { background: var(--rq-success); }
-.rq-group-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--rq-text); }
-.rq-group-count { background: rgba(255,255,255,0.08); padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; font-weight: 600; color: var(--rq-text-muted); }
+.rq-group-title { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--rq-text); }
+.rq-group-count { background: #27272a; padding: 2px 8px; border-radius: 8px; font-size: 0.7rem; font-weight: 600; color: var(--rq-text-muted); }
 .rq-group-chevron { color: var(--rq-text-muted); font-size: 1.2rem; transition: transform 0.2s; }
 
 .rq-list { list-style: none; padding: 0; margin: 0; }
 .rq-list-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 20px;
-  border-bottom: 1px solid rgba(255,255,255,0.02);
-  border-left: 3px solid transparent;
-  cursor: pointer;
-  transition: background 0.15s;
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  border-bottom: 1px solid #1f1f22; border-left: 3px solid transparent;
+  cursor: pointer; transition: background 160ms var(--ease-out);
+  animation: fadeInList 300ms var(--ease-out) forwards;
+  opacity: 0; transform: translateY(8px);
 }
-.rq-list-item:hover { background: rgba(255,255,255,0.02); }
-.rq-list-item.is-active {
-  background: var(--rq-accent-bg);
-  border-left-color: var(--rq-accent);
+.rq-list-item:nth-child(1) { animation-delay: 0ms; }
+.rq-list-item:nth-child(2) { animation-delay: 40ms; }
+.rq-list-item:nth-child(3) { animation-delay: 80ms; }
+.rq-list-item:nth-child(4) { animation-delay: 120ms; }
+.rq-list-item:nth-child(5) { animation-delay: 160ms; }
+.rq-list-item:nth-child(n+6) { animation-delay: 200ms; }
+
+@keyframes fadeInList {
+  to { opacity: 1; transform: translateY(0); }
 }
-.rq-item-pending { border-left-color: rgba(245, 158, 11, 0.4); }
-.rq-item-accepted { border-left-color: rgba(16, 185, 129, 0.4); }
-.rq-item-rejected { border-left-color: rgba(239, 68, 68, 0.4); }
-.rq-item-skipped { border-left-color: rgba(148, 163, 184, 0.4); }
+.rq-list-item:hover { background: var(--rq-surface-hover); }
+.rq-list-item.is-active { background: var(--rq-accent-bg); border-left-color: var(--rq-accent); }
+.rq-item-pending { border-left-color: #78350f; }
+.rq-item-accepted { border-left-color: #064e3b; }
+.rq-item-rejected { border-left-color: #7f1d1d; }
+.rq-item-skipped { border-left-color: #3f3f46; }
 .rq-item-readonly { cursor: default; }
+
 .rq-cb-wrapper { display: flex; align-items: center; }
 .rq-cb { width: 16px; height: 16px; accent-color: var(--rq-accent); cursor: pointer; }
 
 .rq-item-content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.rq-item-title { font-size: 0.9rem; font-weight: 500; color: var(--rq-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rq-item-title { font-size: 0.85rem; font-weight: 500; color: var(--rq-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rq-list-item.is-active .rq-item-title { color: var(--rq-accent-hover); font-weight: 600; }
-.rq-item-meta { font-size: 0.75rem; color: var(--rq-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rq-list-item.is-locked { opacity: 0.6; }
+.rq-item-meta { font-size: 0.8rem; color: var(--rq-text-muted); }
+.rq-list-item.is-locked { opacity: 0.5; }
 .rq-icon-lock { color: var(--rq-text-muted); font-size: 1.1rem; }
-.rq-list-empty { padding: 24px; text-align: center; color: var(--rq-text-muted); font-size: 0.85rem; font-style: italic; display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.rq-empty-icon { font-size: 1.5rem; opacity: 0.5; }
+.rq-list-empty { padding: 32px 24px; text-align: center; color: var(--rq-text-muted); font-size: 0.8rem; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.rq-empty-icon { font-size: 2rem; opacity: 0.3; }
 
-/* ─── Main Content ─── */
-.rq-main-content {
+.rq-bulk-banner { padding: 8px 16px; background: #312e81; border-bottom: 1px solid var(--rq-border); display: flex; align-items: center; justify-content: space-between; }
+.rq-bulk-count { font-size: 0.85rem; font-weight: 600; color: #a5b4fc; }
+.rq-bulk-actions { display: flex; gap: 6px; }
+.rq-bbtn {
+  width: 32px; height: 32px; border-radius: 8px; border: none; display: flex; align-items: center; justify-content: center;
+  color: #fff; transition: transform 160ms var(--ease-out), filter 160ms var(--ease-out);
+}
+.rq-bbtn:hover:not(:disabled) { filter: brightness(1.2); }
+.rq-bbtn:active:not(:disabled) { transform: scale(0.95); }
+.rq-bbtn-accept { background: var(--rq-success-dark); }
+.rq-bbtn-reject { background: var(--rq-danger-dark); }
+.rq-bbtn-skip { background: #3f3f46; border: 1px solid var(--rq-border-light); }
+.rq-bbtn-remove { background: #450a0a; border: 1px solid #7f1d1d; }
+
+/* --- REVIEW AREA (PREVIEW + DECISION) --- */
+.rq-review-area {
   flex: 1;
   display: flex;
   flex-direction: column;
+  gap: 12px;
   min-width: 0;
-  background: var(--rq-bg);
-  position: relative;
 }
 
+/* --- PREVIEW PANEL --- */
+.rq-preview-panel {
+  flex: 1;
+  min-height: 0;
+}
 .rq-article-header {
-  display: flex;
-  align-items: center;
-  padding: 12px 20px;
-  background: var(--rq-surface);
-  border-bottom: 1px solid var(--rq-border);
-  gap: 12px;
-  z-index: 10;
+  display: flex; align-items: center; padding: 8px 16px;
+  background: #121214; border-bottom: 1px solid var(--rq-border); gap: 12px;
 }
 .rq-hamburger-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: 1px solid var(--rq-border);
-  border-radius: 8px;
-  color: var(--rq-text);
-  padding: 6px 8px;
-  cursor: pointer;
-  transition: background 0.2s;
-  font-size: 1.2rem;
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--rq-border);
+  background: var(--rq-surface); color: var(--rq-text);
+  transition: transform 160ms var(--ease-out), background 160ms var(--ease-out);
 }
-.rq-hamburger-btn:hover { background: rgba(255,255,255,0.05); }
+.rq-hamburger-btn:hover { background: var(--rq-surface-hover); }
+.rq-hamburger-btn:active { transform: scale(0.95); }
 
-.rq-back-btn { display: none; }
-.rq-article-meta-area { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.rq-back-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--rq-border);
+  background: var(--rq-surface); color: var(--rq-text);
+  transition: transform 160ms var(--ease-out), background 160ms var(--ease-out);
+}
+.rq-back-btn:active { transform: scale(0.95); }
+.rq-mobile-only { display: none; }
+
+.rq-article-meta-area { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .rq-article-title-link {
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: var(--rq-text);
-  text-decoration: none;
-  font-family: 'Linux Libertine', Georgia, Times, serif;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  transition: color 0.2s;
+  font-size: 1.1rem; font-weight: 700; color: var(--rq-text); text-decoration: none;
+  font-family: 'Linux Libertine', Georgia, serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: color 160ms var(--ease-out);
 }
 .rq-article-title-link:hover { color: var(--rq-accent-hover); }
 
-.rq-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.rq-tag { font-size: 0.7rem; font-weight: 500; color: var(--rq-text-muted); background: rgba(255,255,255,0.05); padding: 2px 8px; border-radius: 6px; }
-.rq-tag-locked { background: rgba(245, 158, 11, 0.15); color: var(--rq-warning); display: flex; align-items: center; gap: 4px; }
+.rq-tags { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rq-tag { font-size: 0.7rem; font-weight: 500; color: var(--rq-text-muted); background: #27272a; padding: 4px 10px; border-radius: 6px; }
+.rq-tag-locked { background: #451a03; color: var(--rq-warning); display: flex; align-items: center; gap: 4px; }
 .rq-tag-verdict { font-weight: 600; }
-.rq-tag-accepted { background: rgba(16, 185, 129, 0.15); color: var(--rq-success); }
-.rq-tag-rejected { background: rgba(239, 68, 68, 0.15); color: var(--rq-danger); }
-.rq-tag-skipped { background: rgba(148, 163, 184, 0.15); color: var(--rq-text-muted); }
+.rq-tag-accepted { background: #064e3b; color: var(--rq-success); }
+.rq-tag-rejected { background: #7f1d1d; color: var(--rq-danger); }
+.rq-tag-skipped { background: #3f3f46; color: var(--rq-text-muted); }
 
 .rq-btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--rq-text);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--rq-border);
-  padding: 6px 12px;
-  border-radius: 8px;
-  text-decoration: none;
-  transition: background 0.2s;
-  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 600;
+  color: var(--rq-text); background: var(--rq-surface); border: 1px solid var(--rq-border);
+  padding: 8px 14px; border-radius: 8px; text-decoration: none;
+  transition: transform 160ms var(--ease-out), background 160ms var(--ease-out);
 }
-.rq-btn-secondary:hover { background: rgba(255, 255, 255, 0.1); }
-.rq-wiki-link-btn { color: var(--rq-accent-hover); border-color: rgba(99, 102, 241, 0.3); }
+.rq-btn-secondary:active { transform: scale(0.97); }
+.rq-btn-secondary:hover { background: var(--rq-surface-hover); }
+.rq-wiki-link-btn { color: var(--rq-accent-hover); border-color: #312e81; background: #1e1b4b; }
+.rq-wiki-link-btn:hover { background: #312e81; }
 
-.rq-preview-container {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  background: #000;
-}
+.rq-preview-container { flex: 1; min-height: 0; background: #000; display: flex; flex-direction: column; }
 .rq-wiki-iframe { flex: 1; width: 100%; border: none; }
 
-/* ─── Thinner Review Panel (No Gradients) ─── */
-.rq-review-panel {
+/* --- DECISION PANEL (BOTTOM) --- */
+.rq-decision-panel {
   flex-shrink: 0;
-  background: rgba(18, 24, 38, 0.95);
-  border-top: 1px solid var(--rq-border-light);
+  background: var(--rq-surface);
+}
+.rq-decision-body {
+  padding: 8px 16px;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 -4px 20px rgba(0,0,0,0.3);
-  z-index: 20;
-}
-.rq-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 20px;
-  cursor: pointer;
-}
-.rq-panel-title { display: flex; align-items: center; gap: 12px; }
-.rq-panel-kicker { font-size: 0.65rem; font-weight: 700; color: var(--rq-text-muted); letter-spacing: 0.1em; text-transform: uppercase; border-right: 1px solid var(--rq-border); padding-right: 12px; }
-.rq-panel-title h3 { margin: 0; font-size: 0.9rem; font-weight: 600; color: var(--rq-text); }
-.rq-panel-toggle-btn { width: 28px; height: 28px; }
-.rq-review-panel.is-collapsed .rq-panel-header { border-bottom: none; }
-
-.rq-panel-body {
-  padding: 0 20px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.rq-error-msg { color: var(--rq-danger); font-size: 0.85rem; padding: 6px; background: rgba(239,68,68,0.1); border-radius: 6px; }
-
-.rq-panel-content-row {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-@media (min-width: 769px) {
-  .rq-panel-content-row {
-    flex-direction: row;
-    align-items: center;
-  }
-  .rq-comment-field { flex: 1; }
-  .rq-action-buttons { flex: 0 0 auto; }
-}
-
-.rq-input {
-  width: 100%;
-  background: rgba(0,0,0,0.2);
-  border: 1px solid var(--rq-border-light);
-  border-radius: 8px;
-  padding: 10px 14px;
-  color: var(--rq-text);
-  font-size: 0.9rem;
-  transition: border-color 0.2s;
-}
-.rq-input:focus { outline: none; border-color: var(--rq-accent); }
-
-.rq-action-buttons {
-  display: flex;
   gap: 8px;
 }
-.rq-btn {
-  flex: 1;
+.rq-decision-form {
   display: flex;
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 10px 16px;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  border: none;
-  color: #fff;
-  transition: transform 0.1s, filter 0.2s;
+  gap: 12px;
 }
-@media (min-width: 769px) {
-  .rq-btn { flex: 0 0 auto; }
+
+.rq-error-msg { color: var(--rq-danger); font-size: 0.85rem; padding: 12px; background: #450a0a; border-radius: 8px; border: 1px solid #7f1d1d; margin-bottom: -4px; }
+
+.rq-input {
+  flex: 1;
+  background: #09090b; border: 1px solid var(--rq-border-light);
+  border-radius: 8px; padding: 8px 16px; color: var(--rq-text); font-size: 0.85rem;
+  transition: border-color 160ms var(--ease-out), background 160ms var(--ease-out);
+  resize: none;
+  height: 40px; /* Fixed height for 1-2 lines */
+}
+.rq-input:focus { outline: none; border-color: var(--rq-accent); background: #18181b; }
+
+.rq-actions-wrapper {
+  display: flex;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.rq-primary-actions { display: flex; gap: 8px; }
+.rq-secondary-actions { display: flex; gap: 8px; }
+
+.rq-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 0 12px; height: 40px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; border: none; color: #fff;
+  transition: transform 160ms var(--ease-out), filter 160ms var(--ease-out);
 }
 .rq-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.rq-btn:active:not(:disabled) { transform: translateY(1px); }
+.rq-btn:active:not(:disabled) { transform: scale(0.97); }
 .rq-btn:hover:not(:disabled) { filter: brightness(1.15); }
 
-/* Solid background colors (no gradients) */
-.rq-btn-accept { background-color: var(--rq-success-dark); }
-.rq-btn-reject { background-color: var(--rq-danger-dark); }
-.rq-btn-skip { background-color: rgba(255,255,255,0.08); border: 1px solid var(--rq-border-light); color: var(--rq-text); }
-.rq-btn-remove { background-color: #450a0a; border: 1px solid rgba(239,68,68,0.3); padding: 10px 12px; }
+.rq-btn-accept { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
+.rq-btn-reject { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
 
-/* ─── Mobile Nav ─── */
+.rq-btn-ghost {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 0 12px; height: 40px; border-radius: 8px; font-size: 0.8rem; font-weight: 600;
+  background: #18181b; border: 1px solid var(--rq-border-light); color: var(--rq-text-muted);
+  transition: transform 160ms var(--ease-out), background 160ms var(--ease-out), color 160ms var(--ease-out);
+}
+.rq-btn-ghost:hover:not(:disabled) { background: #27272a; color: var(--rq-text); }
+.rq-btn-ghost:active:not(:disabled) { transform: scale(0.97); }
+.rq-btn-ghost.rq-btn-remove:hover { border-color: #7f1d1d; color: var(--rq-danger); background: #450a0a; }
+
+/* --- MOBILE NAV --- */
 .rq-mobile-nav {
-  display: none;
-  background: rgba(18, 24, 38, 0.98);
-  border-top: 1px solid var(--rq-border);
+  display: none; background: #121214; border-top: 1px solid var(--rq-border);
   padding-bottom: env(safe-area-inset-bottom);
 }
 .rq-nav-btn {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 10px 8px;
-  background: none;
-  border: none;
-  color: var(--rq-text-muted);
-  transition: color 0.2s;
-  position: relative;
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  padding: 12px 8px; background: none; border: none; color: var(--rq-text-muted);
+  transition: color 160ms var(--ease-out), transform 160ms var(--ease-out); position: relative;
 }
 .rq-nav-btn.is-active { color: var(--rq-accent-hover); }
+.rq-nav-btn:active { transform: scale(0.95); }
 .rq-nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-.rq-nav-icon { font-size: 1.3rem; }
-.rq-nav-label { font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
-.rq-nav-badge { position: absolute; top: 4px; right: 25%; background: var(--rq-accent); color: #fff; font-size: 0.6rem; font-weight: 700; padding: 2px 6px; border-radius: 10px; }
+.rq-nav-icon { font-size: 1.4rem; }
+.rq-nav-label { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.rq-nav-badge { position: absolute; top: 6px; right: 25%; background: var(--rq-accent); color: #fff; font-size: 0.65rem; font-weight: 700; padding: 2px 6px; border-radius: 8px; }
 
-/* ─── Mobile Layout Overrides ─── */
-@media (max-width: 768px) {
-  .rq-desktop-only { display: none; }
-  
-  .rq-sidebar { width: 85%; }
-  .rq-main-layout { margin-bottom: 0; height: calc(100% - 60px); flex: none; }
-  .rq-app { padding-bottom: 60px; }
-  .rq-mobile-nav { display: flex; position: fixed; bottom: 0; left: 0; right: 0; height: 60px; z-index: 50; }
-
-  .rq-hamburger-btn { display: none; } /* On mobile, we use bottom nav to switch tabs, or keep hamburger? Wait, let's keep hamburger and hide mobile bottom nav? */
-  
-  /* Wait, the user has mobile tabs for "List" and "Review" already. If we have a hamburger, do we still need tabs? 
-     Let's keep tabs for consistency with the rest of the mobile UX, but since they asked for a hamburger menu, the hamburger toggles sidebar over the content. 
-     Actually, if the sidebar is just an overlay, we don't need the 200% width sliding layout! */
-  
-  /* Reset the 200% width sliding layout because the sidebar is now an overlay hamburger menu on both desktop AND mobile! */
-  .rq-main-layout { flex-direction: column; width: 100%; transform: none; }
-  .rq-main-content { width: 100%; }
-  
-  .rq-back-btn { display: none; } /* Sidebar handles list now, no back button needed */
-  .rq-hamburger-btn { display: flex; } /* Show hamburger on mobile too */
+/* --- RESPONSIVE LAYOUT --- */
+@media (max-width: 1024px) {
+  .rq-decision-form { flex-direction: column; align-items: stretch; }
+  .rq-actions-wrapper { justify-content: space-between; }
+  .rq-input { height: 48px; }
 }
-/* Ensure the main layout doesn't slide if we are using an overlay drawer sidebar */
-.rq-main-layout { width: 100% !important; transform: none !important; flex-direction: row; }
-.rq-main-content { width: 100% !important; }
+
+@media (max-width: 768px) {
+  .rq-desktop-only { display: none !important; }
+  .rq-mobile-only { display: flex !important; }
+  
+  .rq-app { padding-bottom: 70px; }
+  .rq-layout { display: flex; flex-direction: column; padding: 0; gap: 0; }
+  
+  .mobile-hidden { display: none !important; }
+  
+  .rq-panel { border-radius: 0; border: none; border-bottom: 1px solid var(--rq-border); box-shadow: none; }
+  .rq-queue-panel { flex: 1; transition: none; width: 100%; opacity: 1; }
+  
+  .rq-review-area { flex: 1; display: flex; flex-direction: column; position: relative; gap: 0; }
+  .rq-preview-panel { flex: 1; border-bottom: none; margin-bottom: 190px; }
+  
+  .rq-decision-panel {
+    position: fixed; bottom: 70px; left: 0; right: 0;
+    border-radius: 12px 12px 0 0; border: 1px solid var(--rq-border);
+    border-bottom: none; box-shadow: 0 -8px 32px rgba(0,0,0,0.8);
+    z-index: 40; padding-bottom: env(safe-area-inset-bottom);
+  }
+  .rq-decision-body { padding: 12px; gap: 8px; }
+  .rq-decision-form { flex-direction: column; gap: 8px; }
+  .rq-input { height: 48px; }
+  .rq-actions-wrapper { flex-direction: column; gap: 8px; }
+  .rq-primary-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; gap: 8px; }
+  .rq-secondary-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; gap: 8px; }
+  
+  .rq-mobile-nav { display: flex; position: fixed; bottom: 0; left: 0; right: 0; height: 70px; z-index: 50; }
+}
 </style>

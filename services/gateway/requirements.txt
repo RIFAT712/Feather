@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+sqlalchemy
+pymysql
+httpx
+psutil
+PyJWT
+python-dotenv
+-e ../../shared
