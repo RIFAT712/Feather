@@ -41,11 +41,25 @@ app.add_middleware(
     https_only=is_prod
 )
 
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    """Total time spent inside this app for the request (DB + Python
+    processing + response encoding), excluding network/TLS/ingress time
+    before the request reaches here. Compare against curl's total time for
+    the same request to see how much of the delay is inside this app at all
+    vs. purely network/infra -- the diagnostics endpoint's per-query timings
+    don't cover response-building or JSON serialization, so this fills that
+    gap without needing another round of guessing."""
+    start = time.perf_counter()
+    response = await call_next(request)
+    response.headers["X-Process-Time"] = f"{time.perf_counter() - start:.4f}"
+    return response
+
 # Bumped manually with each deploy-relevant change. Buildpacks-produced
 # runtime images don't reliably include .git, so this is a guaranteed-simple
 # way to confirm what's actually running vs. what's on GitHub, instead of
 # inferring it from behavior after every redeploy.
-APP_BUILD_MARKER = "2026-08-28-db-diagnostics-2"
+APP_BUILD_MARKER = "2026-08-28-process-time-header"
 
 @app.get("/api/version")
 def get_version():
