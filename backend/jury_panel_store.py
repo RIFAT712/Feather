@@ -124,6 +124,7 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
             or meta.assignment_signature != assignment_signature
         )
         by_id = {}
+        deleted_articles = False
         if needs_sync:
             # Do not materialize the whole contest as ORM objects and do not
             # commit once per article.  A fresh Toolforge projection can have
@@ -207,6 +208,7 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
             # Remove rows deleted from the source contest without a giant
             # SQLite IN clause (and retain projections for other contests).
             stale_ids = set(existing_rows) - source_ids
+            deleted_articles = bool(stale_ids)
             for start in range(0, len(stale_ids), 500):
                 mirror.query(ArticleProjection).filter(
                     ArticleProjection.contest_code == contest.code,
@@ -241,7 +243,7 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
                 submitter_id = user_ids.get(row.submitted_by)
                 assigned_id = jury_ids.get(row.assigned_to)
                 if (row.status == "pending" and
-                    (assignment_rules_changed or
+                    (assignment_rules_changed or deleted_articles or
                      row.assigned_to not in juries or
                      (not contest.allow_self_review and assigned_id == submitter_id) or
                      (assigned_id, submitter_id) in restrictions)):
