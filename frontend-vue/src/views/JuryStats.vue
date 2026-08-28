@@ -1,10 +1,10 @@
 <script setup>
-import { ref, onMounted, computed, inject, watch } from 'vue';
+import { ref, computed, inject, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CdxIcon } from '@wikimedia/codex';
 import { cdxIconArticleCheck, cdxIconTrash } from '@wikimedia/codex-icons';
-import { fetchAllContestLogPages, fetchRemainingLogPagesConcurrently } from '../utils/contestLog';
-import { getCachedStats, setCachedStats, getCachedLog, setCachedLog, removeCachedLogItems } from '../utils/contestDataCache';
+import { useQueryClient } from '@tanstack/vue-query';
+import { useContestStats, useContestLog, useContestErrorLog, removeArticlesFromLogCache } from '../composables/useContestData';
 import { Doughnut, Bar } from 'vue-chartjs';
 import {
   Chart as ChartJS,
@@ -19,16 +19,18 @@ import {
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
 
+// roles comes from ContestLayout (the shared parent for every contest route),
+// which already fetches /my-role once -- this view used to independently
+// re-fetch the exact same thing on every mount, one of several views doing so.
+const props = defineProps({
+  roles: { type: Object, default: () => ({ is_jury: false, is_owner: false }) },
+});
 const route = useRoute();
 const router = useRouter();
 const user = inject('user');
-const isLoading = ref(true);
-const articles = ref([]);
-const articlesLoaded = ref(false);
-const isLoadingArticles = ref(false);
-const roles = ref({ is_jury: false, is_owner: false });
+const queryClient = useQueryClient();
 const juryProgress = ref([]);
-const isAuthorized = computed(() => roles.value.is_jury || roles.value.is_owner);
+const isAuthorized = computed(() => props.roles.is_jury || props.roles.is_owner);
 const activeTab = ref('overview');
 const removingArticleId = ref(null);
 const removalError = ref('');
@@ -39,167 +41,48 @@ const visibleGroupCounts = ref({});
 const isBulkRemoving = ref(false);
 
 // Overview KPIs/charts come from grouped SQL counts, not the full article list —
-// the "All submitted"/"Errored" tabs are the only place that need per-article detail.
-const stats = ref({ status_counts: {}, jury_stats: [] });
+// the "All submitted"/"Errored" tabs are the only place that need per-article
+// detail. Shared across Dashboard/ActivityLog/JuryStats via vue-query's
+// cache, so navigating between them doesn't re-fetch what another view just
+// loaded seconds ago.
+const statsQuery = useContestStats(() => route.params.code, { enabled: isAuthorized });
+const stats = computed(() => statsQuery.data.value || { status_counts: {}, jury_stats: [] });
+const isLoading = computed(() => isAuthorized.value && statsQuery.isLoading.value);
+const fetchStats = () => statsQuery.refetch();
 
-// Shared across views (dashboard/Timeline Log/Jury Stats all want the same
-// /stats data) so navigating between them doesn't re-fetch what another view
-// just loaded seconds ago.
-const fetchStats = async () => {
-  const cached = getCachedStats(route.params.code);
-  if (cached) stats.value = cached;
-  const res = await fetch(`/api/contests/${route.params.code}/stats`);
-  if (!res.ok) throw new Error('Could not load jury statistics.');
-  const data = await res.json();
-  stats.value = data;
-  setCachedStats(route.params.code, data);
-};
-
-const ARTICLES_PAGE_SIZE = 200;
-const isLoadingMoreArticles = ref(false);
-
-// Guards against a stale background crawl (from a previous fetchArticles()
-// call) still running when refreshCurrentTabArticles() resets state and
-// starts a new one -- e.g. deleting an article while the initial crawl is
-// still loading, or a cache-triggered revalidation still in flight.
-let articlesFetchGeneration = 0;
-
-const fetchArticlesPage = async (before) => {
-  const cursor = before !== null ? `&before_id=${before}` : '';
-  const res = await fetch(`/api/contests/${route.params.code}/log?page_size=${ARTICLES_PAGE_SIZE}&include_reviews=false${cursor}`);
-  if (!res.ok) throw new Error('Could not load submitted articles.');
-  return res.json();
-};
-
-// No cache yet: render progressively as pages arrive -- there's nothing
-// already on screen to disturb.
-const loadArticlesFreshProgressively = async (generation) => {
-  const first = await fetchArticlesPage(null);
-  articles.value = first.items;
-  articlesLoaded.value = true;
-  isLoadingArticles.value = false;
-  if (first.has_more) {
-    isLoadingMoreArticles.value = true;
-    try {
-      // Fired as concurrent offset-paginated batches (~3.4x faster wall
-      // time, measured) rather than one keyset page at a time -- the first
-      // page above already established the live, always-correct view, so
-      // this catch-up crawl only needs to be fast, not individually as strict.
-      await fetchRemainingLogPagesConcurrently(route.params.code, first.items.length, first.total, {
-        includeReviews: false,
-        onBatch: (items) => {
-          if (generation === articlesFetchGeneration) articles.value = [...first.items, ...items];
-        },
-      });
-    } finally {
-      if (generation === articlesFetchGeneration) isLoadingMoreArticles.value = false;
-    }
-  }
-  if (generation === articlesFetchGeneration) setCachedLog(route.params.code, articles.value, first.total, false);
-};
-
-// Cached data already showing (from a previous visit this session, or from
-// ActivityLog having already crawled this contest) -- refetch fully into a
-// separate buffer and swap it in once complete, so the already-visible list
-// doesn't shrink back down and regrow while this runs.
-const revalidateArticlesInBackground = async (generation) => {
-  isLoadingMoreArticles.value = true;
-  try {
-    const first = await fetchArticlesPage(null);
-    let fresh = first.items;
-    if (first.has_more) {
-      const rest = await fetchRemainingLogPagesConcurrently(route.params.code, fresh.length, first.total, { includeReviews: false });
-      fresh = [...fresh, ...rest];
-    }
-    if (generation === articlesFetchGeneration) {
-      articles.value = fresh;
-      setCachedLog(route.params.code, fresh, first.total, false);
-    }
-  } catch (e) {
-    console.error('Background submissions refresh failed:', e);
-  } finally {
-    if (generation === articlesFetchGeneration) isLoadingMoreArticles.value = false;
-  }
-};
-
-// Also used to refresh after a deletion -- resets back to just the first
-// page rather than trying to preserve background-load progress across a
-// mutation. Only awaits the first page (or the cached snapshot): callers
-// (removeArticle etc.) need the tab usable again quickly, not to block on
-// the full background crawl.
-const fetchArticles = async () => {
-  const generation = ++articlesFetchGeneration;
-  isLoadingArticles.value = true;
-  const cached = getCachedLog(route.params.code);
-  if (cached) {
-    articles.value = cached.items;
-    articlesLoaded.value = true;
-    isLoadingArticles.value = false;
-    revalidateArticlesInBackground(generation); // not awaited
-  } else {
-    articles.value = [];
-    try {
-      await loadArticlesFreshProgressively(generation);
-    } finally {
-      isLoadingArticles.value = false;
-    }
-  }
-};
-
-const errorArticles = ref([]);
-const errorArticlesLoaded = ref(false);
-const isLoadingErrorArticles = ref(false);
+// "All submitted" tab: fetched lazily -- only once that tab is actually
+// opened (`enabled` below) -- and progressively (see useContestLog), and
+// shares its cache entry with any other view that has already crawled this
+// contest without reviews (there is none today, but the key is shared by
+// design). isLoadingMoreArticles covers both a first-time crawl's catch-up
+// pages and a revisit's background revalidation -- vue-query folds both into
+// the same isFetching.
+const articlesQuery = useContestLog(() => route.params.code, false, {
+  enabled: computed(() => isAuthorized.value && activeTab.value === 'submissions'),
+});
+const articles = computed(() => articlesQuery.data.value?.items || []);
+const isLoadingArticles = computed(() => articlesQuery.isLoading.value);
+const isLoadingMoreArticles = computed(() => articlesQuery.isFetching.value && !articlesQuery.isLoading.value);
+const fetchArticles = () => articlesQuery.refetch();
 
 // Errored submissions are typically a handful out of thousands, and could be
 // anywhere in the id order -- filtering server-side means this tab never has
 // to wait on (or trigger) the full "All submitted" crawl to find them.
-const fetchErrorArticles = async () => {
-  isLoadingErrorArticles.value = true;
-  try {
-    errorArticles.value = await fetchAllContestLogPages(route.params.code, {
-      includeReviews: false,
-      status: 'validation_failed',
-    });
-    errorArticlesLoaded.value = true;
-  } finally {
-    isLoadingErrorArticles.value = false;
-  }
-};
-
-const ensureArticlesLoaded = () => {
-  if (!articlesLoaded.value && !isLoadingArticles.value) {
-    fetchArticles().catch(err => console.error(err));
-  }
-};
-
-const ensureErrorArticlesLoaded = () => {
-  if (!errorArticlesLoaded.value && !isLoadingErrorArticles.value) {
-    fetchErrorArticles().catch(err => console.error(err));
-  }
-};
-
-watch(activeTab, (tab) => {
-  if (tab === 'submissions') ensureArticlesLoaded();
-  else if (tab === 'errors') ensureErrorArticlesLoaded();
+// Fetched lazily, only once the Errored tab is opened.
+const errorArticlesQuery = useContestErrorLog(() => route.params.code, {
+  enabled: computed(() => isAuthorized.value && activeTab.value === 'errors'),
 });
+const errorArticles = computed(() => errorArticlesQuery.data.value || []);
+const isLoadingErrorArticles = computed(() => errorArticlesQuery.isLoading.value);
+const fetchErrorArticles = () => errorArticlesQuery.refetch();
 
 onMounted(async () => {
+  if (!isAuthorized.value) return;
   try {
-    const roleRes = await fetch(`/api/contests/${route.params.code}/my-role`);
-    if (roleRes.ok) roles.value = await roleRes.json();
-
-    if (!isAuthorized.value) {
-      isLoading.value = false;
-      return;
-    }
-
-    await fetchStats();
     const progressRes = await fetch(`/api/jury-panel/contests/${route.params.code}/progress`);
     if (progressRes.ok) juryProgress.value = await progressRes.json();
   } catch (err) {
     console.error(err);
-  } finally {
-    isLoading.value = false;
   }
 });
 
@@ -219,7 +102,7 @@ const acceptRate = computed(() => {
 
 const juryStats = computed(() => {
   const rows = stats.value.jury_stats || [];
-  if (roles.value.is_owner) return rows;
+  if (props.roles.is_owner) return rows;
   const mine = user?.value?.wiki_username;
   return rows.filter(row => row.name === mine);
 });
@@ -319,7 +202,7 @@ const removeArticle = async (article) => {
     if (!res.ok) throw new Error(data.detail || 'Could not remove the article.');
     selectedErrorIds.value = selectedErrorIds.value.filter(id => id !== article.article_id);
     selectedSubmissionIds.value = selectedSubmissionIds.value.filter(id => id !== article.article_id);
-    removeCachedLogItems(route.params.code, [article.article_id]);
+    removeArticlesFromLogCache(queryClient, route.params.code, [article.article_id]);
     await refreshCurrentTabArticles();
   } catch (err) {
     removalError.value = err.message || 'Could not remove the article.';
@@ -347,7 +230,7 @@ const removeSelectedSubmissions = async (group = null) => {
     const failed = (result.failed || []).map(item => item.article_id);
     selectedSubmissionIds.value = selectedSubmissionIds.value.filter(id => failed.includes(id));
     if (failed.length) throw new Error(`Could not remove ${failed.length} article(s).`);
-    removeCachedLogItems(route.params.code, ids.filter(id => !failed.includes(id)));
+    removeArticlesFromLogCache(queryClient, route.params.code, ids.filter(id => !failed.includes(id)));
     await Promise.all([fetchArticles(), fetchStats()]);
   } catch (err) {
     removalError.value = err.message || 'Could not remove selected articles.';
@@ -377,7 +260,7 @@ const removeSelectedErrors = async () => {
     // Errored articles are also part of the shared "all submitted" cache if
     // that tab was ever opened -- prune them there too, not just their own
     // separately-fetched list.
-    removeCachedLogItems(route.params.code, ids.filter(id => !failed.includes(id)));
+    removeArticlesFromLogCache(queryClient, route.params.code, ids.filter(id => !failed.includes(id)));
     await Promise.all([fetchErrorArticles(), fetchStats()]);
   } catch (err) {
     removalError.value = err.message || 'Could not remove selected articles.';

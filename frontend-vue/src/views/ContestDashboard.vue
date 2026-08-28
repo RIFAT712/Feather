@@ -2,15 +2,18 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ActivityLog from './ActivityLog.vue';
-import { getCachedStats, setCachedStats } from '../utils/contestDataCache';
+import { useContestStats } from '../composables/useContestData';
 
-const props = defineProps(['contest']);
+// roles comes from ContestLayout (the shared parent for every contest route),
+// which already fetches /my-role once -- available synchronously here since
+// the parent resolves it before this child even mounts, so no loading state
+// is needed for it (unlike the old fetch-it-here-too approach).
+const props = defineProps({
+  contest: { type: Object, default: null },
+  roles: { type: Object, default: () => ({ is_jury: false, is_owner: false }) },
+});
 const route = useRoute();
 const router = useRouter();
-
-const roles = ref({ is_jury: false, is_owner: false });
-const isLoadingRoles = ref(true);
-const stats = ref({ total: 0, accepted: 0, rejected: 0, pending: 0 });
 
 const isActive = computed(() => {
   const now = new Date();
@@ -19,33 +22,22 @@ const isActive = computed(() => {
 
 const timerText = ref("");
 let timerInterval;
-let statsInterval;
-
-// Counts only — avoids re-downloading every article/review on the contest just
-// to show four numbers, which used to be re-fetched in full every 5 seconds.
-const applyStats = (data) => {
-  stats.value = {
-    total: data.status_counts.total,
-    accepted: data.status_counts.accepted,
-    rejected: data.status_counts.rejected,
-    pending: data.status_counts.pending,
-  };
-};
 
 // Shared across views (dashboard/Timeline Log/Jury Stats all want the same
-// /stats data) so navigating between them doesn't re-fetch what another view
-// just loaded seconds ago. Cached value renders instantly while a fresh fetch
-// still runs underneath to catch up-to-the-moment counts and feed the poll below.
-const fetchContestStats = async () => {
-  const cached = getCachedStats(route.params.code);
-  if (cached) applyStats(cached);
-  const response = await fetch(`/api/contests/${route.params.code}/stats`);
-  if (response.ok) {
-    const data = await response.json();
-    setCachedStats(route.params.code, data);
-    applyStats(data);
-  }
-};
+// /stats data) via vue-query's cache, so navigating between them doesn't
+// re-fetch what another view just loaded seconds ago. refetchInterval keeps
+// polling every 5s while this view is mounted and authorized -- previously a
+// manual setInterval, now the query's own job.
+const statsQuery = useContestStats(() => route.params.code, {
+  enabled: computed(() => props.roles.is_jury || props.roles.is_owner),
+  refetchInterval: 5000,
+});
+const stats = computed(() => {
+  const counts = statsQuery.data.value?.status_counts;
+  return counts
+    ? { total: counts.total, accepted: counts.accepted, rejected: counts.rejected, pending: counts.pending }
+    : { total: 0, accepted: 0, rejected: 0, pending: 0 };
+});
 
 const updateTimer = () => {
   const now = new Date();
@@ -68,31 +60,12 @@ const updateTimer = () => {
 };
 
 onMounted(() => {
-  const loadDashboard = async () => {
-    try {
-      const roleResponse = await fetch(`/api/contests/${route.params.code}/my-role`);
-      if (roleResponse.ok) roles.value = await roleResponse.json();
-      isLoadingRoles.value = false;
-      if (roles.value.is_jury || roles.value.is_owner) {
-        await fetchContestStats();
-        statsInterval = setInterval(() => {
-          fetchContestStats().catch(error => console.error('Failed to refresh contest stats', error));
-        }, 5000);
-      }
-    } catch (error) {
-      isLoadingRoles.value = false;
-      console.error('Failed to load contest dashboard', error);
-    }
-  };
-  loadDashboard();
-  
   updateTimer();
   timerInterval = setInterval(updateTimer, 1000);
 });
 
 onUnmounted(() => {
   clearInterval(timerInterval);
-  clearInterval(statsInterval);
 });
 </script>
 
@@ -116,13 +89,13 @@ onUnmounted(() => {
           <button class="action-btn primary" @click="router.push(`/${contest.code}/submit`)">
             Submit Articles
           </button>
-          <button v-if="!isLoadingRoles && (roles.is_jury || roles.is_owner)" class="action-btn secondary" @click="router.push(`/${contest.code}/jury`)">
+          <button v-if="(roles.is_jury || roles.is_owner)" class="action-btn secondary" @click="router.push(`/${contest.code}/jury`)">
             Review Queue
           </button>
-          <button v-if="!isLoadingRoles && (roles.is_jury || roles.is_owner)" class="action-btn secondary" @click="router.push(`/${contest.code}/jury`)">
+          <button v-if="(roles.is_jury || roles.is_owner)" class="action-btn secondary" @click="router.push(`/${contest.code}/jury`)">
             Statistics
           </button>
-          <button v-if="!isLoadingRoles && roles.is_owner" class="action-btn secondary" @click="router.push(`/${contest.code}/config`)">
+          <button v-if="roles.is_owner" class="action-btn secondary" @click="router.push(`/${contest.code}/config`)">
             Config
           </button>
         </div>
@@ -142,7 +115,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-        <div v-if="!isLoadingRoles && (roles.is_jury || roles.is_owner) && stats.total > 0" class="stats-row">
+        <div v-if="(roles.is_jury || roles.is_owner) && stats.total > 0" class="stats-row">
       <div class="stat-card">
         <div class="stat-number">{{ stats.total }}</div>
         <div class="stat-label">Total Submitted</div>
@@ -161,8 +134,8 @@ onUnmounted(() => {
       </div>
     </div>
 
-        <div v-if="!isLoadingRoles && (roles.is_jury || roles.is_owner)" class="log-section">
-      <ActivityLog :contest="contest" />
+        <div v-if="(roles.is_jury || roles.is_owner)" class="log-section">
+      <ActivityLog :contest="contest" :roles="roles" embedded />
     </div>
   </div>
 </template>

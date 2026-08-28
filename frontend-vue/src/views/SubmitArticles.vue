@@ -2,10 +2,13 @@
 import { ref, onMounted, watch, inject, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { CdxButton, CdxLookup } from '@wikimedia/codex';
+import { useQueryClient } from '@tanstack/vue-query';
+import { invalidateContestData } from '../composables/useContestData';
 
 const props = defineProps(['contest']);
 const route = useRoute();
 const user = inject('user');
+const queryClient = useQueryClient();
 const results = ref([]);
 const isLoading = ref(false);
 const totalToSubmit = ref(0);
@@ -240,6 +243,12 @@ const handleSubmit = async () => {
     submitProgress.value = Math.min(100, Math.round((processedCount.value / totalToSubmit.value) * 100));
   }
   
+  // These submissions just changed the contest's article list -- any
+  // Dashboard/Timeline Log/Jury Stats cache for it is now stale. Invalidating
+  // means the next read anywhere (even a currently-mounted view) does a real
+  // fetch instead of showing what existed before this submission.
+  invalidateContestData(queryClient, contestCode);
+
   try {
     const targetUser = (isOnBehalf.value && onBehalfUsername.value) ? onBehalfUsername.value : user.value.wiki_username;
     const profileRes = await fetch(`/api/contests/${contestCode}/users/${encodeURIComponent(targetUser)}`);

@@ -43,7 +43,11 @@ const showJudgedArticles = ref(false);
 const showOtherReviewed = ref(false);
 const theme = ref(localStorage.getItem('review_queue_theme') || 'light');
 const ownerViewMode = ref('judge');
-const selectedJudge = ref(props.contest?.juries?.[0] || '');
+// Defaults to the owner's own queue, not just whichever jury happens to be
+// first in the contest's jury list -- an owner opening /review-v2 should
+// land on their own assigned articles, not silently start reviewing (and
+// attributing decisions to) another jury member's queue by default.
+const selectedJudge = ref(user?.value?.wiki_username || props.contest?.juries?.[0] || '');
 
 const toggleTheme = () => {
   theme.value = theme.value === 'dark' ? 'light' : 'dark';

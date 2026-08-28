@@ -1,27 +1,49 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { CdxIcon } from '@wikimedia/codex';
 import { cdxIconAlert } from '@wikimedia/codex-icons';
-import { fetchRemainingLogPagesConcurrently } from '../utils/contestLog';
-import { getCachedStats, setCachedStats, getCachedLog, setCachedLog } from '../utils/contestDataCache';
+import { useContestStats, useContestLog } from '../composables/useContestData';
 
-const PAGE_SIZE = 200;
-
-const props = defineProps(['contest']);
+// roles comes from ContestLayout (the shared parent for every contest route),
+// which already fetches /my-role once -- this view used to independently
+// re-fetch the exact same thing on every mount, one of several views doing so.
+const props = defineProps({
+  contest: { type: Object, default: null },
+  roles: { type: Object, default: () => ({ is_jury: false, is_owner: false }) },
+  // When set (embedded in the dashboard), renders just the per-user grouped
+  // list (collapsed by default, capped per group -- see visibleGroupCounts)
+  // instead of the full page's stats bar/toggle bar/timeline view. Uses the
+  // exact same shared crawl as the standalone /log page below, so whichever
+  // one loads first, the other reuses its cache instead of re-crawling.
+  embedded: { type: Boolean, default: false },
+});
 const route = useRoute();
-const log = ref([]);
-const isLoading = ref(true);
-const isLoadingMore = ref(false);
-const error = ref(null);
 const viewMode = ref('per-user');
 const openGroups = ref({});
-const roles = ref({ is_jury: false, is_owner: false });
-const isAuthorized = computed(() => roles.value.is_jury || roles.value.is_owner);
+// Per-user article cap for the embedded dashboard view, mirroring JuryStats's
+// "All submitted" tab -- a submitter with thousands of articles shouldn't
+// dump all of them into the DOM the moment their group is expanded.
+const visibleGroupCounts = ref({});
+const isAuthorized = computed(() => props.roles.is_jury || props.roles.is_owner);
+
+// Shared across Dashboard/ActivityLog/JuryStats via vue-query's cache, so
+// navigating between them (or the dashboard's embedded view and this same
+// page) doesn't re-fetch or re-crawl what another view already loaded.
+const statsQuery = useContestStats(() => route.params.code);
+const logQuery = useContestLog(() => route.params.code, true);
+
+const log = computed(() => logQuery.data.value?.items || []);
+const isLoading = computed(() => logQuery.isLoading.value);
+// True only once the initial page is already showing and a crawl (first
+// load's catch-up pages, or a revisit's background revalidation) is still
+// running behind it -- both cases vue-query folds into the same isFetching.
+const isLoadingMore = computed(() => logQuery.isFetching.value && !logQuery.isLoading.value);
+const error = computed(() => logQuery.error.value?.message || statsQuery.error.value?.message || null);
 // Server-computed totals, independent of how many rows are actually loaded --
 // loading only a page at a time means log.value is never "everything", so
 // these can't be derived by counting log.value client-side.
-const statusCounts = ref({ total: 0, accepted: 0, rejected: 0, pending: 0, validation_failed: 0 });
+const statusCounts = computed(() => statsQuery.data.value?.status_counts || { total: 0, accepted: 0, rejected: 0, pending: 0, validation_failed: 0 });
 
 const fmt = (iso) => {
   if (!iso) return '—';
@@ -59,104 +81,29 @@ const groupedByUser = computed(() => {
 
 const toggleUser = (group) => {
   openGroups.value[group.user] = !openGroups.value[group.user];
+  if (props.embedded && visibleGroupCounts.value[group.user] === undefined) {
+    visibleGroupCounts.value = { ...visibleGroupCounts.value, [group.user]: 50 };
+  }
+};
+
+// Embedded-view-only: caps how many of a group's articles are actually
+// rendered once expanded (see the `embedded` prop doc above).
+const visibleGroupArticles = (group) => group.entries.slice(0, visibleGroupCounts.value[group.user] || 50);
+const groupHasMore = (group) => visibleGroupArticles(group).length < group.entries.length;
+const loadMoreGroupArticles = (group) => {
+  visibleGroupCounts.value = {
+    ...visibleGroupCounts.value,
+    [group.user]: Math.min((visibleGroupCounts.value[group.user] || 50) + 50, group.entries.length),
+  };
 };
 
 const reviewComments = (entry) => (entry.reviews || [])
   .filter(review => review.comment && review.comment.trim())
   .map(review => ({ reviewer: review.reviewer, comment: review.comment.trim() }));
-
-const fetchStatusCounts = async () => {
-  const res = await fetch(`/api/contests/${route.params.code}/stats`);
-  if (res.ok) {
-    const data = await res.json();
-    statusCounts.value = data.status_counts;
-    setCachedStats(route.params.code, data);
-  }
-};
-
-const fetchLogPage = async (before) => {
-  const cursor = before !== null ? `&before_id=${before}` : '';
-  const res = await fetch(`/api/contests/${route.params.code}/log?page_size=${PAGE_SIZE}${cursor}`);
-  if (!res.ok) throw new Error('Failed to load activity log');
-  return res.json();
-};
-
-// No cache yet for this contest: render progressively as pages arrive, same
-// as before -- there's nothing already on screen to disturb.
-const loadFreshProgressively = async () => {
-  const first = await fetchLogPage(null);
-  log.value = first.items;
-  isLoading.value = false;
-  if (first.has_more) {
-    isLoadingMore.value = true;
-    try {
-      // Fired as concurrent offset-paginated batches (~3.4x faster wall
-      // time, measured) rather than one keyset page at a time -- the first
-      // page above already established the live, always-correct view, so
-      // this catch-up crawl only needs to be fast, not individually as strict.
-      const rest = await fetchRemainingLogPagesConcurrently(route.params.code, first.items.length, first.total, {
-        onBatch: (items) => { log.value = [...first.items, ...items]; },
-      });
-      log.value = [...first.items, ...rest];
-    } finally {
-      isLoadingMore.value = false;
-    }
-  }
-  setCachedLog(route.params.code, log.value, first.total, true);
-};
-
-// Cached data is already showing (from a previous visit this session) --
-// refetch fully into a separate buffer and swap it in once complete, so the
-// already-visible list doesn't shrink back down and regrow while this runs.
-const revalidateInBackground = async () => {
-  isLoadingMore.value = true;
-  try {
-    const first = await fetchLogPage(null);
-    let fresh = first.items;
-    if (first.has_more) {
-      const rest = await fetchRemainingLogPagesConcurrently(route.params.code, fresh.length, first.total, {});
-      fresh = [...fresh, ...rest];
-    }
-    log.value = fresh;
-    setCachedLog(route.params.code, fresh, first.total, true);
-  } catch (e) {
-    console.error('Background activity log refresh failed:', e);
-  } finally {
-    isLoadingMore.value = false;
-  }
-};
-
-onMounted(async () => {
-  try {
-    const roleRes = await fetch(`/api/contests/${route.params.code}/my-role`);
-    if (roleRes.ok) roles.value = await roleRes.json();
-
-    const cachedStats = getCachedStats(route.params.code);
-    if (cachedStats) statusCounts.value = cachedStats.status_counts;
-    // A cache entry without reviews (e.g. written by JuryStats's leaner
-    // submissions-tab crawl) isn't enough here -- this view needs review
-    // history per article, so that's treated as a miss.
-    const cachedLog = getCachedLog(route.params.code);
-    const usableCachedLog = cachedLog && cachedLog.includesReviews ? cachedLog : null;
-
-    if (usableCachedLog) {
-      log.value = usableCachedLog.items;
-      isLoading.value = false;
-      await fetchStatusCounts();
-      revalidateInBackground(); // not awaited
-    } else {
-      await fetchStatusCounts();
-      await loadFreshProgressively();
-    }
-  } catch (e) {
-    error.value = e.message;
-    isLoading.value = false;
-  }
-});
 </script>
 
 <template>
-  <div class="log-root">
+  <div class="log-root" :class="{ 'log-root--embedded': embedded }">
 
     <div v-if="!isLoading && !isAuthorized" class="unauthorized-banner">
       <div class="unauthorized-content">
@@ -167,13 +114,86 @@ onMounted(async () => {
     </div>
 
         <div v-else-if="isLoading" class="state-center">
-      <div class="spinner" />
+      <div class="spinner" :class="{ 'spinner-dark': embedded }" />
       <p>Loading activity log…</p>
     </div>
 
         <div v-else-if="error" class="state-center error-box">
       <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:8px; display:block;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
       <p>{{ error }}</p>
+    </div>
+
+    <div v-else-if="embedded" class="user-activity-panel">
+      <div class="user-activity-header">
+        <h3>Submissions by User</h3>
+        <router-link :to="`/${route.params.code}/log`" class="view-full-log-link">View full activity log →</router-link>
+      </div>
+      <div v-if="groupedByUser.length === 0" class="state-center">
+        <p>No activity recorded yet.</p>
+      </div>
+      <div v-for="group in groupedByUser" :key="group.user" class="embedded-user-group">
+        <button
+          type="button"
+          class="embedded-user-header"
+          @click="toggleUser(group)"
+          :aria-expanded="!!openGroups[group.user]"
+        >
+          <span class="embedded-user-left">
+            <span class="embedded-avatar-circle">{{ group.user.charAt(0).toUpperCase() }}</span>
+            <router-link :to="`/${route.params.code}/user/${encodeURIComponent(group.user)}`" class="profile-link" @click.stop>{{ group.user }}</router-link>
+            <span class="embedded-count-badge">{{ group.entries.length.toLocaleString() }}</span>
+          </span>
+          <span class="embedded-chevron" :class="{ open: openGroups[group.user] }">›</span>
+        </button>
+
+        <div v-if="openGroups[group.user]" class="embedded-user-table-wrap">
+          <table class="embedded-user-table">
+            <thead>
+              <tr>
+                <th>Article</th>
+                <th>Status</th>
+                <th>Reviewed by</th>
+                <th>Jury Comment</th>
+                <th>Submitted</th>
+                <th>Reviewed</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="(entry, idx) in visibleGroupArticles(group)"
+                :key="entry.article_id"
+                :class="idx % 2 === 0 ? 'row-even' : 'row-odd'"
+              >
+                <td class="td-article">
+                  <a :href="`https://bn.wiktionary.org/wiki/${encodeURIComponent(entry.title)}`" target="_blank" class="article-link">{{ entry.title }}</a>
+                  <div v-if="entry.validation_error" class="error-subtext">
+                    <CdxIcon :icon="cdxIconAlert" class="err-icon" /> {{ entry.validation_error }}
+                  </div>
+                </td>
+                <td><span :class="['badge', statusClass(entry.status)]">{{ statusLabel(entry.status) }}</span></td>
+                <td class="td-reviewer">{{ entry.reviews && entry.reviews.length ? entry.reviews[0].reviewer : '—' }}</td>
+                <td class="td-comment">
+                  <template v-if="reviewComments(entry).length">
+                    <div v-for="(review, reviewIndex) in reviewComments(entry)" :key="`${review.reviewer}-${reviewIndex}`" class="comment-item">
+                      {{ review.comment }}
+                    </div>
+                  </template>
+                  <span v-else>—</span>
+                </td>
+                <td class="td-date">{{ fmt(entry.submitted_at) }}</td>
+                <td class="td-date">{{ entry.reviews && entry.reviews.length ? fmt(entry.reviews[0].reviewed_at) : '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <button v-if="groupHasMore(group)" type="button" class="embedded-load-more" @click="loadMoreGroupArticles(group)">
+            Show 50 more
+          </button>
+        </div>
+      </div>
+      <div v-if="isLoadingMore" class="embedded-load-more-note">
+        <div class="spinner spinner-small spinner-dark" />
+        <span>Loading the rest in the background…</span>
+      </div>
     </div>
 
     <template v-else>

@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tanstack/vue-query": "^5.102.8",
     "@wikimedia/codex": "^2.6.0",
     "@wikimedia/codex-design-tokens": "^2.6.0",
     "@wikimedia/codex-icons": "^2.6.0",

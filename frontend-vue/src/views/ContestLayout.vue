@@ -66,7 +66,7 @@ onMounted(async () => {
     </div>
 
     <div class="contest-content">
-      <router-view :contest="contest" />
+      <router-view :contest="contest" :roles="roles" />
     </div>
   </div>
 </template>
