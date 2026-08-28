@@ -244,10 +244,24 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
                         batch = []
                 flush_batch(batch)
                 batch = []
+                # flush_batch decides insert-vs-update per row from
+                # existing_rows, captured before this pass ran. Fold the rows
+                # it just inserted back into existing_rows so the refresh pass
+                # below (which may run immediately after, in this same
+                # request) correctly treats them as updates instead of
+                # attempting to insert the same article_id twice.
+                for aid in ids_to_fetch:
+                    if aid in by_id:
+                        existing_rows[aid] = by_id[aid]["assigned_to"]
 
             # Only refresh already-mirrored rows (for status/review changes)
-            # once there is no backlog of missing rows left to prioritize.
-            if not missing_ids:
+            # once this request has cleared the entire backlog of missing rows
+            # — i.e. ids_to_fetch covered all of missing_ids, not just a bounded
+            # slice of it. Waiting for "not missing_ids" (computed before this
+            # request ran) meant the very request that closed the last of the
+            # backlog still deferred refreshing review/status data by one more
+            # request-cycle, even though it's now safe to do immediately.
+            if len(missing_ids) <= SYNC_BATCH_LIMIT:
                 for article in (source_query
                                 .options(joinedload(models.Article.submitter),
                                          selectinload(models.Article.reviews).joinedload(models.Review.reviewer))
