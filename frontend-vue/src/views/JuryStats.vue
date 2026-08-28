@@ -51,8 +51,22 @@ const fetchStats = async () => {
 const fetchArticles = async () => {
   isLoadingArticles.value = true;
   try {
+    // groupedSubmissions re-groups the whole array by username on every
+    // change; reassigning articles.value on every single page (~25 for a
+    // large contest) made that re-run 25 times against a growing array,
+    // which is what showed up as UI jank/"glitches" during the crawl.
+    // Updating only every few pages keeps the progressive-render benefit
+    // (early data isn't held back) while cutting re-render count sharply.
+    let pagesSinceUpdate = 0;
     await fetchAllContestLogPages(route.params.code, {
-      onPage: (items) => { articles.value = items; },
+      includeReviews: false, // this view only needs title/status/validation, not review history
+      onPage: (items, payload) => {
+        pagesSinceUpdate += 1;
+        if (pagesSinceUpdate >= 5 || !payload.has_more) {
+          articles.value = items;
+          pagesSinceUpdate = 0;
+        }
+      },
     });
     articlesLoaded.value = true;
   } finally {

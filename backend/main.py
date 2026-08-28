@@ -36,10 +36,20 @@ models.Base.metadata.create_all(bind=engine)
 is_prod = os.getenv("OAUTH_CALLBACK_URL", "").startswith("https://")
 app = FastAPI()
 app.add_middleware(
-    SessionMiddleware, 
+    SessionMiddleware,
     secret_key=os.getenv("SESSION_SECRET", "super-secret"),
     https_only=is_prod
 )
+
+# Bumped manually with each deploy-relevant change. Buildpacks-produced
+# runtime images don't reliably include .git, so this is a guaranteed-simple
+# way to confirm what's actually running vs. what's on GitHub, instead of
+# inferring it from behavior after every redeploy.
+APP_BUILD_MARKER = "2026-08-28-log-perf-2"
+
+@app.get("/api/version")
+def get_version():
+    return {"build": APP_BUILD_MARKER}
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -1493,6 +1503,7 @@ def get_contest_log(
     code: str,
     before_id: Optional[int] = Query(default=None),
     page_size: int = Query(default=200, ge=1, le=500),
+    include_reviews: bool = Query(default=True),
     db: Session = Depends(get_db),
 ):
     """Paginated activity log, newest first. Uses keyset pagination (before_id,
@@ -1501,36 +1512,40 @@ def get_contest_log(
     silently skips or re-shuffles rows as the underlying result set shifts
     under concurrent inserts. Cursoring on id is immune to that — a page is
     always "articles with id < before_id", so new rows (always higher ids)
-    never perturb pages already fetched or still to come."""
+    never perturb pages already fetched or still to come.
+
+    include_reviews=false skips the reviews join/serialization entirely — the
+    submissions/errors moderation views only need title/status/validation
+    info per article, not review history, and loading it anyway roughly
+    doubles the query and payload cost of every page for no benefit there."""
     contest = db.query(models.Contest).filter_by(code=code).first()
     if not contest:
         raise HTTPException(status_code=404, detail="Contest not found")
 
     total = db.query(func.count(models.Article.id)).filter_by(contest_id=contest.id).scalar()
 
-    query = db.query(models.Article).options(
-        joinedload(models.Article.submitter),
-        selectinload(models.Article.reviews).joinedload(models.Review.reviewer)
-    ).filter_by(contest_id=contest.id)
+    query = db.query(models.Article).options(joinedload(models.Article.submitter))
+    if include_reviews:
+        query = query.options(selectinload(models.Article.reviews).joinedload(models.Review.reviewer))
+    query = query.filter_by(contest_id=contest.id)
     if before_id is not None:
         query = query.filter(models.Article.id < before_id)
     articles = query.order_by(models.Article.id.desc()).limit(page_size).all()
 
     log = []
-    now = datetime.utcnow()
-    lock_cutoff = now - timedelta(minutes=15)
-    article_ids = [a.id for a in articles]
     active_locks = {}
-    if article_ids:
-        lock_rows = db.query(models.ArticleLock).filter(
-            models.ArticleLock.article_id.in_(article_ids),
-            models.ArticleLock.locked_at >= lock_cutoff
-        ).all()
-        active_locks = {row.article_id: row.locked_by for row in lock_rows}
+    if include_reviews:
+        now = datetime.utcnow()
+        lock_cutoff = now - timedelta(minutes=15)
+        article_ids = [a.id for a in articles]
+        if article_ids:
+            lock_rows = db.query(models.ArticleLock).filter(
+                models.ArticleLock.article_id.in_(article_ids),
+                models.ArticleLock.locked_at >= lock_cutoff
+            ).all()
+            active_locks = {row.article_id: row.locked_by for row in lock_rows}
 
     for a in articles:
-        locked_by = active_locks.get(a.id)
-
         entry = {
             "article_id": a.id,
             "title": a.title,
@@ -1540,7 +1555,7 @@ def get_contest_log(
             "wiki_creation_date": a.wiki_creation_date.isoformat() if a.wiki_creation_date else None,
             "status": a.status.value,
             "validation_error": a.validation_error,
-            "locked_by": locked_by,
+            "locked_by": active_locks.get(a.id),
             "reviews": [
                 {
                     "reviewer": r.reviewer.wiki_username,
@@ -1550,7 +1565,7 @@ def get_contest_log(
                 }
                 for r in sorted(a.reviews, key=lambda r: r.timestamp or datetime.min)
                 if r.status.value != "skipped"
-            ]
+            ] if include_reviews else [],
         }
         log.append(entry)
 
