@@ -202,6 +202,8 @@ Before schema migrations run, the backend writes a rollback snapshot under `back
 
 ## Change Log
 
+| 2026-08-28 | Reduced initial navigation cost by splitting all non-home Vue routes into lazy-loaded chunks and fetching contest metadata and the user’s contest role in parallel. Large jury datasets are loaded only after entering jury views. |
+
 | 2026-08-28 | Switched the local application and jury projection SQLite databases from TRUNCATE journaling to WAL mode with 60-second busy timeouts and pooled connections, allowing API reads to continue during submissions, projection refreshes, and maintenance writes. |
 
 | 2026-08-28 | Jury projection rebuilds now recover reviewed-page ownership from the latest non-skipped reviewer, keep those pages assigned to that jury, count them in the jury load, and distribute all pending pages evenly across eligible juries; assignment fingerprint v3 forces repair of under-assigned legacy projections. |

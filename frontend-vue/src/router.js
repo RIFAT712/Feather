@@ -1,14 +1,14 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import Home from './views/Home.vue';
-import AdminDashboard from './views/AdminDashboard.vue';
-import ContestLayout from './views/ContestLayout.vue';
-import ContestDashboard from './views/ContestDashboard.vue';
-import SubmitArticles from './views/SubmitArticles.vue';
-import ReviewQueue from './views/ReviewQueue.vue';
-import ActivityLog from './views/ActivityLog.vue';
-import JuryStats from './views/JuryStats.vue';
-import UserProfile from './views/UserProfile.vue';
-import GlobalProfile from './views/GlobalProfile.vue';
+const AdminDashboard = () => import('./views/AdminDashboard.vue');
+const ContestLayout = () => import('./views/ContestLayout.vue');
+const ContestDashboard = () => import('./views/ContestDashboard.vue');
+const SubmitArticles = () => import('./views/SubmitArticles.vue');
+const ReviewQueue = () => import('./views/ReviewQueue.vue');
+const ActivityLog = () => import('./views/ActivityLog.vue');
+const JuryStats = () => import('./views/JuryStats.vue');
+const UserProfile = () => import('./views/UserProfile.vue');
+const GlobalProfile = () => import('./views/GlobalProfile.vue');
 
 const routes = [
   { path: '/', component: Home },

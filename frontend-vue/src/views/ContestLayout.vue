@@ -15,10 +15,12 @@ const isReviewPage = computed(() => route.path.endsWith('/jury/review') || route
 
 onMounted(async () => {
   try {
-    const res = await fetch(`/api/contests/${route.params.code}`);
-    if (!res.ok) throw new Error("Contest not found");
-    contest.value = await res.json();
-    const rolesRes = await fetch(`/api/contests/${route.params.code}/my-role`);
+    const [contestRes, rolesRes] = await Promise.all([
+      fetch(`/api/contests/${route.params.code}`),
+      fetch(`/api/contests/${route.params.code}/my-role`),
+    ]);
+    if (!contestRes.ok) throw new Error("Contest not found");
+    contest.value = await contestRes.json();
     if (rolesRes.ok) roles.value = await rolesRes.json();
   } catch (err) {
     error.value = err.message;
