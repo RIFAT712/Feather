@@ -187,6 +187,7 @@ def _schema_requires_migration(db_engine):
             "rule_no_disambig", "rule_mainspace_only", "allow_self_review",
             "add_talk_template", "talk_template_name", "include_talk_header",
         },
+        "articles": {"assigned_to_id"},
     }
     for table, columns in required_columns.items():
         if table in tables:
@@ -215,7 +216,7 @@ def _schema_requires_migration(db_engine):
     indexes = {
         index["name"] for index in inspector.get_indexes("articles")
     } if "articles" in tables else set()
-    if {"ix_articles_contest_id", "ix_articles_contest_status"} - indexes:
+    if {"ix_articles_contest_id", "ix_articles_contest_status", "ix_articles_contest_assigned"} - indexes:
         return True
     return False
 
@@ -281,6 +282,10 @@ def run_auto_migrations(db_engine):
                 add_col_if_missing('contests', col_name, col_type)
         else:
             print("[Migration] 'contests' table not found — create_all will handle it.")
+        if 'articles' in existing_tables:
+            # Jury assignment now lives directly on the article instead of a
+            # separate projection database — see jury panel merge.
+            add_col_if_missing('articles', 'assigned_to_id', 'INTEGER')
         migration_table_sql = """
             CREATE TABLE IF NOT EXISTS contest_timezone_migrations (
                 migration_key VARCHAR(100) PRIMARY KEY,
@@ -413,6 +418,7 @@ def run_auto_migrations(db_engine):
         index_statements = [
             "CREATE INDEX IF NOT EXISTS ix_articles_contest_id ON articles (contest_id)",
             "CREATE INDEX IF NOT EXISTS ix_articles_contest_status ON articles (contest_id, status)",
+            "CREATE INDEX IF NOT EXISTS ix_articles_contest_assigned ON articles (contest_id, assigned_to_id)",
         ]
         with db_engine.connect() as conn:
             for statement in index_statements:

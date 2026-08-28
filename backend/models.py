@@ -17,7 +17,7 @@ class User(Base):
     role = Column(Enum(RoleEnum), default=RoleEnum.participant, nullable=False)
     oauth_access_token = Column(Text, nullable=True)
     
-    articles = relationship("Article", back_populates="submitter")
+    articles = relationship("Article", back_populates="submitter", foreign_keys="Article.submitter_id")
     reviews = relationship("Review", back_populates="reviewer")
     jury_assignments = relationship("ContestJury", back_populates="user")
 
@@ -97,10 +97,12 @@ class Article(Base):
     wiki_creation_date = Column(DateTime, nullable=True)   # date article was created on Wikipedia
     wiki_creator = Column(String(255), nullable=True)        # who created it on Wikipedia
     submitted_at = Column(DateTime, default=datetime.utcnow) # date it was submitted to this contest
-    
-    submitter = relationship("User", back_populates="articles")
+    assigned_to_id = Column(Integer, ForeignKey('users.id'), nullable=True, index=True)  # jury queue ownership
+
+    submitter = relationship("User", back_populates="articles", foreign_keys=[submitter_id])
     contest = relationship("Contest", back_populates="articles")
     reviews = relationship("Review", back_populates="article")
+    assigned_to = relationship("User", foreign_keys=[assigned_to_id])
 
 class ReviewStatus(str, enum.Enum):
     accepted = "accepted"

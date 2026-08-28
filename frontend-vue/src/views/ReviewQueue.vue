@@ -60,7 +60,7 @@ const isAuthorized = computed(() => roles.value.is_jury || roles.value.is_owner)
 
 const selectedForBulk = ref([]);
 const sidebarVisibleCounts = ref({ pending: 100, other: 100, judged: 100 });
-const assignedPage = ref(1);
+const assignedAfterId = ref(null);
 const assignedHasMore = ref(false);
 const assignedStatusStats = ref(null);
 const permanentlyLockedArticleIds = new Set();
@@ -379,12 +379,13 @@ const fetchArticles = async (showLoading = true, append = false) => {
     if (props.assignedQueue) {
       const ownerQuery = roles.value.is_owner && ownerViewMode.value === 'judge' && selectedJudge.value
         ? `&view_as=${encodeURIComponent(selectedJudge.value)}` : '';
-      const articleEndpoint = `/api/jury-panel/contests/${route.params.code}/articles/page?page=${append ? assignedPage.value + 1 : 1}&page_size=250${ownerQuery}`;
+      const cursor = append && assignedAfterId.value !== null ? `&after_id=${assignedAfterId.value}` : '';
+      const articleEndpoint = `/api/jury-panel/contests/${route.params.code}/articles/page?page_size=250${cursor}${ownerQuery}`;
       const response = await fetch(articleEndpoint, { signal });
       if (response.ok) {
         const payload = await response.json();
         const pageItems = ownerVisibleArticles(payload.items || []);
-        assignedPage.value = payload.page || (append ? assignedPage.value + 1 : 1);
+        assignedAfterId.value = payload.next_after_id ?? null;
         assignedHasMore.value = Boolean(payload.has_more);
         assignedStatusStats.value = payload.status_counts
           ? { total: payload.total, ...payload.status_counts }

@@ -27,10 +27,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import case, exists, func, text
+from sqlalchemy import case, exists, func, or_, text
 from database import get_db, engine, query_wiki_replica_batch, _pre_migration_backup
 import models
-from jury_panel_store import sync_and_get as sync_jury_panel, DB_PATH as JURY_PANEL_DB_PATH, engine as jury_panel_engine
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -299,6 +298,154 @@ def get_owner_user(current_user: models.User = Depends(get_current_user)):
     if current_user.role != models.RoleEnum.owner:
         raise HTTPException(status_code=403, detail="Owner privileges required")
     return current_user
+
+# --- Jury queue assignment -------------------------------------------------
+# Jury ownership of a pending article lives directly on Article.assigned_to_id
+# (there used to be a second, separately-synced SQLite projection database for
+# this; it was a persistent source of drift/staleness bugs and has been
+# removed in favor of a single source of truth).
+
+REBALANCE_BATCH_LIMIT = 8000
+
+def get_eligible_juries(contest):
+    """{user_id: wiki_username} for this contest's current jury members."""
+    return {j.user_id: j.user.wiki_username for j in contest.juries if j.user}
+
+def jury_map_username_to_id(jury_map: dict) -> dict:
+    return {username: uid for uid, username in jury_map.items()}
+
+def backfill_reviewed_ownership(db: Session, contest: models.Contest, jury_ids: set):
+    """Give already-decided articles their assigned_to_id back (whoever made
+    the final decision) when it's missing -- covers articles decided before
+    this column existed. review_article sets this directly going forward, so
+    this is a one-time-per-contest catch-up, bounded and cheap once caught up."""
+    if not jury_ids:
+        return
+    candidate_ids = [row[0] for row in db.query(models.Article.id).filter(
+        models.Article.contest_id == contest.id,
+        models.Article.status.in_([models.ArticleStatus.accepted, models.ArticleStatus.rejected]),
+        models.Article.assigned_to_id.is_(None),
+    ).limit(REBALANCE_BATCH_LIMIT).all()]
+    if not candidate_ids:
+        return
+
+    latest_review = db.query(
+        models.Review.article_id, func.max(models.Review.id).label("latest_id")
+    ).filter(
+        models.Review.article_id.in_(candidate_ids),
+        models.Review.status != models.ReviewStatus.skipped,
+    ).group_by(models.Review.article_id).subquery()
+
+    updates = [
+        {"id": article_id, "assigned_to_id": reviewer_id}
+        for article_id, reviewer_id in db.query(models.Review.article_id, models.Review.reviewer_id)
+        .join(latest_review, models.Review.id == latest_review.c.latest_id).all()
+        if reviewer_id in jury_ids
+    ]
+    if updates:
+        db.bulk_update_mappings(models.Article, updates)
+        db.commit()
+        print(f"[Jury Assignment] Backfilled ownership for {len(updates)} decided article(s) in {contest.code}")
+
+def clear_all_pending_assignments(db: Session, contest: models.Contest):
+    """Force a full rebalance of every pending article's queue ownership --
+    call this when the eligible-jury roster or COI/self-review rules change,
+    so the new rules apply fairly across the whole pool immediately, instead
+    of only catching newly-submitted articles going forward. An ordinary new
+    submission should NOT call this -- it would needlessly reshuffle queues
+    jury members are already working through."""
+    db.query(models.Article).filter(
+        models.Article.contest_id == contest.id,
+        models.Article.status == models.ArticleStatus.pending,
+    ).update({"assigned_to_id": None}, synchronize_session=False)
+    db.commit()
+
+def rebalance_pending_articles(db: Session, contest: models.Contest, jury_map: dict = None):
+    """Assign every pending article that has no valid, current jury owner to
+    the least-loaded eligible jury, and backfill ownership for already-decided
+    articles that predate the assigned_to_id column. Cheap no-op when nothing
+    needs it, and safe to call from both write endpoints (proactively) and
+    read endpoints (as a self-heal safety net)."""
+    if jury_map is None:
+        jury_map = get_eligible_juries(contest)
+    jury_ids = set(jury_map.keys())
+    if not jury_ids:
+        return
+    backfill_reviewed_ownership(db, contest, jury_ids)
+
+    restrictions = {
+        (r.jury_user_id, r.submitter_user_id)
+        for r in db.query(models.ContestJuryRestriction).filter_by(contest_id=contest.id).all()
+    }
+    banned_ids = {b.user_id for b in db.query(models.ContestBannedUser).filter_by(contest_id=contest.id).all()}
+
+    base_filters = [models.Article.contest_id == contest.id]
+    if banned_ids:
+        base_filters.append(~models.Article.submitter_id.in_(banned_ids))
+
+    # Current load: everything each jury currently owns (pending + already
+    # reviewed by them), so a jury who has judged a lot doesn't also get
+    # piled up with new pending work.
+    loads = {uid: 0 for uid in jury_ids}
+    for uid, count in db.query(models.Article.assigned_to_id, func.count(models.Article.id)).filter(
+        *base_filters, models.Article.assigned_to_id.in_(jury_ids)
+    ).group_by(models.Article.assigned_to_id).all():
+        loads[uid] = count
+
+    candidates = db.query(models.Article.id, models.Article.submitter_id).filter(
+        *base_filters,
+        models.Article.status == models.ArticleStatus.pending,
+        or_(models.Article.assigned_to_id.is_(None), ~models.Article.assigned_to_id.in_(jury_ids)),
+    ).order_by(models.Article.id.asc()).limit(REBALANCE_BATCH_LIMIT).all()
+
+    if not candidates:
+        return
+
+    updates = []
+    for article_id, submitter_id in candidates:
+        choices = [uid for uid in jury_ids
+                   if (contest.allow_self_review or uid != submitter_id)
+                   and (uid, submitter_id) not in restrictions]
+        if not choices:
+            continue
+        chosen = min(choices, key=lambda uid: (loads[uid], uid))
+        updates.append({"id": article_id, "assigned_to_id": chosen})
+        loads[chosen] += 1
+
+    if updates:
+        db.bulk_update_mappings(models.Article, updates)
+        db.commit()
+        print(f"[Jury Assignment] Rebalanced {len(updates)} pending article(s) for {contest.code}")
+
+def serialize_jury_article(article: models.Article, jury_map: dict) -> dict:
+    """Same item shape the old jury-panel projection returned, built live
+    from the article/review rows directly."""
+    non_skipped = sorted(
+        (r for r in article.reviews if r.status.value != "skipped"),
+        key=lambda r: r.timestamp or datetime.min,
+    )
+    return {
+        "article_id": article.id,
+        "title": article.title,
+        "submitted_by": article.submitter.wiki_username if article.submitter else "",
+        "submitted_at": article.submitted_at.isoformat() if article.submitted_at else None,
+        "status": article.status.value,
+        "validation_error": article.validation_error,
+        "wiki_creator": article.wiki_creator,
+        "wiki_creation_date": article.wiki_creation_date.isoformat() if article.wiki_creation_date else None,
+        "reviewed_by": non_skipped[-1].reviewer.wiki_username if non_skipped and non_skipped[-1].reviewer else None,
+        "reviews": [
+            {
+                "reviewer": r.reviewer.wiki_username,
+                "decision": r.status.value,
+                "comment": r.comment,
+                "reviewed_at": r.timestamp.isoformat() if r.timestamp else None,
+            }
+            for r in non_skipped
+        ],
+        "assigned_to": jury_map.get(article.assigned_to_id),
+    }
+
 @app.get("/auth/login")
 async def login(request: Request, next: Optional[str] = None):
     host = request.headers.get("x-forwarded-host", request.url.hostname)
@@ -697,26 +844,6 @@ def download_database_backup(_: models.User = Depends(get_owner_user)):
         filename="feather_app.db"
     )
 
-@app.get("/api/admin/jury-panel/backup/download")
-def download_jury_panel_backup(_: models.User = Depends(get_owner_user)):
-    """Download the jury-panel projection database directly. It's always local
-    SQLite (even when the main app database is MariaDB on Toolforge), so unlike
-    the main backup this never falls back to a JSON dump — open it in any SQLite
-    browser to inspect article/jury assignment state directly."""
-    if not JURY_PANEL_DB_PATH.exists():
-        raise HTTPException(status_code=404, detail="Jury panel database file not found")
-    # WAL mode can leave recent commits sitting in jury_panel.db-wal rather than
-    # the main file; checkpoint first so the downloaded file is complete on its own.
-    try:
-        with jury_panel_engine.begin() as connection:
-            connection.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
-    except Exception as error:
-        print(f"[Jury Panel Backup] Checkpoint failed, downloading as-is: {error}")
-    return FileResponse(
-        str(JURY_PANEL_DB_PATH), media_type="application/x-sqlite3",
-        filename="feather_jury_panel.db"
-    )
-
 @app.post("/api/admin/contests")
 def create_contest(data: ContestCreate, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
     c = models.Contest(
@@ -745,6 +872,7 @@ def update_contest(code: str, data: ContestUpdate, _: models.User = Depends(get_
     c = db.query(models.Contest).filter_by(code=code).first()
     if not c:
         raise HTTPException(status_code=404, detail="Not found")
+    self_review_changed = data.allow_self_review is not None and data.allow_self_review != c.allow_self_review
     if data.name is not None: c.name = data.name
     if data.start_date is not None: c.start_date = data.start_date
     if data.end_date is not None: c.end_date = data.end_date
@@ -760,6 +888,9 @@ def update_contest(code: str, data: ContestUpdate, _: models.User = Depends(get_
     if data.talk_template_name is not None: c.talk_template_name = data.talk_template_name
     if data.include_talk_header is not None: c.include_talk_header = data.include_talk_header
     db.commit()
+    if self_review_changed:
+        clear_all_pending_assignments(db, c)
+        rebalance_pending_articles(db, c)
     return {"status": "success"}
 
 @app.delete("/api/admin/contests/{code}")
@@ -797,6 +928,10 @@ def assign_jury(data: AssignJury, _: models.User = Depends(get_owner_user), db: 
             added.append(username)
 
     db.commit()
+    if added:
+        db.refresh(contest)
+        clear_all_pending_assignments(db, contest)
+        rebalance_pending_articles(db, contest)
     return {"status": "success", "added": added}
 
 @app.post("/api/admin/unassign-jury")
@@ -807,10 +942,13 @@ def unassign_jury(data: UnassignJury, _: models.User = Depends(get_owner_user), 
     user = db.query(models.User).filter_by(wiki_username=data.wiki_username).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=user.id).delete()
     db.query(models.ContestJuryRestriction).filter_by(contest_id=contest.id, jury_user_id=user.id).delete()
     db.commit()
+    db.refresh(contest)
+    clear_all_pending_assignments(db, contest)
+    rebalance_pending_articles(db, contest)
     return {"status": "success", "removed": data.wiki_username}
 
 @app.get("/api/admin/contests/{code}/jury-restrictions")
@@ -842,6 +980,8 @@ def add_jury_restriction(code: str, data: JuryRestriction, _: models.User = Depe
     item = models.ContestJuryRestriction(contest_id=contest.id, jury_user_id=jury.id, submitter_user_id=submitter.id)
     db.add(item)
     db.commit()
+    clear_all_pending_assignments(db, contest)
+    rebalance_pending_articles(db, contest)
     return {"status": "success", "id": item.id}
 
 @app.delete("/api/admin/contests/{code}/jury-restrictions/{restriction_id}")
@@ -1178,7 +1318,9 @@ async def submit_bulk(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database concurrency issue during bulk submit: {str(e)}")
-        
+
+    rebalance_pending_articles(db, contest)
+
     valid_titles = [r.title for r in results if r.is_valid]
     print(f"[submit-bulk] Talk Template Debug: valid_titles_count={len(valid_titles)}, add_talk_template={contest.add_talk_template}, template_name='{contest.talk_template_name}'")
     if valid_titles and contest.add_talk_template and contest.talk_template_name:
@@ -1409,43 +1551,89 @@ def get_contest_log(
         "has_more": len(articles) == page_size,
     }
 
-@app.get("/api/jury-panel/contests/{code}/articles")
-def get_jury_panel_articles(code: str, view_as: Optional[str] = Query(default=None), current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """New assigned queue backed by jury_panel.db; the legacy queue is unchanged."""
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+def _jury_panel_authorize(contest, current_user, db, view_as=None):
     is_owner = current_user.role == models.RoleEnum.owner
     is_jury = db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=current_user.id).first() is not None
     if not (is_owner or is_jury):
         raise HTTPException(status_code=403, detail="Not authorized to view the jury panel")
     if view_as and (not is_owner or view_as not in [j.user.wiki_username for j in contest.juries if j.user]):
         raise HTTPException(status_code=403, detail="Owner view must target an assigned jury member")
-    return sync_jury_panel(db, contest, current_user, view_as=view_as)
+    return is_owner
+
+def _jury_panel_base_query(db, contest):
+    banned_ids = {b.user_id for b in contest.banned_users}
+    query = db.query(models.Article).options(
+        joinedload(models.Article.submitter),
+        selectinload(models.Article.reviews).joinedload(models.Review.reviewer),
+    ).filter(models.Article.contest_id == contest.id)
+    if banned_ids:
+        query = query.filter(~models.Article.submitter_id.in_(banned_ids))
+    return query
+
+@app.get("/api/jury-panel/contests/{code}/articles")
+def get_jury_panel_articles(code: str, view_as: Optional[str] = Query(default=None), current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    is_owner = _jury_panel_authorize(contest, current_user, db, view_as)
+    jury_map = get_eligible_juries(contest)
+    rebalance_pending_articles(db, contest, jury_map)
+
+    target = view_as if (is_owner and view_as) else ("*" if is_owner else current_user.wiki_username)
+    query = _jury_panel_base_query(db, contest)
+    if target != "*":
+        target_id = jury_map_username_to_id(jury_map).get(target, -1)
+        query = query.filter(models.Article.assigned_to_id == target_id)
+    articles = query.order_by(models.Article.id.asc()).all()
+    return [serialize_jury_article(a, jury_map) for a in articles]
 
 @app.get("/api/jury-panel/contests/{code}/articles/page")
 def get_jury_panel_articles_page(
     code: str,
-    page: int = Query(default=1, ge=1),
+    after_id: Optional[int] = Query(default=None),
     page_size: int = Query(default=250, ge=25, le=500),
     view_as: Optional[str] = Query(default=None),
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return a bounded page of assigned jury articles and queue metadata."""
+    """Return a bounded page of assigned jury articles and queue metadata.
+    Keyset-paginated (after_id, ordered by id) rather than offset/limit -- new
+    submissions keep landing while a jury is paging through their queue, and
+    offset/limit silently skips or re-shuffles rows under that."""
     contest = db.query(models.Contest).filter_by(code=code).first()
     if not contest:
         raise HTTPException(status_code=404, detail="Contest not found")
-    is_owner = current_user.role == models.RoleEnum.owner
-    is_jury = db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=current_user.id).first() is not None
-    if not (is_owner or is_jury):
-        raise HTTPException(status_code=403, detail="Not authorized to view the jury panel")
-    if view_as and (not is_owner or view_as not in [j.user.wiki_username for j in contest.juries if j.user]):
-        raise HTTPException(status_code=403, detail="Owner view must target an assigned jury member")
-    return sync_jury_panel(
-        db, contest, current_user, view_as=view_as,
-        offset=(page - 1) * page_size, limit=page_size, include_meta=True,
-    ) | {"page": page, "page_size": page_size}
+    is_owner = _jury_panel_authorize(contest, current_user, db, view_as)
+    jury_map = get_eligible_juries(contest)
+    rebalance_pending_articles(db, contest, jury_map)
+
+    target = view_as if (is_owner and view_as) else ("*" if is_owner else current_user.wiki_username)
+    base_query = _jury_panel_base_query(db, contest)
+    if target != "*":
+        target_id = jury_map_username_to_id(jury_map).get(target, -1)
+        base_query = base_query.filter(models.Article.assigned_to_id == target_id)
+
+    total = base_query.count()
+    status_counts = {
+        status.value: count for status, count in
+        base_query.with_entities(models.Article.status, func.count(models.Article.id))
+        .group_by(models.Article.status).all()
+    }
+    status_counts = {s: status_counts.get(s, 0) for s in ("pending", "accepted", "rejected", "validation_failed")}
+
+    page_query = base_query
+    if after_id is not None:
+        page_query = page_query.filter(models.Article.id > after_id)
+    articles = page_query.order_by(models.Article.id.asc()).limit(page_size).all()
+
+    return {
+        "items": [serialize_jury_article(a, jury_map) for a in articles],
+        "total": total,
+        "page_size": page_size,
+        "next_after_id": articles[-1].id if articles else None,
+        "has_more": len(articles) == page_size,
+        "status_counts": status_counts,
+    }
 
 @app.get("/api/jury-panel/contests/{code}/progress")
 def get_jury_panel_progress(code: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -1453,39 +1641,44 @@ def get_jury_panel_progress(code: str, current_user: models.User = Depends(get_c
     contest = db.query(models.Contest).filter_by(code=code).first()
     if not contest:
         raise HTTPException(status_code=404, detail="Contest not found")
-    is_owner = current_user.role == models.RoleEnum.owner
-    is_jury = db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=current_user.id).first() is not None
-    if not (is_owner or is_jury):
-        raise HTTPException(status_code=403, detail="Not authorized to view jury progress")
+    is_owner = _jury_panel_authorize(contest, current_user, db)
+    jury_map = get_eligible_juries(contest)
+    rebalance_pending_articles(db, contest, jury_map)
 
-    projected = sync_jury_panel(db, contest, current_user)
-    jury_names = [j.user.wiki_username for j in contest.juries if j.user]
-    visible_names = set(jury_names if is_owner else [current_user.wiki_username])
+    visible_ids = set(jury_map.keys()) if is_owner else {current_user.id} & set(jury_map.keys())
+    if not visible_ids:
+        return []
+
+    banned_ids = {b.user_id for b in contest.banned_users}
+    filters = [models.Article.contest_id == contest.id, models.Article.assigned_to_id.in_(visible_ids)]
+    if banned_ids:
+        filters.append(~models.Article.submitter_id.in_(banned_ids))
+
+    stats = {uid: {"assigned": 0, "judged": 0, "accepted": 0, "rejected": 0} for uid in visible_ids}
+    for uid, status, count in db.query(
+        models.Article.assigned_to_id, models.Article.status, func.count(models.Article.id)
+    ).filter(*filters).group_by(models.Article.assigned_to_id, models.Article.status).all():
+        stats[uid]["assigned"] += count
+        if status == models.ArticleStatus.accepted:
+            stats[uid]["judged"] += count
+            stats[uid]["accepted"] += count
+        elif status == models.ArticleStatus.rejected:
+            stats[uid]["judged"] += count
+            stats[uid]["rejected"] += count
+
     progress = []
-    for username in jury_names:
-        if username not in visible_names:
+    for uid, username in jury_map.items():
+        if uid not in visible_ids:
             continue
-        assigned = [article for article in projected if article.get("assigned_to") == username]
-        judged = 0
-        accepted = 0
-        rejected = 0
-        for article in assigned:
-            own_reviews = [review for review in article.get("reviews", []) if review.get("reviewer") == username]
-            if own_reviews:
-                judged += 1
-                decision = own_reviews[-1].get("decision")
-                if decision == "accepted":
-                    accepted += 1
-                elif decision == "rejected":
-                    rejected += 1
+        s = stats[uid]
         progress.append({
             "username": username,
-            "assigned": len(assigned),
-            "judged": judged,
-            "remaining": max(0, len(assigned) - judged),
-            "accepted": accepted,
-            "rejected": rejected,
-            "progress_percent": round((judged / len(assigned)) * 100) if assigned else 0,
+            "assigned": s["assigned"],
+            "judged": s["judged"],
+            "remaining": max(0, s["assigned"] - s["judged"]),
+            "accepted": s["accepted"],
+            "rejected": s["rejected"],
+            "progress_percent": round((s["judged"] / s["assigned"]) * 100) if s["assigned"] else 0,
         })
     return progress
 
@@ -1984,6 +2177,9 @@ def review_article(
         raise HTTPException(status_code=400, detail="Invalid decision")
     if data.decision in ("accepted", "rejected"):
         article.status = models.ArticleStatus[data.decision]
+        # The reviewer owns the article's jury-queue slot after judging it.
+        if current_user.id in {j.user_id for j in contest.juries}:
+            article.assigned_to_id = current_user.id
     elif own_review:
         article.status = models.ArticleStatus.pending
 
