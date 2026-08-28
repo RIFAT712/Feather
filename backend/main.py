@@ -45,7 +45,7 @@ app.add_middleware(
 # runtime images don't reliably include .git, so this is a guaranteed-simple
 # way to confirm what's actually running vs. what's on GitHub, instead of
 # inferring it from behavior after every redeploy.
-APP_BUILD_MARKER = "2026-08-28-db-diagnostics-1"
+APP_BUILD_MARKER = "2026-08-28-db-diagnostics-2"
 
 @app.get("/api/version")
 def get_version():
@@ -312,20 +312,46 @@ def get_owner_user(current_user: models.User = Depends(get_current_user)):
 @app.get("/api/admin/db-diagnostics")
 def db_diagnostics(code: Optional[str] = Query(default=None), _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
     """One-shot diagnostic: what indexes actually exist on `articles`, how big
-    the table really is, and (MariaDB only) the query plan MariaDB picks for
-    the exact /log query shape. For chasing a query that's slow in production
-    but not reproducible locally, without needing a DB shell."""
+    the table really is, the query plan MariaDB picks for the exact /log
+    query shape (MariaDB only), and -- most importantly -- server-side wall
+    time for each individual query /log actually runs, measured on the same
+    connection/network path as the real endpoint. EXPLAIN shows the plan, not
+    execution time, and a simplified EXPLAIN query can miss what a join
+    actually costs; timing the real query shapes directly removes the
+    guessing entirely."""
     from sqlalchemy import inspect as sa_inspect
+    import time as _time
     inspector = sa_inspect(engine)
     is_mysql = "mysql" in str(engine.url)
 
     total_articles = db.query(func.count(models.Article.id)).scalar()
     contest_article_count = None
     explain_rows = []
+    timings = {}
     if code:
+        t0 = _time.perf_counter()
         contest = db.query(models.Contest).filter_by(code=code).first()
+        timings["contest_lookup"] = _time.perf_counter() - t0
         if contest:
+            t0 = _time.perf_counter()
             contest_article_count = db.query(func.count(models.Article.id)).filter_by(contest_id=contest.id).scalar()
+            timings["count_query"] = _time.perf_counter() - t0
+
+            t0 = _time.perf_counter()
+            articles = db.query(models.Article).options(joinedload(models.Article.submitter)) \
+                .filter_by(contest_id=contest.id).order_by(models.Article.id.desc()).limit(500).all()
+            timings["main_select_with_submitter_join"] = _time.perf_counter() - t0
+
+            t0 = _time.perf_counter()
+            article_ids = [a.id for a in articles]
+            _ = db.query(models.Review).filter(models.Review.article_id.in_(article_ids)) \
+                .options(joinedload(models.Review.reviewer)).all()
+            timings["reviews_selectin_equivalent"] = _time.perf_counter() - t0
+
+            t0 = _time.perf_counter()
+            _ = db.query(models.ArticleLock).filter(models.ArticleLock.article_id.in_(article_ids)).all()
+            timings["locks_query"] = _time.perf_counter() - t0
+
             if is_mysql:
                 result = db.execute(text(
                     "EXPLAIN SELECT id FROM articles WHERE contest_id = :cid ORDER BY id DESC LIMIT 500"
@@ -338,6 +364,7 @@ def db_diagnostics(code: Optional[str] = Query(default=None), _: models.User = D
         "total_articles_all_contests": total_articles,
         "contest_article_count": contest_article_count,
         "explain": explain_rows,
+        "server_side_timings_seconds": timings,
     }
 
 # --- Jury queue assignment -------------------------------------------------
