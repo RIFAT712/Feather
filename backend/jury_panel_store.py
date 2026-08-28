@@ -93,6 +93,11 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
                             .scalar())
         meta = mirror.get(ProjectionMeta, contest.code)
         mirror_count = mirror.query(ArticleProjection).filter_by(contest_code=contest.code).count()
+        unassigned_pending = mirror.query(ArticleProjection).filter(
+            ArticleProjection.contest_code == contest.code,
+            ArticleProjection.status == "pending",
+            ArticleProjection.assigned_to.is_(None),
+        ).count()
         restriction_count = len(restrictions)
         jury_signature = "\x1f".join(sorted(juries))
         restriction_signature = "\x1f".join(f"{jury_id}:{submitter_id}" for jury_id, submitter_id in sorted(restrictions))
@@ -123,6 +128,10 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
             or meta.banned_signature != banned_signature
             or meta.assignment_signature != assignment_signature
         )
+        # Self-heal projections created by the old capped allocator. The
+        # source mirror can be current while thousands of pending rows still
+        # have no jury assignment.
+        needs_assignment = needs_sync or bool(juries and unassigned_pending)
         by_id = {}
         deleted_articles = False
         if needs_sync:
@@ -227,7 +236,7 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
         meta.banned_signature = banned_signature
         meta.assignment_signature = assignment_signature
         mirror.commit()
-        if juries and needs_sync:
+        if juries and needs_assignment:
             assignment_rows = mirror.query(ArticleProjection).filter_by(contest_code=contest.code).all()
             submitter_names = {row.submitted_by for row in assignment_rows}
             user_ids = {username: user_id for user_id, username in
@@ -284,7 +293,8 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
             }
             print(
                 f"[Jury Panel] Distributed {len(assignment_rows)} articles for "
-                f"{contest.code}: {assignment_counts}"
+                f"{contest.code}: {assignment_counts}; "
+                f"unassigned_pending={sum(1 for row in assignment_rows if row.status == 'pending' and row.assigned_to is None)}"
             )
 
         query = (mirror.query(ArticleProjection)

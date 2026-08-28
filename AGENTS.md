@@ -212,6 +212,8 @@ Before schema migrations run, the backend writes a rollback snapshot under `back
 
 | 2026-08-28 | Article deletions now trigger the same pending-only rebalance, restoring even jury workloads immediately; reviewed articles remain fixed to their reviewer and new submissions still use least-loaded assignment without queue churn. |
 
+| 2026-08-28 | Added jury projection self-healing: if any pending articles have no assignment, the allocator runs even when projection metadata is otherwise current, repairing legacy capped queues automatically and logging the remaining unassigned count. |
+
 | 2026-08-28 | Removed startup and health-probe-triggered full database dumps; pre-migration snapshots now run only when metadata detects a pending schema change, hourly backups are opt-in and delayed until after the first hour, and contest counts use indexed aggregated SQL queries to keep API responses responsive on large databases. |
 
 | 2026-08-28 | Optimized the public contest list endpoint to use grouped SQL counts instead of loading every article relationship, preventing the home page refresh from blocking the Toolforge app on large contests. |
