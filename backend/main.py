@@ -59,7 +59,7 @@ async def add_process_time_header(request: Request, call_next):
 # runtime images don't reliably include .git, so this is a guaranteed-simple
 # way to confirm what's actually running vs. what's on GitHub, instead of
 # inferring it from behavior after every redeploy.
-APP_BUILD_MARKER = "2026-08-28-auto-background-load"
+APP_BUILD_MARKER = "2026-08-28-concurrent-background-load"
 
 @app.get("/api/version")
 def get_version():
@@ -1574,18 +1574,30 @@ def get_contest_stats(code: str, db: Session = Depends(get_db)):
 def get_contest_log(
     code: str,
     before_id: Optional[int] = Query(default=None),
+    offset: Optional[int] = Query(default=None, ge=0),
     page_size: int = Query(default=200, ge=1, le=500),
     include_reviews: bool = Query(default=True),
     status: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
 ):
     """Paginated activity log, newest first. Uses keyset pagination (before_id,
-    ordered by id) rather than offset/limit: this contest keeps receiving new
-    submissions while a multi-page crawl is in progress, and offset/limit
-    silently skips or re-shuffles rows as the underlying result set shifts
-    under concurrent inserts. Cursoring on id is immune to that — a page is
-    always "articles with id < before_id", so new rows (always higher ids)
-    never perturb pages already fetched or still to come.
+    ordered by id) by default rather than offset/limit: this contest keeps
+    receiving new submissions while a multi-page crawl is in progress, and
+    offset/limit silently skips or re-shuffles rows as the underlying result
+    set shifts under concurrent inserts. Cursoring on id is immune to that —
+    a page is always "articles with id < before_id", so new rows (always
+    higher ids) never perturb pages already fetched or still to come.
+
+    offset is an explicit opt-in to plain offset pagination instead, for
+    callers that already have a consistent baseline (e.g. a keyset first
+    page plus a known total) and want to fetch the rest as several concurrent
+    requests -- offsets don't depend on each other the way keyset cursors do,
+    so they can all be requested at once instead of one at a time. This
+    reintroduces the same small drift-under-concurrent-inserts risk keyset
+    pagination avoids, so it's meant for a background catch-up crawl (whose
+    results get de-duplicated by id) after a keyset first page has already
+    established the live, always-correct view -- not for a page a user is
+    actively relying on being exactly right.
 
     include_reviews=false skips the reviews join/serialization entirely — the
     submissions/errors moderation views only need title/status/validation
@@ -1613,7 +1625,10 @@ def get_contest_log(
         query = query.filter(models.Article.status == status)
     if before_id is not None:
         query = query.filter(models.Article.id < before_id)
-    articles = query.order_by(models.Article.id.desc()).limit(page_size).all()
+    query = query.order_by(models.Article.id.desc())
+    if offset is not None:
+        query = query.offset(offset)
+    articles = query.limit(page_size).all()
 
     log = []
     active_locks = {}
