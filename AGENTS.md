@@ -193,12 +193,22 @@ npm run dev                  # Starts on http://localhost:3000
 | `WIKIMEDIA_CLIENT_SECRET` | OAuth 2.0 client secret               |
 | `SESSION_SECRET`          | JWT signing key & session middleware   |
 | `OAUTH_CALLBACK_URL`      | OAuth redirect URI (default: `http://localhost:3000/auth/callback`) |
+| `ENABLE_HOURLY_BACKUP`    | Optional hourly full export; disabled by default so startup and request handling stay responsive |
+| `ENABLE_AUTO_RECOVERY`    | Optional overload-triggered backup/restart; disabled by default |
 
 Before schema migrations run, the backend writes a rollback snapshot under `backup/pre_migration/` in the project codebase (or under `BACKUP_ROOT/backup/pre_migration/` when `BACKUP_ROOT` is set). SQLite uses exact database-file copies. Toolforge MariaDB uses `mysqldump` when available and otherwise stores every application table, column, and row in JSON; any local SQLite projection databases are copied too. These snapshots contain credentials/tokens and should be kept private.
 
 ---
 
 ## Change Log
+
+| 2026-08-28 | Switched the local application and jury projection SQLite databases from TRUNCATE journaling to WAL mode with 60-second busy timeouts and pooled connections, allowing API reads to continue during submissions, projection refreshes, and maintenance writes. |
+
+| 2026-08-28 | Jury projection rebuilds now recover reviewed-page ownership from the latest non-skipped reviewer, keep those pages assigned to that jury, count them in the jury load, and distribute only pending pages evenly across eligible juries; the assignment fingerprint version forces a one-time repair of existing projections. |
+
+| 2026-08-28 | Removed startup and health-probe-triggered full database dumps; pre-migration snapshots now run only when metadata detects a pending schema change, hourly backups are opt-in and delayed until after the first hour, and contest counts use indexed aggregated SQL queries to keep API responses responsive on large databases. |
+
+| 2026-08-28 | Optimized the public contest list endpoint to use grouped SQL counts instead of loading every article relationship, preventing the home page refresh from blocking the Toolforge app on large contests. |
 
 | 2026-08-28 | Optimized the first jury-panel projection rebuild with 500-row batches and serialized concurrent syncs; existing pending articles are now rebalanced across eligible juries during the rebuild, preventing duplicate metadata inserts and overlapping MariaDB reads on fresh Toolforge containers. |
 

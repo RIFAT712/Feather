@@ -11,7 +11,10 @@ Base = declarative_base()
 DB_PATH = Path(__file__).resolve().parent / "jury_panel.db"
 engine = create_engine(
     f"sqlite:///{DB_PATH}",
-    connect_args={"check_same_thread": False, "timeout": 30},
+    connect_args={"check_same_thread": False, "timeout": 60},
+    pool_size=3,
+    max_overflow=5,
+    pool_pre_ping=True,
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 _sync_lock = threading.Lock()
@@ -43,6 +46,11 @@ class ProjectionMeta(Base):
 
 
 Base.metadata.create_all(bind=engine)
+
+# Keep jury refreshes from blocking normal reads from the projection DB.
+with engine.begin() as connection:
+    connection.execute(text("PRAGMA journal_mode=WAL"))
+    connection.execute(text("PRAGMA busy_timeout=60000"))
 
 # create_all does not add columns to an existing SQLite projection database.
 with engine.begin() as connection:
@@ -88,7 +96,9 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
         restriction_count = len(restrictions)
         jury_signature = "\x1f".join(sorted(juries))
         restriction_signature = "\x1f".join(f"{jury_id}:{submitter_id}" for jury_id, submitter_id in sorted(restrictions))
-        assignment_signature = f"self={int(bool(contest.allow_self_review))}\x1e{restriction_signature}"
+        # Version this fingerprint when assignment semantics change so older
+        # projections are rebuilt and reviewed-page ownership is repaired once.
+        assignment_signature = f"v=2\x1eself={int(bool(contest.allow_self_review))}\x1e{restriction_signature}"
         banned_signature = "\x1f".join(sorted(
             row.user.wiki_username for row in contest.banned_users if row.user
         ))
@@ -121,6 +131,15 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
                 now = datetime.utcnow()
                 for article in items:
                     submitted_by = article.submitter.wiki_username if article.submitter else ""
+                    non_skipped_reviews = sorted(
+                        (review for review in article.reviews if review.status.value != "skipped"),
+                        key=lambda item: item.timestamp or datetime.min,
+                    )
+                    last_review = non_skipped_reviews[-1] if non_skipped_reviews else None
+                    reviewed_by = (
+                        last_review.reviewer.wiki_username
+                        if last_review and last_review.reviewer else None
+                    )
                     payload = {
                         "article_id": article.id,
                         "title": article.title,
@@ -130,6 +149,10 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
                         "validation_error": article.validation_error,
                         "wiki_creator": article.wiki_creator,
                         "wiki_creation_date": article.wiki_creation_date.isoformat() if article.wiki_creation_date else None,
+                        # The reviewer owns the page after judging. This lets a
+                        # rebuild recover the assignment from the source DB,
+                        # even if the projection was recreated.
+                        "reviewed_by": reviewed_by,
                         "reviews": [
                             {
                                 "reviewer": review.reviewer.wiki_username,
@@ -149,7 +172,7 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
                         "status": payload["status"],
                         "submitted_at": article.submitted_at,
                         "payload": json.dumps(payload, ensure_ascii=False),
-                        "assigned_to": existing_rows.get(article.id),
+                        "assigned_to": reviewed_by if reviewed_by in juries else existing_rows.get(article.id),
                         "updated_at": now,
                     }
                     source_ids.add(article.id)
@@ -199,6 +222,12 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
                         db.query(models.User.id, models.User.wiki_username)
                         .filter(models.User.wiki_username.in_(submitter_names)).all()}
             for row in assignment_rows:
+                reviewed_by = json.loads(row.payload).get("reviewed_by")
+                if row.status != "pending":
+                    # Reviewed pages stay with the jury member who made the
+                    # decision. They count toward that member's load when new
+                    # pending pages are distributed below.
+                    row.assigned_to = reviewed_by if reviewed_by in juries else None
                 submitter_id = user_ids.get(row.submitted_by)
                 assigned_id = jury_ids.get(row.assigned_to)
                 if (row.status == "pending" and

@@ -1,6 +1,5 @@
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import NullPool
 import sqlite3
 import os
 import configparser
@@ -47,20 +46,28 @@ else:
     try:
         db_path = SQLALCHEMY_DATABASE_URL.replace("sqlite:///", "")
         conn = sqlite3.connect(db_path)
-        conn.execute("PRAGMA journal_mode=TRUNCATE")
+        # WAL lets API reads continue while a submission, migration, or
+        # projection refresh is writing. TRUNCATE made the entire app queue
+        # behind one SQLite writer.
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=60000")
         conn.close()
     except Exception as e:
-        print(f"Could not enable TRUNCATE mode: {e}")
+        print(f"Could not enable SQLite WAL mode: {e}")
         
     engine = create_engine(
         SQLALCHEMY_DATABASE_URL, 
         connect_args={"check_same_thread": False, "timeout": 60},
-        poolclass=NullPool
+        pool_size=5,
+        max_overflow=10,
+        pool_pre_ping=True,
     )
 
     @event.listens_for(engine, "connect")
     def set_sqlite_pragma(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=60000")
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.execute("PRAGMA cache_size=-64000")
         cursor.execute("PRAGMA temp_store=MEMORY")
@@ -158,6 +165,59 @@ def _pre_migration_backup(db_engine):
     protect(json_target)
     print(f"[Migration Backup] MariaDB JSON snapshot created: {json_target}")
     return json_target
+
+
+def _schema_requires_migration(db_engine):
+    """Return whether a destructive/schema-changing migration is pending.
+
+    This check is intentionally metadata-only.  A full MariaDB snapshot on
+    every process start defeats the purpose of a fast web application.
+    """
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(db_engine)
+    tables = set(inspector.get_table_names())
+    if not tables:
+        return False
+
+    required_columns = {
+        "users": {"oauth_access_token"},
+        "contests": {
+            "min_bytes", "min_words", "min_refs", "rule_no_redirect",
+            "rule_no_disambig", "rule_mainspace_only", "allow_self_review",
+            "add_talk_template", "talk_template_name", "include_talk_header",
+        },
+    }
+    for table, columns in required_columns.items():
+        if table in tables:
+            actual = {column["name"] for column in inspector.get_columns(table)}
+            if columns - actual:
+                return True
+
+    required_tables = {
+        "article_locks", "system_logs", "contest_jury_restrictions",
+        "contest_banned_users", "contest_timezone_migrations",
+    }
+    if required_tables - tables:
+        return True
+
+    if "contests" in tables:
+        with db_engine.connect() as connection:
+            migrated = connection.execute(text(
+                "SELECT 1 FROM contest_timezone_migrations "
+                "WHERE migration_key = 'contest_dates_bst_to_utc_20260801'"
+            )).first()
+        if not migrated:
+            return True
+
+    # These indexes keep the common contest and queue queries bounded without
+    # changing their response shape.
+    indexes = {
+        index["name"] for index in inspector.get_indexes("articles")
+    } if "articles" in tables else set()
+    if {"ix_articles_contest_id", "ix_articles_contest_status"} - indexes:
+        return True
+    return False
 
 
 def run_auto_migrations(db_engine):
@@ -349,11 +409,28 @@ def run_auto_migrations(db_engine):
         else:
             print("[Migration] 'contest_banned_users' table already exists.")
 
+        # Composite indexes used by contest dashboards and jury queues.
+        index_statements = [
+            "CREATE INDEX IF NOT EXISTS ix_articles_contest_id ON articles (contest_id)",
+            "CREATE INDEX IF NOT EXISTS ix_articles_contest_status ON articles (contest_id, status)",
+        ]
+        with db_engine.connect() as conn:
+            for statement in index_statements:
+                try:
+                    conn.execute(text(statement))
+                    conn.commit()
+                except Exception as ex:
+                    print(f"[Migration] WARN creating performance index: {ex}")
+
         print("[Migration] All done.")
     except Exception as e:
         print(f"[Migration] FATAL error: {e}")
 
-_pre_migration_backup(engine)
+if _schema_requires_migration(engine):
+    print("[Migration Backup] Schema change detected; creating rollback snapshot.")
+    _pre_migration_backup(engine)
+else:
+    print("[Migration Backup] Schema is current; skipping full database snapshot.")
 run_auto_migrations(engine)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

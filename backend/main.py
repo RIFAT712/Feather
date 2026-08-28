@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import exists
+from sqlalchemy import case, exists, func
 from database import get_db, engine, query_wiki_replica_batch, _pre_migration_backup
 import models
 from jury_panel_store import sync_and_get as sync_jury_panel
@@ -509,19 +509,23 @@ def do_emergency_backup_and_restart():
     time.sleep(2)   # Give FastAPI time to send the response
     os._exit(1)     # Restart via process manager (Procfile / systemd)
 HOURLY_BACKUP_INTERVAL_SECONDS = 3600  # 1 hour
+ENABLE_HOURLY_BACKUP = os.getenv("ENABLE_HOURLY_BACKUP", "0").lower() in {"1", "true", "yes"}
 
 def _hourly_backup_loop():
-    """Runs in a daemon thread; takes a backup every hour."""
+    """Take an optional backup hourly, after the app has been serving for an hour."""
     home = _resolve_backup_root()
     os.makedirs(os.path.join(home, 'backup', 'hourly'), exist_ok=True)
     os.makedirs(os.path.join(home, 'backup', 'emergency'), exist_ok=True)
     print(f"[Backup] Directories ready: {home}/backup/{{hourly,emergency}}/")
-    while True:
+    # Never make the first request wait behind a full export.
+    time.sleep(HOURLY_BACKUP_INTERVAL_SECONDS)
+    while ENABLE_HOURLY_BACKUP:
         hourly_dir = os.path.join(home, 'backup', 'hourly')
         _write_backup_files(hourly_dir, "HOURLY")
         time.sleep(HOURLY_BACKUP_INTERVAL_SECONDS)
-_hourly_thread = threading.Thread(target=_hourly_backup_loop, daemon=True, name="hourly-backup")
-_hourly_thread.start()
+if ENABLE_HOURLY_BACKUP:
+    _hourly_thread = threading.Thread(target=_hourly_backup_loop, daemon=True, name="hourly-backup")
+    _hourly_thread.start()
 @app.get("/api/system/status")
 def system_status(background_tasks: BackgroundTasks):
     global _is_restarting
@@ -530,7 +534,9 @@ def system_status(background_tasks: BackgroundTasks):
 
     overloaded = cpu > 90 or mem > 90 or _is_restarting
 
-    if overloaded and not _is_restarting:
+    # A health probe must remain read-only. Automatic full backups during an
+    # overload caused a feedback loop that could stall every API endpoint.
+    if overloaded and os.getenv("ENABLE_AUTO_RECOVERY", "0").lower() in {"1", "true", "yes"} and not _is_restarting:
         background_tasks.add_task(do_emergency_backup_and_restart)
 
     return {
@@ -543,14 +549,28 @@ def system_status(background_tasks: BackgroundTasks):
 @app.get("/api/contests")
 def list_contests(db: Session = Depends(get_db)):
     contests = db.query(models.Contest).options(
-        selectinload(models.Contest.articles),
         selectinload(models.Contest.juries).joinedload(models.ContestJury.user)
     ).all()
+    # The home page only needs counts. Loading every Article relationship here
+    # made a remote Toolforge database read the entire contest dataset on each
+    # refresh, blocking otherwise unrelated API requests.
+    article_stats = {
+        contest_id: (int(total or 0), int(accepted or 0))
+        for contest_id, total, accepted in db.query(
+            models.Article.contest_id,
+            func.count(models.Article.id),
+            func.sum(case(
+                (models.Article.status == models.ArticleStatus.accepted, 1),
+                else_=0,
+            )),
+        ).group_by(models.Article.contest_id).all()
+    }
+    banned_counts = dict(db.query(
+        models.ContestBannedUser.contest_id, func.count(models.ContestBannedUser.id)
+    ).group_by(models.ContestBannedUser.contest_id).all())
     res = []
     for c in contests:
         jury_list = [j.user.wiki_username for j in c.juries if j.user]
-        arts = c.articles
-        accepted = sum(1 for a in arts if a.status == models.ArticleStatus.accepted)
         res.append({
             "id": c.id,
             "code": c.code, 
@@ -568,11 +588,11 @@ def list_contests(db: Session = Depends(get_db)):
             "add_talk_template": getattr(c, 'add_talk_template', False),
             "talk_template_name": getattr(c, 'talk_template_name', None),
             "include_talk_header": getattr(c, 'include_talk_header', True),
-            "articles_count": len(arts),
-            "accepted_count": accepted,
+            "articles_count": article_stats.get(c.id, (0, 0))[0],
+            "accepted_count": article_stats.get(c.id, (0, 0))[1],
             "juries_count": len(jury_list),
             "juries": jury_list,
-            "banned_count": db.query(models.ContestBannedUser).filter_by(contest_id=c.id).count()
+            "banned_count": banned_counts.get(c.id, 0)
         })
     return res
 
@@ -587,10 +607,14 @@ def get_contest(code: str, db: Session = Depends(get_db)):
     if not c:
         raise HTTPException(status_code=404, detail="Contest not found")
     jury_list = [j.user.wiki_username for j in c.juries if j.user]
-    article_count = db.query(models.Article).filter_by(contest_id=c.id).count()
-    accepted = db.query(models.Article).filter_by(
-        contest_id=c.id, status=models.ArticleStatus.accepted
-    ).count()
+    article_count, accepted = db.query(
+        func.count(models.Article.id),
+        func.sum(case(
+            (models.Article.status == models.ArticleStatus.accepted, 1),
+            else_=0,
+        )),
+    ).filter(models.Article.contest_id == c.id).one()
+    accepted = int(accepted or 0)
     submitters = [name for (name,) in db.query(models.User.wiki_username)
                   .join(models.Article, models.Article.submitter_id == models.User.id)
                   .filter(models.Article.contest_id == c.id)

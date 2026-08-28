@@ -5,10 +5,23 @@ import { useRouter } from 'vue-router';
 const user = inject('user');
 const router = useRouter();
 const contests = ref([]);
+const isLoading = ref(true);
+const loadError = ref('');
 
 const fetchContests = async () => {
-  const res = await fetch('/api/contests');
-  if (res.ok) contests.value = await res.json();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch('/api/contests', { signal: controller.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    contests.value = await res.json();
+  } catch (error) {
+    console.error('Failed to load contests', error);
+    loadError.value = 'Contest list could not be loaded. Please try again.';
+  } finally {
+    clearTimeout(timeout);
+    isLoading.value = false;
+  }
 };
 onMounted(fetchContests);
 
@@ -95,7 +108,18 @@ const greeting = computed(() => {
           </div>
         </div>
 
-                <div v-if="contests.length === 0" class="empty-state">
+                <div v-if="isLoading" class="empty-state">
+          <div class="empty-icon"><div class="spinner"></div></div>
+          <h2 class="empty-title">Loading contests…</h2>
+          <p class="empty-msg">Fetching the latest contest list.</p>
+        </div>
+                <div v-else-if="loadError" class="empty-state">
+          <div class="empty-icon">!</div>
+          <h2 class="empty-title">Unable to load contests</h2>
+          <p class="empty-msg">{{ loadError }}</p>
+          <button class="admin-btn" type="button" @click="fetchContests">Try again</button>
+        </div>
+                <div v-else-if="contests.length === 0" class="empty-state">
           <div class="empty-glow"></div>
           <div class="empty-icon">
             <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
