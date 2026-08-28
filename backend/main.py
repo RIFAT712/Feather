@@ -45,7 +45,7 @@ app.add_middleware(
 # runtime images don't reliably include .git, so this is a guaranteed-simple
 # way to confirm what's actually running vs. what's on GitHub, instead of
 # inferring it from behavior after every redeploy.
-APP_BUILD_MARKER = "2026-08-28-log-perf-2"
+APP_BUILD_MARKER = "2026-08-28-db-diagnostics-1"
 
 @app.get("/api/version")
 def get_version():
@@ -308,6 +308,37 @@ def get_owner_user(current_user: models.User = Depends(get_current_user)):
     if current_user.role != models.RoleEnum.owner:
         raise HTTPException(status_code=403, detail="Owner privileges required")
     return current_user
+
+@app.get("/api/admin/db-diagnostics")
+def db_diagnostics(code: Optional[str] = Query(default=None), _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
+    """One-shot diagnostic: what indexes actually exist on `articles`, how big
+    the table really is, and (MariaDB only) the query plan MariaDB picks for
+    the exact /log query shape. For chasing a query that's slow in production
+    but not reproducible locally, without needing a DB shell."""
+    from sqlalchemy import inspect as sa_inspect
+    inspector = sa_inspect(engine)
+    is_mysql = "mysql" in str(engine.url)
+
+    total_articles = db.query(func.count(models.Article.id)).scalar()
+    contest_article_count = None
+    explain_rows = []
+    if code:
+        contest = db.query(models.Contest).filter_by(code=code).first()
+        if contest:
+            contest_article_count = db.query(func.count(models.Article.id)).filter_by(contest_id=contest.id).scalar()
+            if is_mysql:
+                result = db.execute(text(
+                    "EXPLAIN SELECT id FROM articles WHERE contest_id = :cid ORDER BY id DESC LIMIT 500"
+                ), {"cid": contest.id})
+                explain_rows = [dict(row._mapping) for row in result]
+
+    return {
+        "is_mysql": is_mysql,
+        "articles_indexes": inspector.get_indexes("articles"),
+        "total_articles_all_contests": total_articles,
+        "contest_article_count": contest_article_count,
+        "explain": explain_rows,
+    }
 
 # --- Jury queue assignment -------------------------------------------------
 # Jury ownership of a pending article lives directly on Article.assigned_to_id
