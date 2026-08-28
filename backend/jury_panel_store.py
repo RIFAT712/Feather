@@ -152,7 +152,7 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
             # tens of thousands of rows, so mirror it in bounded batches.
             existing_rows = {row.article_id: row.assigned_to for row in mirror.query(ArticleProjection)
                              .filter_by(contest_code=contest.code).all()}
-            source_ids = set()
+            existing_ids = set(existing_rows.keys())
             batch = []
 
             def flush_batch(items):
@@ -216,15 +216,47 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
                     mirror.bulk_update_mappings(ArticleProjection, updates)
                 mirror.commit()
 
-            for article in (source_query
-                            .options(joinedload(models.Article.submitter),
-                                     selectinload(models.Article.reviews).joinedload(models.Review.reviewer))
-                            .yield_per(500)):
-                batch.append(article)
-                if len(batch) >= 500:
-                    flush_batch(batch)
-                    batch = []
-            flush_batch(batch)
+            # Mirror articles that aren't in the projection yet first, scoped to
+            # just those ids, before touching anything already mirrored. A
+            # request that dies partway through (Toolforge proxy/worker
+            # timeout) used to always restart this loop from the top of the
+            # full contest query on the next attempt, re-doing the same
+            # already-mirrored rows before it could reach anything new — on a
+            # large contest that backlog never shrank. Batches still commit as
+            # they go, and mirror_count vs. source_count keeps needs_sync true
+            # across requests, so bounding + prioritizing missing rows here
+            # makes every request a guaranteed step of forward progress.
+            all_source_ids = [row[0] for row in source_query.with_entities(models.Article.id).all()]
+            source_ids = set(all_source_ids)
+            missing_ids = [aid for aid in all_source_ids if aid not in existing_ids]
+            SYNC_BATCH_LIMIT = 4000
+            ids_to_fetch = missing_ids[:SYNC_BATCH_LIMIT]
+
+            if ids_to_fetch:
+                missing_query = source_query.options(
+                    joinedload(models.Article.submitter),
+                    selectinload(models.Article.reviews).joinedload(models.Review.reviewer)
+                ).filter(models.Article.id.in_(ids_to_fetch))
+                for article in missing_query.yield_per(500):
+                    batch.append(article)
+                    if len(batch) >= 500:
+                        flush_batch(batch)
+                        batch = []
+                flush_batch(batch)
+                batch = []
+
+            # Only refresh already-mirrored rows (for status/review changes)
+            # once there is no backlog of missing rows left to prioritize.
+            if not missing_ids:
+                for article in (source_query
+                                .options(joinedload(models.Article.submitter),
+                                         selectinload(models.Article.reviews).joinedload(models.Review.reviewer))
+                                .yield_per(500)):
+                    batch.append(article)
+                    if len(batch) >= 500:
+                        flush_batch(batch)
+                        batch = []
+                flush_batch(batch)
 
             # Remove rows deleted from the source contest without a giant
             # SQLite IN clause (and retain projections for other contests).
