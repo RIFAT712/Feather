@@ -73,11 +73,15 @@ const fetchStatusCounts = async () => {
   }
 };
 
-// Loads one bounded page at a time -- this used to crawl the entire contest
-// up front, which on a large, actively-submitting contest meant transferring
-// everything just to open this page at all. Only the first page loads
-// automatically; the rest is opt-in via "Load more" so opening this view is
-// fast regardless of how many articles the contest has.
+// Loads one bounded page at a time -- transferring the whole contest in one
+// request was the actual bottleneck (confirmed: server-side processing time
+// barely grows with row count, but total transfer time scales with it
+// almost linearly regardless of query optimization or compression). The fix
+// isn't "never load everything" though -- it's "never block the page on
+// loading everything". The first page renders immediately; the rest keeps
+// loading automatically in the background (see loadRemainingInBackground)
+// so the full log is still available without any click, it just isn't what
+// the user has to wait on to see something.
 const loadPage = async (before) => {
   const cursor = before !== null ? `&before_id=${before}` : '';
   const res = await fetch(`/api/contests/${route.params.code}/log?page_size=${PAGE_SIZE}${cursor}`);
@@ -88,11 +92,12 @@ const loadPage = async (before) => {
   nextBeforeId.value = payload.next_before_id;
 };
 
-const loadMore = async () => {
-  if (!hasMore.value || isLoadingMore.value) return;
+const loadRemainingInBackground = async () => {
   isLoadingMore.value = true;
   try {
-    await loadPage(nextBeforeId.value);
+    while (hasMore.value) {
+      await loadPage(nextBeforeId.value);
+    }
   } catch (e) {
     error.value = e.message;
   } finally {
@@ -106,9 +111,10 @@ onMounted(async () => {
     if (roleRes.ok) roles.value = await roleRes.json();
 
     await Promise.all([fetchStatusCounts(), loadPage(null)]);
+    isLoading.value = false;
+    loadRemainingInBackground(); // not awaited -- keeps going while the user reads what's already loaded
   } catch (e) {
     error.value = e.message;
-  } finally {
     isLoading.value = false;
   }
 });
@@ -288,10 +294,9 @@ onMounted(async () => {
         </div>
       </div>
 
-            <div v-if="hasMore" class="load-more-log">
-        <button type="button" class="load-more-log-btn" :disabled="isLoadingMore" @click="loadMore">
-          {{ isLoadingMore ? 'Loading…' : `Load ${Math.min(PAGE_SIZE, statusCounts.total - log.length)} more` }}
-        </button>
+            <div v-if="isLoadingMore" class="load-more-log">
+        <div class="spinner spinner-small" />
+        <span>Loading the rest in the background… ({{ log.length }} of {{ statusCounts.total }})</span>
       </div>
     </template>
   </div>

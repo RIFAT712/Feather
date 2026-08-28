@@ -437,21 +437,19 @@
 
 .load-more-log {
   display: flex;
+  align-items: center;
   justify-content: center;
+  gap: 10px;
   padding: 20px 0 8px;
+  color: #64748b;
+  font-size: 0.82rem;
 }
-.load-more-log-btn {
-  background: rgba(37, 99, 235, 0.12);
-  color: #2563eb;
-  border: 1px solid rgba(37, 99, 235, 0.3);
-  border-radius: 8px;
-  padding: 10px 20px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
+.spinner-small {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+  margin: 0;
 }
-.load-more-log-btn:disabled { opacity: 0.6; cursor: default; }
-.load-more-log-btn:not(:disabled):hover { background: rgba(37, 99, 235, 0.2); }
 
 /* Mobile table responsiveness */
 @media (max-width: 640px) {

@@ -50,12 +50,15 @@ const fetchStats = async () => {
 const ARTICLES_PAGE_SIZE = 200;
 const hasMoreArticles = ref(false);
 const nextArticlesBeforeId = ref(null);
+const isLoadingMoreArticles = ref(false);
 
-// Loads one bounded page at a time -- this used to crawl the entire contest
-// up front on opening the tab, which on a large, actively-submitting contest
-// meant transferring everything just to see the first row. Only the first
-// page loads automatically; the rest is opt-in via "Load more" so opening
-// this tab is fast regardless of how many articles the contest has.
+// Loads one bounded page at a time -- transferring the whole contest in one
+// request was the actual bottleneck (server-side processing barely grows
+// with row count, but total transfer time scales with it almost linearly
+// regardless of query optimization or compression). The first page loads
+// and unblocks the tab immediately; the rest keeps loading automatically in
+// the background (see fetchArticles) so the full list is still available
+// without any click, it just isn't what the user has to wait on.
 const fetchArticlesPage = async (before) => {
   const cursor = before !== null ? `&before_id=${before}` : '';
   const res = await fetch(`/api/contests/${route.params.code}/log?page_size=${ARTICLES_PAGE_SIZE}&include_reviews=false${cursor}`);
@@ -66,9 +69,30 @@ const fetchArticlesPage = async (before) => {
   nextArticlesBeforeId.value = payload.next_before_id;
 };
 
+// Guards against a stale background crawl (from a previous fetchArticles()
+// call) still running when refreshCurrentTabArticles() resets state and
+// starts a new one -- e.g. deleting an article while the initial crawl is
+// still loading. Without this, the old loop would keep reading nextId/
+// hasMore after they'd been reset out from under it.
+let articlesFetchGeneration = 0;
+
+const loadRemainingArticlesInBackground = async (generation) => {
+  isLoadingMoreArticles.value = true;
+  try {
+    while (hasMoreArticles.value && generation === articlesFetchGeneration) {
+      await fetchArticlesPage(nextArticlesBeforeId.value);
+    }
+  } finally {
+    if (generation === articlesFetchGeneration) isLoadingMoreArticles.value = false;
+  }
+};
+
 // Also used to refresh after a deletion -- resets back to just the first
-// page rather than trying to preserve "load more" progress across a mutation.
+// page rather than trying to preserve background-load progress across a
+// mutation. Only awaits the first page: callers (removeArticle etc.) need
+// the tab usable again quickly, not to block on the full background crawl.
 const fetchArticles = async () => {
+  const generation = ++articlesFetchGeneration;
   isLoadingArticles.value = true;
   articles.value = [];
   hasMoreArticles.value = false;
@@ -79,16 +103,7 @@ const fetchArticles = async () => {
   } finally {
     isLoadingArticles.value = false;
   }
-};
-
-const loadMoreArticles = async () => {
-  if (!hasMoreArticles.value || isLoadingArticles.value) return;
-  isLoadingArticles.value = true;
-  try {
-    await fetchArticlesPage(nextArticlesBeforeId.value);
-  } finally {
-    isLoadingArticles.value = false;
-  }
+  loadRemainingArticlesInBackground(generation); // not awaited
 };
 
 const errorArticles = ref([]);
@@ -785,9 +800,9 @@ const handleExportWikitable = () => {
               </button>
             </div>
           </article>
-          <button v-if="hasMoreArticles" type="button" class="load-more-group" :disabled="isLoadingArticles" @click="loadMoreArticles">
-            {{ isLoadingArticles ? 'Loading…' : `Load ${ARTICLES_PAGE_SIZE} more articles` }}
-          </button>
+          <div v-if="isLoadingMoreArticles" class="loading-more-note">
+            Loading the rest in the background… ({{ articles.length }} of {{ (stats.status_counts.total || 0).toLocaleString() }})
+          </div>
         </div>
       </section>
     </div>
