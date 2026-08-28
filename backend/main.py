@@ -1338,21 +1338,30 @@ def get_contest_stats(code: str, db: Session = Depends(get_db)):
 @app.get("/api/contests/{code}/log")
 def get_contest_log(
     code: str,
-    page: int = Query(default=1, ge=1),
+    before_id: Optional[int] = Query(default=None),
     page_size: int = Query(default=200, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
+    """Paginated activity log, newest first. Uses keyset pagination (before_id,
+    ordered by id) rather than offset/limit: this contest keeps receiving new
+    submissions while a multi-page crawl is in progress, and offset/limit
+    silently skips or re-shuffles rows as the underlying result set shifts
+    under concurrent inserts. Cursoring on id is immune to that — a page is
+    always "articles with id < before_id", so new rows (always higher ids)
+    never perturb pages already fetched or still to come."""
     contest = db.query(models.Contest).filter_by(code=code).first()
     if not contest:
         raise HTTPException(status_code=404, detail="Contest not found")
 
     total = db.query(func.count(models.Article.id)).filter_by(contest_id=contest.id).scalar()
 
-    articles = db.query(models.Article).options(
+    query = db.query(models.Article).options(
         joinedload(models.Article.submitter),
         selectinload(models.Article.reviews).joinedload(models.Review.reviewer)
-    ).filter_by(contest_id=contest.id).order_by(models.Article.submitted_at.desc()) \
-     .offset((page - 1) * page_size).limit(page_size).all()
+    ).filter_by(contest_id=contest.id)
+    if before_id is not None:
+        query = query.filter(models.Article.id < before_id)
+    articles = query.order_by(models.Article.id.desc()).limit(page_size).all()
 
     log = []
     now = datetime.utcnow()
@@ -1395,9 +1404,9 @@ def get_contest_log(
     return {
         "items": log,
         "total": total,
-        "page": page,
         "page_size": page_size,
-        "has_more": page * page_size < total,
+        "next_before_id": articles[-1].id if articles else None,
+        "has_more": len(articles) == page_size,
     }
 
 @app.get("/api/jury-panel/contests/{code}/articles")
