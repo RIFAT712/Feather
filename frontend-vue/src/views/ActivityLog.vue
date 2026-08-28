@@ -3,17 +3,25 @@ import { ref, onMounted, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { CdxIcon } from '@wikimedia/codex';
 import { cdxIconAlert } from '@wikimedia/codex-icons';
-import { fetchAllContestLogPages } from '../utils/contestLog';
+
+const PAGE_SIZE = 200;
 
 const props = defineProps(['contest']);
 const route = useRoute();
 const log = ref([]);
 const isLoading = ref(true);
+const isLoadingMore = ref(false);
+const hasMore = ref(false);
+const nextBeforeId = ref(null);
 const error = ref(null);
 const viewMode = ref('per-user');
 const openGroups = ref({});
 const roles = ref({ is_jury: false, is_owner: false });
 const isAuthorized = computed(() => roles.value.is_jury || roles.value.is_owner);
+// Server-computed totals, independent of how many rows are actually loaded --
+// loading only a page at a time means log.value is never "everything", so
+// these can't be derived by counting log.value client-side.
+const statusCounts = ref({ total: 0, accepted: 0, rejected: 0, pending: 0, validation_failed: 0 });
 
 const fmt = (iso) => {
   if (!iso) return '—';
@@ -57,16 +65,47 @@ const reviewComments = (entry) => (entry.reviews || [])
   .filter(review => review.comment && review.comment.trim())
   .map(review => ({ reviewer: review.reviewer, comment: review.comment.trim() }));
 
+const fetchStatusCounts = async () => {
+  const res = await fetch(`/api/contests/${route.params.code}/stats`);
+  if (res.ok) {
+    const data = await res.json();
+    statusCounts.value = data.status_counts;
+  }
+};
+
+// Loads one bounded page at a time -- this used to crawl the entire contest
+// up front, which on a large, actively-submitting contest meant transferring
+// everything just to open this page at all. Only the first page loads
+// automatically; the rest is opt-in via "Load more" so opening this view is
+// fast regardless of how many articles the contest has.
+const loadPage = async (before) => {
+  const cursor = before !== null ? `&before_id=${before}` : '';
+  const res = await fetch(`/api/contests/${route.params.code}/log?page_size=${PAGE_SIZE}${cursor}`);
+  if (!res.ok) throw new Error('Failed to load activity log');
+  const payload = await res.json();
+  log.value = [...log.value, ...payload.items];
+  hasMore.value = payload.has_more;
+  nextBeforeId.value = payload.next_before_id;
+};
+
+const loadMore = async () => {
+  if (!hasMore.value || isLoadingMore.value) return;
+  isLoadingMore.value = true;
+  try {
+    await loadPage(nextBeforeId.value);
+  } catch (e) {
+    error.value = e.message;
+  } finally {
+    isLoadingMore.value = false;
+  }
+};
+
 onMounted(async () => {
   try {
     const roleRes = await fetch(`/api/contests/${route.params.code}/my-role`);
     if (roleRes.ok) roles.value = await roleRes.json();
-    
-    // Loaded in bounded pages and rendered as pages arrive, rather than blocking
-    // on one request that joins and serializes every article + review at once.
-    await fetchAllContestLogPages(route.params.code, {
-      onPage: (items) => { log.value = items; },
-    });
+
+    await Promise.all([fetchStatusCounts(), loadPage(null)]);
   } catch (e) {
     error.value = e.message;
   } finally {
@@ -100,25 +139,26 @@ onMounted(async () => {
             <div class="stats-bar">
         <div class="stat-chip chip-total">
           <span class="chip-label">Total</span>
-          <span class="chip-val">{{ log.length }}</span>
+          <span class="chip-val">{{ statusCounts.total }}</span>
         </div>
         <div class="stat-chip chip-accepted">
           <span class="chip-label">Accepted</span>
-          <span class="chip-val">{{ log.filter(e => e.status === 'accepted').length }}</span>
+          <span class="chip-val">{{ statusCounts.accepted }}</span>
         </div>
         <div class="stat-chip chip-rejected">
           <span class="chip-label">Rejected</span>
-          <span class="chip-val">{{ log.filter(e => e.status === 'rejected').length }}</span>
+          <span class="chip-val">{{ statusCounts.rejected }}</span>
         </div>
         <div class="stat-chip chip-pending">
           <span class="chip-label">Pending</span>
-          <span class="chip-val">{{ log.filter(e => e.status === 'pending').length }}</span>
+          <span class="chip-val">{{ statusCounts.pending }}</span>
         </div>
         <div class="stat-chip chip-failed">
           <span class="chip-label">Errors</span>
-          <span class="chip-val">{{ log.filter(e => e.status === 'validation_failed').length }}</span>
+          <span class="chip-val">{{ statusCounts.validation_failed }}</span>
         </div>
       </div>
+      <p class="loaded-so-far-note">Showing {{ log.length }} of {{ statusCounts.total }} articles, newest first.</p>
 
             <div class="toggle-bar">
         <div class="segmented-control">
@@ -246,6 +286,12 @@ onMounted(async () => {
         <div v-if="log.length === 0" class="state-center">
           <p>No activity recorded yet.</p>
         </div>
+      </div>
+
+            <div v-if="hasMore" class="load-more-log">
+        <button type="button" class="load-more-log-btn" :disabled="isLoadingMore" @click="loadMore">
+          {{ isLoadingMore ? 'Loading…' : `Load ${Math.min(PAGE_SIZE, statusCounts.total - log.length)} more` }}
+        </button>
       </div>
     </template>
   </div>

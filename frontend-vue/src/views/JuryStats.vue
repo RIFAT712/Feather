@@ -47,30 +47,67 @@ const fetchStats = async () => {
   stats.value = await res.json();
 };
 
-// Loaded in bounded pages, and only once a tab that needs per-article rows is opened.
+const ARTICLES_PAGE_SIZE = 200;
+const hasMoreArticles = ref(false);
+const nextArticlesBeforeId = ref(null);
+
+// Loads one bounded page at a time -- this used to crawl the entire contest
+// up front on opening the tab, which on a large, actively-submitting contest
+// meant transferring everything just to see the first row. Only the first
+// page loads automatically; the rest is opt-in via "Load more" so opening
+// this tab is fast regardless of how many articles the contest has.
+const fetchArticlesPage = async (before) => {
+  const cursor = before !== null ? `&before_id=${before}` : '';
+  const res = await fetch(`/api/contests/${route.params.code}/log?page_size=${ARTICLES_PAGE_SIZE}&include_reviews=false${cursor}`);
+  if (!res.ok) throw new Error('Could not load submitted articles.');
+  const payload = await res.json();
+  articles.value = [...articles.value, ...payload.items];
+  hasMoreArticles.value = payload.has_more;
+  nextArticlesBeforeId.value = payload.next_before_id;
+};
+
+// Also used to refresh after a deletion -- resets back to just the first
+// page rather than trying to preserve "load more" progress across a mutation.
 const fetchArticles = async () => {
   isLoadingArticles.value = true;
+  articles.value = [];
+  hasMoreArticles.value = false;
+  nextArticlesBeforeId.value = null;
   try {
-    // groupedSubmissions re-groups the whole array by username on every
-    // change; reassigning articles.value on every single page (~25 for a
-    // large contest) made that re-run 25 times against a growing array,
-    // which is what showed up as UI jank/"glitches" during the crawl.
-    // Updating only every few pages keeps the progressive-render benefit
-    // (early data isn't held back) while cutting re-render count sharply.
-    let pagesSinceUpdate = 0;
-    await fetchAllContestLogPages(route.params.code, {
-      includeReviews: false, // this view only needs title/status/validation, not review history
-      onPage: (items, payload) => {
-        pagesSinceUpdate += 1;
-        if (pagesSinceUpdate >= 5 || !payload.has_more) {
-          articles.value = items;
-          pagesSinceUpdate = 0;
-        }
-      },
-    });
+    await fetchArticlesPage(null);
     articlesLoaded.value = true;
   } finally {
     isLoadingArticles.value = false;
+  }
+};
+
+const loadMoreArticles = async () => {
+  if (!hasMoreArticles.value || isLoadingArticles.value) return;
+  isLoadingArticles.value = true;
+  try {
+    await fetchArticlesPage(nextArticlesBeforeId.value);
+  } finally {
+    isLoadingArticles.value = false;
+  }
+};
+
+const errorArticles = ref([]);
+const errorArticlesLoaded = ref(false);
+const isLoadingErrorArticles = ref(false);
+
+// Errored submissions are typically a handful out of thousands, and could be
+// anywhere in the id order -- filtering server-side means this tab never has
+// to wait on (or trigger) the full "All submitted" crawl to find them.
+const fetchErrorArticles = async () => {
+  isLoadingErrorArticles.value = true;
+  try {
+    errorArticles.value = await fetchAllContestLogPages(route.params.code, {
+      includeReviews: false,
+      status: 'validation_failed',
+    });
+    errorArticlesLoaded.value = true;
+  } finally {
+    isLoadingErrorArticles.value = false;
   }
 };
 
@@ -80,8 +117,15 @@ const ensureArticlesLoaded = () => {
   }
 };
 
+const ensureErrorArticlesLoaded = () => {
+  if (!errorArticlesLoaded.value && !isLoadingErrorArticles.value) {
+    fetchErrorArticles().catch(err => console.error(err));
+  }
+};
+
 watch(activeTab, (tab) => {
-  if (tab === 'submissions' || tab === 'errors') ensureArticlesLoaded();
+  if (tab === 'submissions') ensureArticlesLoaded();
+  else if (tab === 'errors') ensureErrorArticlesLoaded();
 });
 
 onMounted(async () => {
@@ -142,7 +186,7 @@ const statusLabel = (status) => ({
   validation_failed: 'Validation failed',
 }[status] || status);
 
-const erroredArticles = computed(() => articles.value.filter(article => article.status === 'validation_failed'));
+const erroredArticles = computed(() => errorArticles.value);
 const displayedSubmissions = computed(() => activeTab.value === 'errors' ? erroredArticles.value : articles.value);
 const allErrorsSelected = computed(() => erroredArticles.value.length > 0 && selectedErrorIds.value.length === erroredArticles.value.length);
 const groupedSubmissions = computed(() => {
@@ -199,6 +243,16 @@ const loadMoreGroupArticles = (group) => {
   };
 };
 
+// Refresh whichever detail list the current tab actually shows, rather than
+// always re-crawling the full "All submitted" list (slow) even when the
+// user is looking at the small, separately-fetched Errored tab.
+const refreshCurrentTabArticles = () => {
+  const refreshes = [fetchStats()];
+  if (activeTab.value === 'errors') refreshes.push(fetchErrorArticles());
+  else refreshes.push(fetchArticles());
+  return Promise.all(refreshes);
+};
+
 const removeArticle = async (article) => {
   if (!confirm(`Remove "${article.title}" from this contest?`)) return;
 
@@ -210,7 +264,7 @@ const removeArticle = async (article) => {
     if (!res.ok) throw new Error(data.detail || 'Could not remove the article.');
     selectedErrorIds.value = selectedErrorIds.value.filter(id => id !== article.article_id);
     selectedSubmissionIds.value = selectedSubmissionIds.value.filter(id => id !== article.article_id);
-    await Promise.all([fetchArticles(), fetchStats()]);
+    await refreshCurrentTabArticles();
   } catch (err) {
     removalError.value = err.message || 'Could not remove the article.';
   } finally {
@@ -244,6 +298,8 @@ const removeSelectedSubmissions = async (group = null) => {
     isBulkRemoving.value = false;
   }
 };
+// Only ever called from the Errored tab, so it always refreshes that
+// separately-fetched list rather than the full submissions crawl.
 const removeSelectedErrors = async () => {
   if (!selectedErrorIds.value.length || isBulkRemoving.value) return;
   if (!confirm(`Remove ${selectedErrorIds.value.length} errored article(s) from this contest?`)) return;
@@ -260,7 +316,7 @@ const removeSelectedErrors = async () => {
     const failed = (result.failed || []).map(item => item.article_id);
     selectedErrorIds.value = failed;
     if (failed.length) throw new Error(`Could not remove ${failed.length} article(s).`);
-    await Promise.all([fetchArticles(), fetchStats()]);
+    await Promise.all([fetchErrorArticles(), fetchStats()]);
   } catch (err) {
     removalError.value = err.message || 'Could not remove selected articles.';
   } finally {
@@ -626,7 +682,7 @@ const handleExportWikitable = () => {
             <button v-if="activeTab === 'errors' && erroredArticles.length" type="button" class="bulk-remove-submissions" :disabled="!selectedErrorIds.length || isBulkRemoving" @click="removeSelectedErrors">
               {{ isBulkRemoving ? 'Removing…' : `Delete selected (${selectedErrorIds.length})` }}
             </button>
-            <button type="button" class="refresh-submissions" @click="fetchArticles(); fetchStats()">Refresh</button>
+            <button type="button" class="refresh-submissions" @click="fetchErrorArticles(); fetchStats()">Refresh</button>
           </div>
         </div>
 
@@ -636,7 +692,7 @@ const handleExportWikitable = () => {
           <table class="submissions-table">
             <thead>
               <tr>
-                <th v-if="activeTab === 'errors'" class="selection-column"><input type="checkbox" :checked="allErrorsSelected" @change="toggleAllErrors" aria-label="Select all errored articles" /></th>
+                <th class="selection-column"><input type="checkbox" :checked="allErrorsSelected" @change="toggleAllErrors" aria-label="Select all errored articles" /></th>
                 <th>Article</th>
                 <th>Submitted by</th>
                 <th>Status</th>
@@ -646,7 +702,7 @@ const handleExportWikitable = () => {
             </thead>
             <tbody>
               <tr v-for="article in displayedSubmissions" :key="article.article_id">
-                <td v-if="activeTab === 'errors'" class="selection-column"><input type="checkbox" :checked="selectedErrorIds.includes(article.article_id)" @change="toggleErrorSelection(article.article_id)" :aria-label="`Select ${article.title}`" /></td>
+                <td class="selection-column"><input type="checkbox" :checked="selectedErrorIds.includes(article.article_id)" @change="toggleErrorSelection(article.article_id)" :aria-label="`Select ${article.title}`" /></td>
                 <td class="submission-title">{{ article.title }}</td>
                 <td>
                   <router-link :to="`/${route.params.code}/user/${encodeURIComponent(article.submitted_by)}`" class="jury-name-link">
@@ -665,11 +721,11 @@ const handleExportWikitable = () => {
                   ><CdxIcon :icon="cdxIconTrash" /></button>
                 </td>
               </tr>
-              <tr v-if="isLoadingArticles && !articles.length">
-                <td :colspan="activeTab === 'errors' ? 6 : 5" class="empty-state">Loading submissions…</td>
+              <tr v-if="isLoadingErrorArticles && !errorArticles.length">
+                <td colspan="6" class="empty-state">Loading errored articles…</td>
               </tr>
-              <tr v-else-if="!articles.length">
-                <td :colspan="activeTab === 'errors' ? 6 : 5" class="empty-state">{{ activeTab === 'errors' ? 'No errored articles.' : 'No articles have been submitted yet.' }}</td>
+              <tr v-else-if="!errorArticles.length">
+                <td colspan="6" class="empty-state">No errored articles.</td>
               </tr>
             </tbody>
           </table>
@@ -682,8 +738,8 @@ const handleExportWikitable = () => {
             <h2>All Submitted Articles</h2>
             <p>Submissions are grouped by user. Expand a user to select individual articles or manage the whole group.</p>
             <div class="submission-heading-meta" aria-label="Submission summary">
-              <span><strong>{{ articles.length.toLocaleString() }}</strong> articles</span>
-              <span><strong>{{ groupedSubmissions.length.toLocaleString() }}</strong> users</span>
+              <span>Showing <strong>{{ articles.length.toLocaleString() }}</strong> of <strong>{{ (stats.status_counts.total || 0).toLocaleString() }}</strong> articles</span>
+              <span><strong>{{ groupedSubmissions.length.toLocaleString() }}</strong> users loaded</span>
               <span v-if="selectedSubmissionIds.length"><strong>{{ selectedSubmissionIds.length.toLocaleString() }}</strong> selected</span>
             </div>
           </div>
@@ -729,6 +785,9 @@ const handleExportWikitable = () => {
               </button>
             </div>
           </article>
+          <button v-if="hasMoreArticles" type="button" class="load-more-group" :disabled="isLoadingArticles" @click="loadMoreArticles">
+            {{ isLoadingArticles ? 'Loading…' : `Load ${ARTICLES_PAGE_SIZE} more articles` }}
+          </button>
         </div>
       </section>
     </div>

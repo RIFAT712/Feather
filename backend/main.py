@@ -59,7 +59,7 @@ async def add_process_time_header(request: Request, call_next):
 # runtime images don't reliably include .git, so this is a guaranteed-simple
 # way to confirm what's actually running vs. what's on GitHub, instead of
 # inferring it from behavior after every redeploy.
-APP_BUILD_MARKER = "2026-08-28-process-time-header"
+APP_BUILD_MARKER = "2026-08-28-real-pagination"
 
 @app.get("/api/version")
 def get_version():
@@ -1576,6 +1576,7 @@ def get_contest_log(
     before_id: Optional[int] = Query(default=None),
     page_size: int = Query(default=200, ge=1, le=500),
     include_reviews: bool = Query(default=True),
+    status: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
 ):
     """Paginated activity log, newest first. Uses keyset pagination (before_id,
@@ -1589,17 +1590,27 @@ def get_contest_log(
     include_reviews=false skips the reviews join/serialization entirely — the
     submissions/errors moderation views only need title/status/validation
     info per article, not review history, and loading it anyway roughly
-    doubles the query and payload cost of every page for no benefit there."""
+    doubles the query and payload cost of every page for no benefit there.
+
+    status filters to one status (e.g. validation_failed) so a consumer that
+    only cares about a small subset doesn't have to crawl the whole contest
+    looking for it — errored articles are typically a handful out of
+    thousands, and could otherwise sit anywhere in the id order."""
     contest = db.query(models.Contest).filter_by(code=code).first()
     if not contest:
         raise HTTPException(status_code=404, detail="Contest not found")
 
-    total = db.query(func.count(models.Article.id)).filter_by(contest_id=contest.id).scalar()
+    count_query = db.query(func.count(models.Article.id)).filter_by(contest_id=contest.id)
+    if status:
+        count_query = count_query.filter(models.Article.status == status)
+    total = count_query.scalar()
 
     query = db.query(models.Article).options(joinedload(models.Article.submitter))
     if include_reviews:
         query = query.options(selectinload(models.Article.reviews).joinedload(models.Review.reviewer))
     query = query.filter_by(contest_id=contest.id)
+    if status:
+        query = query.filter(models.Article.status == status)
     if before_id is not None:
         query = query.filter(models.Article.id < before_id)
     articles = query.order_by(models.Article.id.desc()).limit(page_size).all()

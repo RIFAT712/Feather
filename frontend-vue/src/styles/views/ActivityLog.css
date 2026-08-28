@@ -429,6 +429,30 @@
 .badge-pending  { background: rgba(245,158,11,0.12); color: #f59e0b; }
 .badge-skipped  { background: rgba(148,163,184,0.1); color: #94a3b8; }
 
+.loaded-so-far-note {
+  color: #64748b;
+  font-size: 0.8rem;
+  margin: -8px 0 16px;
+}
+
+.load-more-log {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0 8px;
+}
+.load-more-log-btn {
+  background: rgba(37, 99, 235, 0.12);
+  color: #2563eb;
+  border: 1px solid rgba(37, 99, 235, 0.3);
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.load-more-log-btn:disabled { opacity: 0.6; cursor: default; }
+.load-more-log-btn:not(:disabled):hover { background: rgba(37, 99, 235, 0.2); }
+
 /* Mobile table responsiveness */
 @media (max-width: 640px) {
   .log-root { padding: 16px; }
