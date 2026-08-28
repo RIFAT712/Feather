@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ActivityLog from './ActivityLog.vue';
+import { getCachedStats, setCachedStats } from '../utils/contestDataCache';
 
 const props = defineProps(['contest']);
 const route = useRoute();
@@ -22,16 +23,27 @@ let statsInterval;
 
 // Counts only — avoids re-downloading every article/review on the contest just
 // to show four numbers, which used to be re-fetched in full every 5 seconds.
+const applyStats = (data) => {
+  stats.value = {
+    total: data.status_counts.total,
+    accepted: data.status_counts.accepted,
+    rejected: data.status_counts.rejected,
+    pending: data.status_counts.pending,
+  };
+};
+
+// Shared across views (dashboard/Timeline Log/Jury Stats all want the same
+// /stats data) so navigating between them doesn't re-fetch what another view
+// just loaded seconds ago. Cached value renders instantly while a fresh fetch
+// still runs underneath to catch up-to-the-moment counts and feed the poll below.
 const fetchContestStats = async () => {
+  const cached = getCachedStats(route.params.code);
+  if (cached) applyStats(cached);
   const response = await fetch(`/api/contests/${route.params.code}/stats`);
   if (response.ok) {
     const data = await response.json();
-    stats.value = {
-      total: data.status_counts.total,
-      accepted: data.status_counts.accepted,
-      rejected: data.status_counts.rejected,
-      pending: data.status_counts.pending,
-    };
+    setCachedStats(route.params.code, data);
+    applyStats(data);
   }
 };
 

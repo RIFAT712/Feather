@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { CdxIcon } from '@wikimedia/codex';
 import { cdxIconArticleCheck, cdxIconTrash } from '@wikimedia/codex-icons';
 import { fetchAllContestLogPages, fetchRemainingLogPagesConcurrently } from '../utils/contestLog';
+import { getCachedStats, setCachedStats, getCachedLog, setCachedLog, removeCachedLogItems } from '../utils/contestDataCache';
 import { Doughnut, Bar } from 'vue-chartjs';
 import {
   Chart as ChartJS,
@@ -41,58 +42,81 @@ const isBulkRemoving = ref(false);
 // the "All submitted"/"Errored" tabs are the only place that need per-article detail.
 const stats = ref({ status_counts: {}, jury_stats: [] });
 
+// Shared across views (dashboard/Timeline Log/Jury Stats all want the same
+// /stats data) so navigating between them doesn't re-fetch what another view
+// just loaded seconds ago.
 const fetchStats = async () => {
+  const cached = getCachedStats(route.params.code);
+  if (cached) stats.value = cached;
   const res = await fetch(`/api/contests/${route.params.code}/stats`);
   if (!res.ok) throw new Error('Could not load jury statistics.');
-  stats.value = await res.json();
+  const data = await res.json();
+  stats.value = data;
+  setCachedStats(route.params.code, data);
 };
 
 const ARTICLES_PAGE_SIZE = 200;
-const hasMoreArticles = ref(false);
-const nextArticlesBeforeId = ref(null);
-const totalArticles = ref(0);
 const isLoadingMoreArticles = ref(false);
-
-// Loads one bounded page at a time -- transferring the whole contest in one
-// request was the actual bottleneck (server-side processing barely grows
-// with row count, but total transfer time scales with it almost linearly
-// regardless of query optimization or compression). The first page loads
-// and unblocks the tab immediately; the rest keeps loading automatically in
-// the background (see fetchArticles) so the full list is still available
-// without any click, it just isn't what the user has to wait on.
-const fetchArticlesPage = async (before) => {
-  const cursor = before !== null ? `&before_id=${before}` : '';
-  const res = await fetch(`/api/contests/${route.params.code}/log?page_size=${ARTICLES_PAGE_SIZE}&include_reviews=false${cursor}`);
-  if (!res.ok) throw new Error('Could not load submitted articles.');
-  const payload = await res.json();
-  articles.value = [...articles.value, ...payload.items];
-  hasMoreArticles.value = payload.has_more;
-  nextArticlesBeforeId.value = payload.next_before_id;
-  totalArticles.value = payload.total;
-};
 
 // Guards against a stale background crawl (from a previous fetchArticles()
 // call) still running when refreshCurrentTabArticles() resets state and
 // starts a new one -- e.g. deleting an article while the initial crawl is
-// still loading. Without this, the old loop would keep reading nextId/
-// hasMore after they'd been reset out from under it.
+// still loading, or a cache-triggered revalidation still in flight.
 let articlesFetchGeneration = 0;
 
-const loadRemainingArticlesInBackground = async (generation) => {
-  if (!hasMoreArticles.value) return;
+const fetchArticlesPage = async (before) => {
+  const cursor = before !== null ? `&before_id=${before}` : '';
+  const res = await fetch(`/api/contests/${route.params.code}/log?page_size=${ARTICLES_PAGE_SIZE}&include_reviews=false${cursor}`);
+  if (!res.ok) throw new Error('Could not load submitted articles.');
+  return res.json();
+};
+
+// No cache yet: render progressively as pages arrive -- there's nothing
+// already on screen to disturb.
+const loadArticlesFreshProgressively = async (generation) => {
+  const first = await fetchArticlesPage(null);
+  articles.value = first.items;
+  articlesLoaded.value = true;
+  isLoadingArticles.value = false;
+  if (first.has_more) {
+    isLoadingMoreArticles.value = true;
+    try {
+      // Fired as concurrent offset-paginated batches (~3.4x faster wall
+      // time, measured) rather than one keyset page at a time -- the first
+      // page above already established the live, always-correct view, so
+      // this catch-up crawl only needs to be fast, not individually as strict.
+      await fetchRemainingLogPagesConcurrently(route.params.code, first.items.length, first.total, {
+        includeReviews: false,
+        onBatch: (items) => {
+          if (generation === articlesFetchGeneration) articles.value = [...first.items, ...items];
+        },
+      });
+    } finally {
+      if (generation === articlesFetchGeneration) isLoadingMoreArticles.value = false;
+    }
+  }
+  if (generation === articlesFetchGeneration) setCachedLog(route.params.code, articles.value, first.total, false);
+};
+
+// Cached data already showing (from a previous visit this session, or from
+// ActivityLog having already crawled this contest) -- refetch fully into a
+// separate buffer and swap it in once complete, so the already-visible list
+// doesn't shrink back down and regrow while this runs.
+const revalidateArticlesInBackground = async (generation) => {
   isLoadingMoreArticles.value = true;
-  const firstPageItems = articles.value;
   try {
-    // Fired as concurrent offset-paginated batches (~3.4x faster wall time,
-    // measured) rather than one keyset page at a time -- the first page
-    // above already established the live, always-correct view, so this
-    // catch-up crawl only needs to be fast, not individually as strict.
-    await fetchRemainingLogPagesConcurrently(route.params.code, firstPageItems.length, totalArticles.value, {
-      includeReviews: false,
-      onBatch: (items) => {
-        if (generation === articlesFetchGeneration) articles.value = [...firstPageItems, ...items];
-      },
-    });
+    const first = await fetchArticlesPage(null);
+    let fresh = first.items;
+    if (first.has_more) {
+      const rest = await fetchRemainingLogPagesConcurrently(route.params.code, fresh.length, first.total, { includeReviews: false });
+      fresh = [...fresh, ...rest];
+    }
+    if (generation === articlesFetchGeneration) {
+      articles.value = fresh;
+      setCachedLog(route.params.code, fresh, first.total, false);
+    }
+  } catch (e) {
+    console.error('Background submissions refresh failed:', e);
   } finally {
     if (generation === articlesFetchGeneration) isLoadingMoreArticles.value = false;
   }
@@ -100,21 +124,26 @@ const loadRemainingArticlesInBackground = async (generation) => {
 
 // Also used to refresh after a deletion -- resets back to just the first
 // page rather than trying to preserve background-load progress across a
-// mutation. Only awaits the first page: callers (removeArticle etc.) need
-// the tab usable again quickly, not to block on the full background crawl.
+// mutation. Only awaits the first page (or the cached snapshot): callers
+// (removeArticle etc.) need the tab usable again quickly, not to block on
+// the full background crawl.
 const fetchArticles = async () => {
   const generation = ++articlesFetchGeneration;
   isLoadingArticles.value = true;
-  articles.value = [];
-  hasMoreArticles.value = false;
-  nextArticlesBeforeId.value = null;
-  try {
-    await fetchArticlesPage(null);
+  const cached = getCachedLog(route.params.code);
+  if (cached) {
+    articles.value = cached.items;
     articlesLoaded.value = true;
-  } finally {
     isLoadingArticles.value = false;
+    revalidateArticlesInBackground(generation); // not awaited
+  } else {
+    articles.value = [];
+    try {
+      await loadArticlesFreshProgressively(generation);
+    } finally {
+      isLoadingArticles.value = false;
+    }
   }
-  loadRemainingArticlesInBackground(generation); // not awaited
 };
 
 const errorArticles = ref([]);
@@ -290,6 +319,7 @@ const removeArticle = async (article) => {
     if (!res.ok) throw new Error(data.detail || 'Could not remove the article.');
     selectedErrorIds.value = selectedErrorIds.value.filter(id => id !== article.article_id);
     selectedSubmissionIds.value = selectedSubmissionIds.value.filter(id => id !== article.article_id);
+    removeCachedLogItems(route.params.code, [article.article_id]);
     await refreshCurrentTabArticles();
   } catch (err) {
     removalError.value = err.message || 'Could not remove the article.';
@@ -317,6 +347,7 @@ const removeSelectedSubmissions = async (group = null) => {
     const failed = (result.failed || []).map(item => item.article_id);
     selectedSubmissionIds.value = selectedSubmissionIds.value.filter(id => failed.includes(id));
     if (failed.length) throw new Error(`Could not remove ${failed.length} article(s).`);
+    removeCachedLogItems(route.params.code, ids.filter(id => !failed.includes(id)));
     await Promise.all([fetchArticles(), fetchStats()]);
   } catch (err) {
     removalError.value = err.message || 'Could not remove selected articles.';
@@ -328,20 +359,25 @@ const removeSelectedSubmissions = async (group = null) => {
 // separately-fetched list rather than the full submissions crawl.
 const removeSelectedErrors = async () => {
   if (!selectedErrorIds.value.length || isBulkRemoving.value) return;
-  if (!confirm(`Remove ${selectedErrorIds.value.length} errored article(s) from this contest?`)) return;
+  const ids = [...selectedErrorIds.value];
+  if (!confirm(`Remove ${ids.length} errored article(s) from this contest?`)) return;
   isBulkRemoving.value = true;
   removalError.value = '';
   try {
     const res = await fetch('/api/articles/bulk-delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ article_ids: selectedErrorIds.value }),
+      body: JSON.stringify({ article_ids: ids }),
     });
     const result = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(result.detail || 'Could not remove selected articles.');
     const failed = (result.failed || []).map(item => item.article_id);
     selectedErrorIds.value = failed;
     if (failed.length) throw new Error(`Could not remove ${failed.length} article(s).`);
+    // Errored articles are also part of the shared "all submitted" cache if
+    // that tab was ever opened -- prune them there too, not just their own
+    // separately-fetched list.
+    removeCachedLogItems(route.params.code, ids.filter(id => !failed.includes(id)));
     await Promise.all([fetchErrorArticles(), fetchStats()]);
   } catch (err) {
     removalError.value = err.message || 'Could not remove selected articles.';
@@ -812,7 +848,7 @@ const handleExportWikitable = () => {
             </div>
           </article>
           <div v-if="isLoadingMoreArticles" class="loading-more-note">
-            Loading the rest in the background… ({{ articles.length }} of {{ (stats.status_counts.total || 0).toLocaleString() }})
+            Loading the rest in the background…
           </div>
         </div>
       </section>

@@ -59,7 +59,7 @@ async def add_process_time_header(request: Request, call_next):
 # runtime images don't reliably include .git, so this is a guaranteed-simple
 # way to confirm what's actually running vs. what's on GitHub, instead of
 # inferring it from behavior after every redeploy.
-APP_BUILD_MARKER = "2026-08-28-concurrent-background-load"
+APP_BUILD_MARKER = "2026-08-28-shared-cross-view-cache"
 
 @app.get("/api/version")
 def get_version():

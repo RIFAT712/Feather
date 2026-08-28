@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import { CdxIcon } from '@wikimedia/codex';
 import { cdxIconAlert } from '@wikimedia/codex-icons';
 import { fetchRemainingLogPagesConcurrently } from '../utils/contestLog';
+import { getCachedStats, setCachedStats, getCachedLog, setCachedLog } from '../utils/contestDataCache';
 
 const PAGE_SIZE = 200;
 
@@ -12,8 +13,6 @@ const route = useRoute();
 const log = ref([]);
 const isLoading = ref(true);
 const isLoadingMore = ref(false);
-const hasMore = ref(false);
-const nextBeforeId = ref(null);
 const error = ref(null);
 const viewMode = ref('per-user');
 const openGroups = ref({});
@@ -71,42 +70,57 @@ const fetchStatusCounts = async () => {
   if (res.ok) {
     const data = await res.json();
     statusCounts.value = data.status_counts;
+    setCachedStats(route.params.code, data);
   }
 };
 
-// Loads one bounded page at a time -- transferring the whole contest in one
-// request was the actual bottleneck (confirmed: server-side processing time
-// barely grows with row count, but total transfer time scales with it
-// almost linearly regardless of query optimization or compression). The fix
-// isn't "never load everything" though -- it's "never block the page on
-// loading everything". The first page renders immediately; the rest keeps
-// loading automatically in the background (see loadRemainingInBackground)
-// so the full log is still available without any click, it just isn't what
-// the user has to wait on to see something.
-const loadPage = async (before) => {
+const fetchLogPage = async (before) => {
   const cursor = before !== null ? `&before_id=${before}` : '';
   const res = await fetch(`/api/contests/${route.params.code}/log?page_size=${PAGE_SIZE}${cursor}`);
   if (!res.ok) throw new Error('Failed to load activity log');
-  const payload = await res.json();
-  log.value = [...log.value, ...payload.items];
-  hasMore.value = payload.has_more;
-  nextBeforeId.value = payload.next_before_id;
+  return res.json();
 };
 
-const loadRemainingInBackground = async () => {
-  if (!hasMore.value) return;
+// No cache yet for this contest: render progressively as pages arrive, same
+// as before -- there's nothing already on screen to disturb.
+const loadFreshProgressively = async () => {
+  const first = await fetchLogPage(null);
+  log.value = first.items;
+  isLoading.value = false;
+  if (first.has_more) {
+    isLoadingMore.value = true;
+    try {
+      // Fired as concurrent offset-paginated batches (~3.4x faster wall
+      // time, measured) rather than one keyset page at a time -- the first
+      // page above already established the live, always-correct view, so
+      // this catch-up crawl only needs to be fast, not individually as strict.
+      const rest = await fetchRemainingLogPagesConcurrently(route.params.code, first.items.length, first.total, {
+        onBatch: (items) => { log.value = [...first.items, ...items]; },
+      });
+      log.value = [...first.items, ...rest];
+    } finally {
+      isLoadingMore.value = false;
+    }
+  }
+  setCachedLog(route.params.code, log.value, first.total, true);
+};
+
+// Cached data is already showing (from a previous visit this session) --
+// refetch fully into a separate buffer and swap it in once complete, so the
+// already-visible list doesn't shrink back down and regrow while this runs.
+const revalidateInBackground = async () => {
   isLoadingMore.value = true;
-  const firstPageItems = log.value;
   try {
-    // Fired as concurrent offset-paginated batches (~3.4x faster wall time,
-    // measured) rather than one keyset page at a time -- the first page
-    // above already established the live, always-correct view, so this
-    // catch-up crawl only needs to be fast, not individually as strict.
-    await fetchRemainingLogPagesConcurrently(route.params.code, firstPageItems.length, statusCounts.value.total, {
-      onBatch: (items) => { log.value = [...firstPageItems, ...items]; },
-    });
+    const first = await fetchLogPage(null);
+    let fresh = first.items;
+    if (first.has_more) {
+      const rest = await fetchRemainingLogPagesConcurrently(route.params.code, fresh.length, first.total, {});
+      fresh = [...fresh, ...rest];
+    }
+    log.value = fresh;
+    setCachedLog(route.params.code, fresh, first.total, true);
   } catch (e) {
-    error.value = e.message;
+    console.error('Background activity log refresh failed:', e);
   } finally {
     isLoadingMore.value = false;
   }
@@ -117,9 +131,23 @@ onMounted(async () => {
     const roleRes = await fetch(`/api/contests/${route.params.code}/my-role`);
     if (roleRes.ok) roles.value = await roleRes.json();
 
-    await Promise.all([fetchStatusCounts(), loadPage(null)]);
-    isLoading.value = false;
-    loadRemainingInBackground(); // not awaited -- keeps going while the user reads what's already loaded
+    const cachedStats = getCachedStats(route.params.code);
+    if (cachedStats) statusCounts.value = cachedStats.status_counts;
+    // A cache entry without reviews (e.g. written by JuryStats's leaner
+    // submissions-tab crawl) isn't enough here -- this view needs review
+    // history per article, so that's treated as a miss.
+    const cachedLog = getCachedLog(route.params.code);
+    const usableCachedLog = cachedLog && cachedLog.includesReviews ? cachedLog : null;
+
+    if (usableCachedLog) {
+      log.value = usableCachedLog.items;
+      isLoading.value = false;
+      await fetchStatusCounts();
+      revalidateInBackground(); // not awaited
+    } else {
+      await fetchStatusCounts();
+      await loadFreshProgressively();
+    }
   } catch (e) {
     error.value = e.message;
     isLoading.value = false;
@@ -303,7 +331,7 @@ onMounted(async () => {
 
             <div v-if="isLoadingMore" class="load-more-log">
         <div class="spinner spinner-small" />
-        <span>Loading the rest in the background… ({{ log.length }} of {{ statusCounts.total }})</span>
+        <span>Refreshing in the background…</span>
       </div>
     </template>
   </div>
