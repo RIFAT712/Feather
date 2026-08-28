@@ -105,6 +105,13 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
         banned_signature = "\x1f".join(sorted(
             row.user.wiki_username for row in contest.banned_users if row.user
         ))
+        assignment_rules_changed = (
+            meta is None
+            or meta.jury_signature != jury_signature
+            or meta.restriction_count != restriction_count
+            or meta.banned_signature != banned_signature
+            or meta.assignment_signature != assignment_signature
+        )
         needs_sync = (
             meta is None
             or meta.article_count != source_count
@@ -234,20 +241,23 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
                 submitter_id = user_ids.get(row.submitted_by)
                 assigned_id = jury_ids.get(row.assigned_to)
                 if (row.status == "pending" and
-                    (row.assigned_to not in juries or
+                    (assignment_rules_changed or
+                     row.assigned_to not in juries or
                      (not contest.allow_self_review and assigned_id == submitter_id) or
                      (assigned_id, submitter_id) in restrictions)):
                     row.assigned_to = None
-            pending = [r for r in assignment_rows if r.status == "pending"]
-            # Rebalance all pending work.  Sorting makes assignments stable
-            # between polls while the least-loaded eligible jury keeps the
-            # distribution even, subject to COI restrictions.
+            # A jury/rule change rebalances the whole unreviewed pool. A new
+            # article only contributes an unassigned row, so existing pending
+            # work stays put and the new row goes to the least-loaded jury.
+            pending = [r for r in assignment_rows
+                       if r.status == "pending" and r.assigned_to is None]
             pending.sort(key=lambda row: row.article_id)
-            # Reviewed assignments are fixed; balance new work against the
-            # current total so the final jury totals stay as even as possible.
+            # Count both reviewed ownership and retained pending assignments.
+            # This makes a newly added jury immediately eligible for work while
+            # preventing a new submission from moving the whole queue.
             loads = {
                 jury: sum(1 for row in assignment_rows
-                          if row.status != "pending" and row.assigned_to == jury)
+                          if row.assigned_to == jury)
                 for jury in juries
             }
             for row in pending:
