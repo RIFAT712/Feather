@@ -13,20 +13,24 @@ from pathlib import Path
 from typing import List, Optional
 from urllib.parse import quote
 
-from fastapi import FastAPI, Depends, HTTPException, Request, Response, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, Request, Response, BackgroundTasks, Query
 from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from authlib.integrations.starlette_client import OAuth
 from pydantic import BaseModel
 import httpx
+from dotenv import load_dotenv
+
+# Load local replica credentials before importing database.py, because the
+# database module creates the wiki replica engine during import.
+load_dotenv()
 
 from sqlalchemy.orm import Session, joinedload, selectinload
-from database import get_db, engine, query_wiki_replica_batch
+from sqlalchemy import exists
+from database import get_db, engine, query_wiki_replica_batch, _pre_migration_backup
 import models
-
-from dotenv import load_dotenv
-load_dotenv()
+from jury_panel_store import sync_and_get as sync_jury_panel
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -248,6 +252,15 @@ class AssignJury(BaseModel):
 class UnassignJury(BaseModel):
     contest_code: str
     wiki_username: str
+
+class JuryRestriction(BaseModel):
+    contest_code: str
+    jury_username: str
+    submitter_username: str
+
+class ContestBan(BaseModel):
+    contest_code: str
+    username: str
 
 class BulkSubmitRequest(BaseModel):
     contest_code: str
@@ -558,21 +571,30 @@ def list_contests(db: Session = Depends(get_db)):
             "articles_count": len(arts),
             "accepted_count": accepted,
             "juries_count": len(jury_list),
-            "juries": jury_list
+            "juries": jury_list,
+            "banned_count": db.query(models.ContestBannedUser).filter_by(contest_id=c.id).count()
         })
     return res
 
 @app.get("/api/contests/{code}")
 def get_contest(code: str, db: Session = Depends(get_db)):
     c = db.query(models.Contest).options(
-        selectinload(models.Contest.articles),
-        selectinload(models.Contest.juries).joinedload(models.ContestJury.user)
+        selectinload(models.Contest.juries).joinedload(models.ContestJury.user),
+        selectinload(models.Contest.jury_restrictions).joinedload(models.ContestJuryRestriction.jury_user),
+        selectinload(models.Contest.jury_restrictions).joinedload(models.ContestJuryRestriction.submitter_user)
+        ,selectinload(models.Contest.banned_users).joinedload(models.ContestBannedUser.user)
     ).filter_by(code=code).first()
     if not c:
         raise HTTPException(status_code=404, detail="Contest not found")
     jury_list = [j.user.wiki_username for j in c.juries if j.user]
-    arts = c.articles
-    accepted = sum(1 for a in arts if a.status == models.ArticleStatus.accepted)
+    article_count = db.query(models.Article).filter_by(contest_id=c.id).count()
+    accepted = db.query(models.Article).filter_by(
+        contest_id=c.id, status=models.ArticleStatus.accepted
+    ).count()
+    submitters = [name for (name,) in db.query(models.User.wiki_username)
+                  .join(models.Article, models.Article.submitter_id == models.User.id)
+                  .filter(models.Article.contest_id == c.id)
+                  .distinct().order_by(models.User.wiki_username).all()]
     return {
         "id": c.id,
         "code": c.code, 
@@ -590,10 +612,17 @@ def get_contest(code: str, db: Session = Depends(get_db)):
         "add_talk_template": getattr(c, 'add_talk_template', False),
         "talk_template_name": getattr(c, 'talk_template_name', None),
         "include_talk_header": getattr(c, 'include_talk_header', True),
-        "articles_count": len(arts),
+        "articles_count": article_count,
         "accepted_count": accepted,
         "juries_count": len(jury_list),
-        "juries": jury_list
+        "juries": jury_list,
+        "submitters": submitters,
+        "jury_restrictions": [
+            {"id": item.id, "jury_username": item.jury_user.wiki_username,
+             "submitter_username": item.submitter_user.wiki_username}
+            for item in c.jury_restrictions
+        ],
+        "banned_users": [item.user.wiki_username for item in c.banned_users if item.user]
     }
 
 @app.get("/api/admin/stats")
@@ -608,6 +637,7 @@ def get_admin_stats(_: models.User = Depends(get_owner_user), db: Session = Depe
     accepted_articles = db.query(models.Article).filter(models.Article.status == models.ArticleStatus.accepted).count()
     total_users = db.query(models.User).count()
     total_juries = db.query(models.ContestJury).count()
+    total_banned_users = db.query(models.ContestBannedUser).count()
     
     return {
         "total_contests": total_contests,
@@ -616,7 +646,32 @@ def get_admin_stats(_: models.User = Depends(get_owner_user), db: Session = Depe
         "accepted_articles": accepted_articles,
         "total_users": total_users,
         "total_juries": total_juries
+        ,"total_banned_users": total_banned_users
     }
+
+@app.get("/api/admin/backup/download")
+def download_database_backup(_: models.User = Depends(get_owner_user)):
+    """Download the current app DB (SQLite) or create a current DB dump (MariaDB)."""
+    if "mysql" in str(engine.url):
+        backup_path = _pre_migration_backup(engine)
+        if backup_path.suffix == ".sql":
+            media_type = "application/sql"
+        else:
+            media_type = "application/json"
+        return FileResponse(
+            str(backup_path), media_type=media_type,
+            filename=f"feather_database_backup{backup_path.suffix}"
+        )
+
+    database_path = Path(engine.url.database or "app.db")
+    if not database_path.is_absolute():
+        database_path = Path.cwd() / database_path
+    if not database_path.exists():
+        raise HTTPException(status_code=404, detail="Application database file not found")
+    return FileResponse(
+        str(database_path), media_type="application/x-sqlite3",
+        filename="feather_app.db"
+    )
 @app.post("/api/admin/contests")
 def create_contest(data: ContestCreate, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
     c = models.Contest(
@@ -709,8 +764,93 @@ def unassign_jury(data: UnassignJury, _: models.User = Depends(get_owner_user), 
         raise HTTPException(status_code=404, detail="User not found")
     
     db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=user.id).delete()
+    db.query(models.ContestJuryRestriction).filter_by(contest_id=contest.id, jury_user_id=user.id).delete()
     db.commit()
     return {"status": "success", "removed": data.wiki_username}
+
+@app.get("/api/admin/contests/{code}/jury-restrictions")
+def get_jury_restrictions(code: str, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    return [{"id": item.id, "jury_username": item.jury_user.wiki_username,
+             "submitter_username": item.submitter_user.wiki_username}
+            for item in contest.jury_restrictions]
+
+@app.post("/api/admin/contests/{code}/jury-restrictions")
+def add_jury_restriction(code: str, data: JuryRestriction, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest or data.contest_code != code:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    jury = db.query(models.User).filter_by(wiki_username=data.jury_username).first()
+    submitter = db.query(models.User).filter_by(wiki_username=data.submitter_username).first()
+    if not jury or not db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=jury.id).first():
+        raise HTTPException(status_code=400, detail="Jury member is not assigned to this contest")
+    if not submitter:
+        submitter = models.User(wiki_username=data.submitter_username, role=models.RoleEnum.participant)
+        db.add(submitter)
+        db.flush()
+    exists = db.query(models.ContestJuryRestriction).filter_by(
+        contest_id=contest.id, jury_user_id=jury.id, submitter_user_id=submitter.id).first()
+    if exists:
+        return {"status": "success", "id": exists.id, "already_exists": True}
+    item = models.ContestJuryRestriction(contest_id=contest.id, jury_user_id=jury.id, submitter_user_id=submitter.id)
+    db.add(item)
+    db.commit()
+    return {"status": "success", "id": item.id}
+
+@app.delete("/api/admin/contests/{code}/jury-restrictions/{restriction_id}")
+def delete_jury_restriction(code: str, restriction_id: int, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    item = db.query(models.ContestJuryRestriction).filter_by(id=restriction_id, contest_id=contest.id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Restriction not found")
+    db.delete(item)
+    db.commit()
+    return {"status": "success", "removed": restriction_id}
+
+@app.get("/api/admin/contests/{code}/banned-users")
+def get_banned_users(code: str, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    return [{"id": item.id, "username": item.user.wiki_username}
+            for item in contest.banned_users if item.user]
+
+@app.post("/api/admin/contests/{code}/banned-users")
+def ban_contest_user(code: str, data: ContestBan, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest or data.contest_code != code:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    username = data.username.strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="Username is required")
+    user = db.query(models.User).filter_by(wiki_username=username).first()
+    if not user:
+        user = models.User(wiki_username=username, role=models.RoleEnum.participant)
+        db.add(user)
+        db.flush()
+    existing = db.query(models.ContestBannedUser).filter_by(contest_id=contest.id, user_id=user.id).first()
+    if existing:
+        return {"status": "success", "id": existing.id, "already_exists": True}
+    item = models.ContestBannedUser(contest_id=contest.id, user_id=user.id)
+    db.add(item)
+    db.commit()
+    return {"status": "success", "id": item.id, "username": username}
+
+@app.delete("/api/admin/contests/{code}/banned-users/{ban_id}")
+def unban_contest_user(code: str, ban_id: int, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    item = db.query(models.ContestBannedUser).filter_by(id=ban_id, contest_id=contest.id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Ban not found")
+    db.delete(item)
+    db.commit()
+    return {"status": "success", "removed": ban_id}
 async def process_articles_batch(
     titles: List[str],
     submitter_username: str,
@@ -883,6 +1023,13 @@ async def submit_bulk(
     contest = db.query(models.Contest).filter_by(code=request.contest_code).first()
     if not contest:
         raise HTTPException(status_code=404, detail="Contest not found")
+    now = datetime.utcnow()
+    start_date = contest.start_date.replace(tzinfo=None) if contest.start_date else None
+    end_date = contest.end_date.replace(tzinfo=None) if contest.end_date else None
+    if start_date and now < start_date:
+        raise HTTPException(status_code=403, detail="This contest has not started yet. Submissions are not open.")
+    if end_date and now > end_date:
+        raise HTTPException(status_code=403, detail="This contest has ended. New article submissions are closed.")
     is_owner = current_user.role == models.RoleEnum.owner
     is_jury = db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=current_user.id).first() is not None
     is_privileged = is_owner or is_jury
@@ -1031,6 +1178,12 @@ def get_next_pending(contest_code: str, current_user: models.User = Depends(get_
     
     if not is_owner and not contest.allow_self_review:
         query = query.filter(models.Article.submitter_id != current_user.id)
+    if is_jury and not is_owner:
+        query = query.filter(~exists().where(
+            models.ContestJuryRestriction.contest_id == contest.id,
+            models.ContestJuryRestriction.jury_user_id == current_user.id,
+            models.ContestJuryRestriction.submitter_user_id == models.Article.submitter_id,
+        ))
         
     article = query.first()    
     if not article:
@@ -1133,6 +1286,86 @@ def get_contest_log(code: str, db: Session = Depends(get_db)):
         log.append(entry)
 
     return log
+
+@app.get("/api/jury-panel/contests/{code}/articles")
+def get_jury_panel_articles(code: str, view_as: Optional[str] = Query(default=None), current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """New assigned queue backed by jury_panel.db; the legacy queue is unchanged."""
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    is_owner = current_user.role == models.RoleEnum.owner
+    is_jury = db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=current_user.id).first() is not None
+    if not (is_owner or is_jury):
+        raise HTTPException(status_code=403, detail="Not authorized to view the jury panel")
+    if view_as and (not is_owner or view_as not in [j.user.wiki_username for j in contest.juries if j.user]):
+        raise HTTPException(status_code=403, detail="Owner view must target an assigned jury member")
+    return sync_jury_panel(db, contest, current_user, view_as=view_as)
+
+@app.get("/api/jury-panel/contests/{code}/articles/page")
+def get_jury_panel_articles_page(
+    code: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=250, ge=25, le=500),
+    view_as: Optional[str] = Query(default=None),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return a bounded page of assigned jury articles and queue metadata."""
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    is_owner = current_user.role == models.RoleEnum.owner
+    is_jury = db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=current_user.id).first() is not None
+    if not (is_owner or is_jury):
+        raise HTTPException(status_code=403, detail="Not authorized to view the jury panel")
+    if view_as and (not is_owner or view_as not in [j.user.wiki_username for j in contest.juries if j.user]):
+        raise HTTPException(status_code=403, detail="Owner view must target an assigned jury member")
+    return sync_jury_panel(
+        db, contest, current_user, view_as=view_as,
+        offset=(page - 1) * page_size, limit=page_size, include_meta=True,
+    ) | {"page": page, "page_size": page_size}
+
+@app.get("/api/jury-panel/contests/{code}/progress")
+def get_jury_panel_progress(code: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return assigned, judged, and remaining counts for this contest's jury members."""
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    is_owner = current_user.role == models.RoleEnum.owner
+    is_jury = db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=current_user.id).first() is not None
+    if not (is_owner or is_jury):
+        raise HTTPException(status_code=403, detail="Not authorized to view jury progress")
+
+    projected = sync_jury_panel(db, contest, current_user)
+    jury_names = [j.user.wiki_username for j in contest.juries if j.user]
+    visible_names = set(jury_names if is_owner else [current_user.wiki_username])
+    progress = []
+    for username in jury_names:
+        if username not in visible_names:
+            continue
+        assigned = [article for article in projected if article.get("assigned_to") == username]
+        judged = 0
+        accepted = 0
+        rejected = 0
+        for article in assigned:
+            own_reviews = [review for review in article.get("reviews", []) if review.get("reviewer") == username]
+            if own_reviews:
+                judged += 1
+                decision = own_reviews[-1].get("decision")
+                if decision == "accepted":
+                    accepted += 1
+                elif decision == "rejected":
+                    rejected += 1
+        progress.append({
+            "username": username,
+            "assigned": len(assigned),
+            "judged": judged,
+            "remaining": max(0, len(assigned) - judged),
+            "accepted": accepted,
+            "rejected": rejected,
+            "progress_percent": round((judged / len(assigned)) * 100) if assigned else 0,
+        })
+    return progress
 
 class ClientErrorLog(BaseModel):
     message: str
@@ -1435,36 +1668,40 @@ def get_user_profile(username: str, db: Session = Depends(get_db)):
         "judged_contests": judged
     }
 
+def _delete_articles(articles, current_user, db):
+    if not articles:
+        raise HTTPException(status_code=404, detail="No articles found")
+    for article in articles:
+        db.query(models.Review).filter_by(article_id=article.id).delete()
+        db.query(models.ArticleLock).filter_by(article_id=article.id).delete()
+        db.delete(article)
+    contest_code = articles[0].contest.code if articles[0].contest else "unknown"
+    db.add(models.SystemLog(
+        level="info",
+        source="backend",
+        message=f"User {current_user.wiki_username} removed {len(articles)} article(s) from contest '{contest_code}'.",
+        username=current_user.wiki_username
+    ))
+    db.commit()
+    return {"status": "deleted", "deleted_count": len(articles)}
+
 @app.delete("/api/articles/{article_id}")
 def delete_article(article_id: int, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     article = db.query(models.Article).filter_by(id=article_id).first()
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
-        
     is_owner = current_user.role == models.RoleEnum.owner
     is_jury = db.query(models.ContestJury).filter_by(contest_id=article.contest_id, user_id=current_user.id).first() is not None
-    
     if not (is_owner or is_jury):
         raise HTTPException(status_code=403, detail="Not authorized to delete articles in this contest")
-        
     try:
-        title_for_log = article.title
-        contest_code = article.contest.code if article.contest else "unknown"
-        db.query(models.Review).filter_by(article_id=article.id).delete()
-        db.query(models.ArticleLock).filter_by(article_id=article.id).delete()
-        db.delete(article)
-        db.add(models.SystemLog(
-            level="info",
-            source="backend",
-            message=f"User {current_user.wiki_username} removed article '{title_for_log}' from contest '{contest_code}'.",
-            username=current_user.wiki_username
-        ))
-        db.commit()
+        result = _delete_articles([article], current_user, db)
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
-        
-    return {"status": "deleted"}
+    return result
 
 @app.post("/api/articles/{article_id}/lock")
 def lock_article(article_id: int, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -1536,6 +1773,53 @@ class ReviewRequest(BaseModel):
     decision: str  # "accepted", "rejected", "skipped"
     comment: Optional[str] = None
 
+class BulkReviewRequest(BaseModel):
+    article_ids: List[int]
+    decision: str
+    comment: Optional[str] = None
+
+class BulkDeleteRequest(BaseModel):
+    article_ids: List[int]
+
+@app.post("/api/articles/bulk-review")
+def bulk_review_articles(data: BulkReviewRequest, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if data.decision not in ("accepted", "rejected", "skipped"):
+        raise HTTPException(status_code=400, detail="Invalid decision")
+    succeeded, failed = [], []
+    for article_id in list(dict.fromkeys(data.article_ids))[:500]:
+        try:
+            review_article(article_id, ReviewRequest(decision=data.decision, comment=data.comment), current_user, db)
+            succeeded.append(article_id)
+        except HTTPException as error:
+            failed.append({"article_id": article_id, "detail": error.detail})
+    return {"succeeded": succeeded, "failed": failed}
+
+@app.post("/api/articles/bulk-delete")
+def bulk_delete_articles(data: BulkDeleteRequest, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    succeeded, failed = [], []
+    candidates = []
+    for article_id in list(dict.fromkeys(data.article_ids))[:500]:
+        article = db.query(models.Article).filter_by(id=article_id).first()
+        if not article:
+            failed.append({"article_id": article_id, "detail": "Article not found"})
+            continue
+        is_owner = current_user.role == models.RoleEnum.owner
+        is_jury = db.query(models.ContestJury).filter_by(contest_id=article.contest_id, user_id=current_user.id).first() is not None
+        if not (is_owner or is_jury):
+            failed.append({"article_id": article_id, "detail": "Not authorized to delete articles in this contest"})
+            continue
+        candidates.append(article)
+    if candidates:
+        try:
+            _delete_articles(candidates, current_user, db)
+            succeeded = [article.id for article in candidates]
+        except HTTPException as error:
+            failed.extend({"article_id": article.id, "detail": error.detail} for article in candidates)
+        except Exception as error:
+            db.rollback()
+            failed.extend({"article_id": article.id, "detail": str(error)} for article in candidates)
+    return {"succeeded": succeeded, "failed": failed, "deleted_count": len(succeeded)}
+
 @app.post("/api/articles/{article_id}/review")
 def review_article(
     article_id: int,
@@ -1555,6 +1839,10 @@ def review_article(
 
     if is_jury and not is_owner and not contest.allow_self_review and article.submitter_id == current_user.id:
         raise HTTPException(status_code=403, detail="Jury members cannot review their own articles.")
+    if is_jury and not is_owner and db.query(models.ContestJuryRestriction).filter_by(
+        contest_id=contest.id, jury_user_id=current_user.id, submitter_user_id=article.submitter_id
+    ).first():
+        raise HTTPException(status_code=403, detail="This article is restricted for you due to a conflict of interest.")
 
     own_review = db.query(models.Review).filter_by(
         article_id=article_id, reviewer_id=current_user.id

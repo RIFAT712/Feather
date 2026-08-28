@@ -21,13 +21,14 @@ import {
   cdxIconUpTriangle,
 } from '@wikimedia/codex-icons';
 
-const props = defineProps(['contest']);
+const props = defineProps(['contest', 'assignedQueue']);
 const route = useRoute();
 const user = inject('user');
 
 const articles = ref([]);
 const currentArticle = ref(null);
 const comment = ref('');
+const bulkComment = ref('');
 const isLoading = ref(true);
 const isSubmitting = ref(false);
 const isLoadingPreview = ref(false);
@@ -39,19 +40,38 @@ const reviewPanelCollapsed = ref(false);
 const showNewArticles = ref(true);
 const showJudgedArticles = ref(false);
 const showOtherReviewed = ref(false);
+const theme = ref(localStorage.getItem('review_queue_theme') || 'light');
+const ownerViewMode = ref('judge');
+const selectedJudge = ref(props.contest?.juries?.[0] || '');
+
+const toggleTheme = () => {
+  theme.value = theme.value === 'dark' ? 'light' : 'dark';
+  localStorage.setItem('review_queue_theme', theme.value);
+};
+
+const ownerVisibleArticles = (items) => {
+  if (!props.assignedQueue || !roles.value.is_owner || ownerViewMode.value === 'owner') return items;
+  return items.filter(article => article.assigned_to === selectedJudge.value);
+};
 
 const roles = ref({ is_jury: false, is_owner: false });
 const isAuthorized = computed(() => roles.value.is_jury || roles.value.is_owner);
 
 const selectedForBulk = ref([]);
+const sidebarVisibleCounts = ref({ pending: 100, other: 100, judged: 100 });
+const assignedPage = ref(1);
+const assignedHasMore = ref(false);
+const assignedStatusStats = ref(null);
 const permanentlyLockedArticleIds = new Set();
+let articleFetchController = null;
+let roleLoaded = false;
 
 const WIKI_BASE = 'https://bn.wiktionary.org/wiki/';
 const DARK_CSS = `
   :root { color-scheme: dark; }
   html, body {
-    background: #0a0a0a !important;
-    color: #e2e8f0 !important;
+    background: oklch(0.1 0.01 264) !important;
+    color: oklch(0.96 0.02 264) !important;
     font-family: 'Linux Libertine', Georgia, Times, serif;
     font-size: 15px;
     line-height: 1.6;
@@ -74,27 +94,27 @@ const DARK_CSS = `
   * { background-color: unset !important; }
 
   /* tables */
-  table { border-collapse: collapse; background: #1f1f1f !important; color: #e2e8f0 !important; }
-  th, td { border: 1px solid rgba(255,255,255,0.12) !important; padding: 6px 10px; color: #e2e8f0 !important; }
-  th { background: rgba(255,255,255,0.07) !important; }
-  tr:nth-child(even) td { background: rgba(255,255,255,0.03) !important; }
+  table { border-collapse: collapse; background: oklch(0.15 0.01 264) !important; color: oklch(0.96 0.02 264) !important; }
+  th, td { border: 1px solid oklch(0.4 0.02 264) !important; padding: 6px 10px; color: oklch(0.96 0.02 264) !important; }
+  th { background: oklch(0.2 0.01 264) !important; }
+  tr:nth-child(even) td { background: oklch(0.18 0.01 264) !important; }
 
   /* wikitable */
-  .wikitable { background: #1f1f1f !important; border: 1px solid rgba(255,255,255,0.15) !important; }
-  .wikitable > * > tr > th { background: rgba(255,255,255,0.1) !important; color: #e5e7eb !important; }
+  .wikitable { background: oklch(0.15 0.01 264) !important; border: 1px solid oklch(0.4 0.02 264) !important; }
+  .wikitable > * > tr > th { background: oklch(0.2 0.01 264) !important; color: oklch(0.96 0.02 264) !important; }
   .wikitable > * > tr > td { background: transparent !important; }
 
   /* NavFrame */
   .NavFrame {
-    border: 1px solid rgba(255,255,255,0.15) !important;
+    border: 1px solid oklch(0.4 0.02 264) !important;
     border-radius: 6px;
-    background: #1f1f1f !important;
+    background: oklch(0.2 0.01 264) !important;
     margin: 12px 0;
     overflow: hidden;
   }
   .NavHead {
-    background: rgba(255,255,255,0.1) !important;
-    color: #e5e7eb !important;
+    background: oklch(0.25 0.02 264) !important;
+    color: oklch(0.96 0.02 264) !important;
     padding: 6px 10px !important;
     cursor: pointer !important;
     font-weight: 600;
@@ -102,25 +122,25 @@ const DARK_CSS = `
     display: flex;
     align-items: center;
     gap: 8px;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
+    border-bottom: 1px solid oklch(0.4 0.02 264);
   }
-  .NavHead:hover { background: rgba(255,255,255,0.1) !important; }
-  .NavToggle { color: #e5e7eb !important; font-size: 0.85em; }
-  .NavContent { background: #111111 !important; }
-  .NavContent td, .NavContent th { border-color: rgba(255,255,255,0.09) !important; }
+  .NavHead:hover { background: oklch(0.3 0.02 264) !important; }
+  .NavToggle { color: oklch(0.96 0.02 264) !important; font-size: 0.85em; }
+  .NavContent { background: oklch(0.15 0.01 264) !important; }
+  .NavContent td, .NavContent th { border-color: oklch(0.3 0.02 264) !important; }
 
   /* vsToggle */
-  .vsToggleElement[style*='background'] { background: rgba(255,255,255,0.1) !important; color: #e5e7eb !important; }
-  th[class~='vsToggleElement'] { background: rgba(255,255,255,0.1) !important; color: #e5e7eb !important; cursor: pointer !important; }
+  .vsToggleElement[style*='background'] { background: oklch(0.25 0.02 264) !important; color: oklch(0.96 0.02 264) !important; }
+  th[class~='vsToggleElement'] { background: oklch(0.25 0.02 264) !important; color: oklch(0.96 0.02 264) !important; cursor: pointer !important; }
 
   /* mw-collapsible */
-  .mw-collapsible-toggle { cursor: pointer; color: #d1d5db !important; }
+  .mw-collapsible-toggle { cursor: pointer; color: oklch(0.76 0.02 264) !important; }
   .mw-collapsed .mw-collapsible-content { display: none !important; }
 
   /* headings */
   h1, h2, h3, h4, h5 {
-    color: #e2e8f0 !important;
-    border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+    color: oklch(0.96 0.02 264) !important;
+    border-bottom: 1px solid oklch(0.4 0.02 264) !important;
     padding-bottom: 4px;
   }
   h2 { font-size: 1.4em; margin-top: 1.4em; }
@@ -128,32 +148,32 @@ const DARK_CSS = `
   h4 { font-size: 1em; border-bottom: none !important; }
 
   /* TOC */
-  #toc, .toc { background: #1f1f1f !important; border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 6px; padding: 12px 18px; }
-  .toctitle { color: #e5e7eb !important; }
+  #toc, .toc { background: oklch(0.2 0.01 264) !important; border: 1px solid oklch(0.4 0.02 264) !important; border-radius: 6px; padding: 12px 18px; }
+  .toctitle { color: oklch(0.96 0.02 264) !important; }
 
   /* hide edit links */
   .mw-editsection, .mw-editsection-bracket { display: none !important; }
 
   /* infobox */
-  .infobox { background: #1f1f1f !important; border: 1px solid rgba(255,255,255,0.12) !important; }
-  .infobox th { background: rgba(255,255,255,0.07) !important; }
+  .infobox { background: oklch(0.2 0.01 264) !important; border: 1px solid oklch(0.4 0.02 264) !important; }
+  .infobox th { background: oklch(0.25 0.02 264) !important; }
 
   /* references */
   .reflist, ol.references { color: #94a3b8 !important; font-size: 0.85em; }
 
   /* categories */
-  .catlinks { background: #1f1f1f !important; border: 1px solid rgba(255,255,255,0.1) !important; color: #94a3b8 !important; margin-top: 24px; padding: 8px 14px; border-radius: 6px; }
+  .catlinks { background: oklch(0.2 0.01 264) !important; border: 1px solid oklch(0.4 0.02 264) !important; color: oklch(0.76 0.02 264) !important; margin-top: 24px; padding: 8px 14px; border-radius: 6px; }
 
   /* hatnote/notices */
-  .hatnote, .dablink { background: rgba(255,255,255,0.04) !important; border-left: 3px solid #ffffff !important; padding: 6px 12px; color: #94a3b8 !important; }
+  .hatnote, .dablink { background: #1d3550 !important; border-left: 3px solid #4f9cf7 !important; padding: 6px 12px; color: #9eb6cc !important; }
 
   /* ib-header / inflection tables with inline styles */
   [style*='background:#'], [style*='background: #'], [style*='background:rgb'], [style*='background: rgb'] {
     background: rgba(80,80,120,0.25) !important;
-    color: #e2e8f0 !important;
+    color: oklch(0.96 0.02 264) !important;
   }
   /* keep text-align / font-weight from inline styles but neutralise colour */
-  [style*='color:rgb'], [style*='color: rgb'] { color: #e2e8f0 !important; }
+  [style*='color:rgb'], [style*='color: rgb'] { color: oklch(0.96 0.02 264) !important; }
 `;
 const COLLAPSIBLE_JS = `
   (function() {
@@ -268,21 +288,55 @@ const COLLAPSIBLE_JS = `
   })();
 `;
 
+const LIGHT_CSS = `
+  :root { color-scheme: light; }
+  html, body {
+    background: #f5f8fb !important;
+    color: #20364d !important;
+    font-family: 'Linux Libertine', Georgia, Times, serif;
+    font-size: 15px;
+    line-height: 1.6;
+    margin: 0;
+    padding: 20px 24px 64px;
+    max-width: 860px;
+  }
+  a { color: #1769aa !important; }
+  a:visited { color: #7253a8 !important; }
+  a.new, a.new:visited { color: #b42332 !important; }
+  a:hover { text-decoration: underline; }
+  * { background-color: unset !important; }
+  table, .wikitable { border-collapse: collapse; background: #ffffff !important; color: #20364d !important; }
+  th, td { border: 1px solid #c7d6e3 !important; padding: 6px 10px; color: #20364d !important; }
+  th { background: #e7f0f7 !important; }
+  tr:nth-child(even) td { background: #f4f8fb !important; }
+  .NavFrame { border: 1px solid #c7d6e3 !important; border-radius: 6px; background: #ffffff !important; margin: 12px 0; overflow: hidden; }
+  .NavHead { background: #e7f0f7 !important; color: #20364d !important; padding: 6px 10px !important; cursor: pointer !important; font-weight: 600; }
+  .NavContent { background: #ffffff !important; }
+  .vsToggleElement[style*='background'], th[class~='vsToggleElement'] { background: #e7f0f7 !important; color: #20364d !important; }
+  .mw-collapsible-toggle { cursor: pointer; color: #47637c !important; }
+  h1, h2, h3, h4, h5 { color: #20364d !important; border-bottom: 1px solid #c7d6e3 !important; padding-bottom: 4px; }
+  #toc, .toc, .infobox { background: #ffffff !important; border: 1px solid #c7d6e3 !important; border-radius: 6px; }
+  .mw-editsection, .mw-editsection-bracket { display: none !important; }
+`;
+
 const previewSrcdoc = ref('');
+let previewRequestId = 0;
 
 const fetchPreview = async (title) => {
+  const requestId = ++previewRequestId;
   isLoadingPreview.value = true;
   previewSrcdoc.value = '';
   try {
     const res = await fetch(`https://bn.wiktionary.org/w/api.php?action=parse&page=${encodeURIComponent(title)}&format=json&prop=text&origin=*`);
     const data = await res.json();
     const body = data.parse?.text?.['*'] ?? '<p style="color:#94a3b8">Preview not available.</p>';
+    if (requestId !== previewRequestId) return;
     previewSrcdoc.value = `<!DOCTYPE html>
 <html lang="bn">
 <head>
 <meta charset="utf-8">
 <base href="https://bn.wiktionary.org/wiki/">
-<style>${DARK_CSS}</style>
+<style>${theme.value === 'light' ? LIGHT_CSS : DARK_CSS}</style>
 </head>
 <body class="mw-body mw-parser-output">
 ${body}
@@ -291,33 +345,67 @@ ${body}
 </html>`;
   } catch (e) {
     console.error(e);
-    previewSrcdoc.value = `<!DOCTYPE html><html><body style="color:#d1d5db;background:#0a0a0a;padding:24px">Error loading preview.</body></html>`;
+    const errorTheme = theme.value === 'light'
+      ? 'color:#20364d;background:#f5f8fb'
+      : 'color:oklch(0.96 0.02 264);background:oklch(0.1 0.01 264)';
+    if (requestId === previewRequestId) previewSrcdoc.value = `<!DOCTYPE html><html><body style="${errorTheme};padding:24px">Error loading preview.</body></html>`;
   } finally {
-    isLoadingPreview.value = false;
+    if (requestId === previewRequestId) isLoadingPreview.value = false;
   }
 };
 
-const fetchArticles = async (showLoading = true) => {
+watch(theme, () => {
+  if (currentArticle.value?.title) fetchPreview(currentArticle.value.title);
+});
+
+const fetchArticles = async (showLoading = true, append = false) => {
   if (showLoading) isLoading.value = true;
+  articleFetchController?.abort();
+  articleFetchController = new AbortController();
+  const { signal } = articleFetchController;
   try {
-    const roleRes = await fetch(`/api/contests/${route.params.code}/my-role`);
-    if (roleRes.ok) roles.value = await roleRes.json();
+    if (!roleLoaded) {
+      const roleRes = await fetch(`/api/contests/${route.params.code}/my-role`, { signal });
+      if (roleRes.ok) roles.value = await roleRes.json();
+      roleLoaded = true;
+    }
 
     if (!isAuthorized.value) {
       isLoading.value = false;
       return;
     }
 
-    const response = await fetch(`/api/contests/${route.params.code}/log`);
+    const ownerQuery = props.assignedQueue && roles.value.is_owner && ownerViewMode.value === 'judge' && selectedJudge.value
+      ? `?view_as=${encodeURIComponent(selectedJudge.value)}` : '';
+    const articleEndpoint = props.assignedQueue
+      ? `/api/jury-panel/contests/${route.params.code}/articles/page?page=${append ? assignedPage.value + 1 : 1}&page_size=250${ownerQuery ? `&view_as=${encodeURIComponent(selectedJudge.value)}` : ''}`
+      : `/api/contests/${route.params.code}/log`;
+    const response = await fetch(articleEndpoint, { signal });
     if (response.ok) {
-      articles.value = await response.json();
+      const payload = await response.json();
+      if (props.assignedQueue) {
+        const pageItems = ownerVisibleArticles(payload.items || []);
+        assignedPage.value = payload.page || (append ? assignedPage.value + 1 : 1);
+        assignedHasMore.value = Boolean(payload.has_more);
+        assignedStatusStats.value = payload.status_counts
+          ? { total: payload.total, ...payload.status_counts }
+          : null;
+        articles.value = append ? [...articles.value, ...pageItems] : pageItems;
+      } else {
+        articles.value = ownerVisibleArticles(payload);
+      }
     }
   } catch (error) {
+    if (error.name === 'AbortError') return;
     console.error("Failed to fetch articles", error);
   } finally {
-    isLoading.value = false;
+    if (!signal.aborted) isLoading.value = false;
   }
 };
+
+watch([ownerViewMode, selectedJudge], () => {
+  if (props.assignedQueue && roles.value.is_owner) fetchArticles(false);
+});
 
 const myUsername = computed(() => user.value?.wiki_username);
 
@@ -335,11 +423,12 @@ const availableNewArticles = computed(() => {
 });
 
 const statusStats = computed(() => ({
-  total: articles.value.length,
-  accepted: articles.value.filter(a => a.status === 'accepted').length,
-  rejected: articles.value.filter(a => a.status === 'rejected').length,
-  pending: articles.value.filter(a => a.status === 'pending').length,
+  total: assignedStatusStats.value?.total ?? articles.value.length,
+  accepted: assignedStatusStats.value?.accepted ?? articles.value.filter(a => a.status === 'accepted').length,
+  rejected: assignedStatusStats.value?.rejected ?? articles.value.filter(a => a.status === 'rejected').length,
+  pending: assignedStatusStats.value?.pending ?? articles.value.filter(a => a.status === 'pending').length,
 }));
+const hasMoreAssignedArticles = computed(() => props.assignedQueue && assignedHasMore.value);
 
 const releaseArticleLock = (articleId) => {
   if (!articleId || permanentlyLockedArticleIds.has(articleId)) return;
@@ -352,13 +441,26 @@ const judgedArticles = computed(() => {
 });
 
 const otherReviewedArticles = computed(() => {
-  if (!myUsername.value) return [];
+  if (!myUsername.value || !roles.value.is_owner) return [];
   return articles.value.filter(a =>
     a.status !== 'pending' &&
     a.reviews.length > 0 &&
     !a.reviews.some(r => r.reviewer === myUsername.value)
   );
 });
+
+const visibleSidebarArticles = (section, list) => list.slice(0, sidebarVisibleCounts.value[section] || 100);
+const hasMoreSidebarArticles = (section, list) => visibleSidebarArticles(section, list).length < list.length;
+const loadMoreSidebarArticles = (section, list) => {
+  sidebarVisibleCounts.value = {
+    ...sidebarVisibleCounts.value,
+    [section]: Math.min((sidebarVisibleCounts.value[section] || 100) + 100, list.length),
+  };
+};
+
+const loadMoreAssignedArticles = () => {
+  if (assignedHasMore.value && !isLoading.value) fetchArticles(false, true);
+};
 
 const getMyLatestDecision = (article) => {
   const myReviews = article.reviews.filter(r => r.reviewer === myUsername.value);
@@ -420,6 +522,7 @@ watch(mobileTab, (tab) => {
 });
 
 onBeforeUnmount(() => {
+  articleFetchController?.abort();
   clearInterval(statsInterval);
   releaseArticleLock(currentArticle.value?.article_id);
 });
@@ -428,29 +531,41 @@ const handleDecision = async (decision) => {
   if (!currentArticle.value || isSubmitting.value) return;
   isSubmitting.value = true;
   reviewError.value = '';
+  const reviewedArticleId = currentArticle.value.article_id;
+  const reviewComment = comment.value;
   try {
-    const res = await fetch(`/api/articles/${currentArticle.value.article_id}/review`, {
+    const res = await fetch(`/api/articles/${reviewedArticleId}/review`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ decision, comment: comment.value }),
+      body: JSON.stringify({ decision, comment: reviewComment }),
     });
     if (!res.ok) {
       const errorBody = await res.json().catch(() => ({}));
       throw new Error(errorBody.detail || `Review failed (${res.status})`);
     }
-    if (decision === 'accepted' || decision === 'rejected') {
-      permanentlyLockedArticleIds.add(currentArticle.value.article_id);
-    }
+    if (decision === 'accepted' || decision === 'rejected') permanentlyLockedArticleIds.add(reviewedArticleId);
     comment.value = '';
-    await fetchArticles();
-    if (availableNewArticles.value.length > 0) {
-      selectArticle(availableNewArticles.value[0]);
-    } else if (newArticles.value.length > 0) {
-      selectArticle(newArticles.value[0]);
+
+    // Update the local queue immediately so reviewing feels instantaneous.
+    const optimisticReview = {
+      reviewer: myUsername.value,
+      decision,
+      comment: reviewComment,
+      reviewed_at: new Date().toISOString(),
+    };
+    articles.value = articles.value.map(article => article.article_id === reviewedArticleId
+      ? { ...article, status: decision, reviews: [...(article.reviews || []), optimisticReview] }
+      : article);
+    const nextArticle = availableNewArticles.value[0];
+    if (nextArticle) {
+      selectArticle(nextArticle);
     } else {
-      currentArticle.value = articles.value.find(a => a.article_id === currentArticle.value.article_id);
+      currentArticle.value = null;
       mobileTab.value = 'list';
     }
+
+    // Reconcile with the server without blocking the interaction.
+    fetchArticles(false).catch(error => console.warn('Background queue refresh failed', error));
   } catch (error) {
     console.error("Error submitting review", error);
     reviewError.value = error.message || 'Review failed';
@@ -461,7 +576,7 @@ const handleDecision = async (decision) => {
 
 const handleRemoveArticle = async (article) => {
   if (!article || isSubmitting.value) return;
-  if (!confirm(`Remove "${article.title}" permanently from this contest?`)) return;
+  if (!confirm(`Remove "${article.title}" from this contest?`)) return;
   isSubmitting.value = true;
   try {
     const res = await fetch(`/api/articles/${article.article_id}`, {
@@ -473,7 +588,7 @@ const handleRemoveArticle = async (article) => {
       currentArticle.value = null;
       mobileTab.value = 'list';
     }
-    await fetchArticles();
+    await fetchArticles(false);
   } catch (error) {
     console.error("Error removing article", error);
   } finally {
@@ -492,30 +607,39 @@ const toggleBulkSelection = (article_id, e) => {
   } else {
     selectedForBulk.value.push(article_id);
   }
+  if (selectedForBulk.value.length < 2) bulkComment.value = '';
 };
 
 const handleBulkDecision = async (decision) => {
   if (isSubmitting.value || !selectedForBulk.value.length) return;
   isSubmitting.value = true;
   const errors = [];
-  const bulkComment = comment.value || 'Bulk reviewed';
+  const selectedIds = [...selectedForBulk.value];
+  const currentWasSelected = selectedIds.includes(currentArticle.value?.article_id);
+  const reviewComment = bulkComment.value.trim() || 'Bulk reviewed';
   try {
-    for (const article_id of selectedForBulk.value) {
-      const res = await fetch(`/api/articles/${article_id}/review`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ decision, comment: bulkComment }),
-      });
-      if (!res.ok) {
-        errors.push(article_id);
-      } else if (decision === 'accepted' || decision === 'rejected') {
-        permanentlyLockedArticleIds.add(article_id);
-      }
+    const res = await fetch('/api/articles/bulk-review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ article_ids: selectedIds, decision, comment: reviewComment }),
+    });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(result.detail || 'Bulk review failed');
+    for (const article_id of result.succeeded || []) {
+      if (decision === 'accepted' || decision === 'rejected') permanentlyLockedArticleIds.add(article_id);
     }
+    errors.push(...(result.failed || []).map(item => item.article_id));
     selectedForBulk.value = [];
-    comment.value = '';
-    await fetchArticles();
-    if (!currentArticle.value || !availableNewArticles.value.find(a => a.article_id === currentArticle.value.article_id)) {
+    bulkComment.value = '';
+    const currentWasSuccessfullyReviewed = currentWasSelected && !errors.includes(currentArticle.value?.article_id);
+    if (currentWasSuccessfullyReviewed) {
+      currentArticle.value = null;
+      previewRequestId++;
+      previewSrcdoc.value = '';
+      isLoadingPreview.value = false;
+    }
+    await fetchArticles(false);
+    if (currentWasSuccessfullyReviewed || !currentArticle.value || !availableNewArticles.value.find(a => a.article_id === currentArticle.value.article_id)) {
       if (availableNewArticles.value.length > 0) {
         selectArticle(availableNewArticles.value[0]);
       } else {
@@ -535,15 +659,23 @@ const handleBulkDecision = async (decision) => {
 
 const handleBulkRemove = async () => {
   if (isSubmitting.value || !selectedForBulk.value.length) return;
-  if (!confirm(`Are you sure you want to permanently remove ${selectedForBulk.value.length} article(s) from the contest?`)) return;
+  if (!confirm(`Remove ${selectedForBulk.value.length} article(s) from the contest?`)) return;
   isSubmitting.value = true;
   try {
-    for (const article_id of selectedForBulk.value) {
-      await fetch(`/api/articles/${article_id}`, { method: 'DELETE' });
-    }
+    const selectedIds = [...selectedForBulk.value];
+    const res = await fetch('/api/articles/bulk-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ article_ids: selectedIds }),
+    });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(result.detail || 'Bulk remove failed');
     selectedForBulk.value = [];
+    bulkComment.value = '';
     currentArticle.value = null;
-    await fetchArticles();
+    // Reconcile silently; bulk deletion must not replace the workspace with
+    // the full-screen initial loading state.
+    await fetchArticles(false);
     mobileTab.value = 'list';
   } catch (err) {
     console.error("Bulk remove failed", err);
@@ -581,7 +713,7 @@ const copyTalkSnippet = () => {
 </script>
 
 <template>
-  <div class="rq-app">
+  <div class="rq-app" :class="`rq-theme-${theme}`">
     <div v-if="!isLoading && !isAuthorized" class="rq-center-state">
       <div class="rq-card-unauth">
         <div class="rq-icon-large">⛔</div>
@@ -605,11 +737,27 @@ const copyTalkSnippet = () => {
               <span class="rq-eyebrow-text">Jury Workspace</span>
               <span class="rq-badge-live">Live</span>
             </div>
-            <button class="rq-icon-btn rq-desktop-only" @click="sidebarCollapsed = true" title="Collapse Sidebar">
-              <CdxIcon :icon="cdxIconCollapse" />
-            </button>
+            <div class="rq-header-actions">
+              <button class="rq-theme-btn" type="button" @click="toggleTheme" :aria-label="theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'">
+                <span aria-hidden="true">{{ theme === 'dark' ? '☀' : '◐' }}</span>
+                {{ theme === 'dark' ? 'Light' : 'Dark' }}
+              </button>
+              <button class="rq-icon-btn rq-desktop-only" @click="sidebarCollapsed = true" title="Collapse Sidebar">
+                <CdxIcon :icon="cdxIconCollapse" />
+              </button>
+            </div>
           </div>
           <h2 class="rq-panel-title">Review Queue</h2>
+          <div v-if="props.assignedQueue && roles.is_owner" class="rq-owner-switcher">
+            <span class="rq-owner-switcher-label">View as</span>
+            <div class="rq-owner-mode-buttons">
+              <button type="button" :class="{ 'is-active': ownerViewMode === 'judge' }" @click="ownerViewMode = 'judge'">Judge</button>
+              <button type="button" :class="{ 'is-active': ownerViewMode === 'owner' }" @click="ownerViewMode = 'owner'">Owner</button>
+            </div>
+            <select v-if="ownerViewMode === 'judge'" v-model="selectedJudge" class="rq-owner-judge-select" aria-label="Choose jury member">
+              <option v-for="jury in (props.contest?.juries || [])" :key="jury" :value="jury">{{ jury }}</option>
+            </select>
+          </div>
           
           <div class="rq-stats-strip">
             <div class="rq-stat"><span class="rq-stat-val">{{ statusStats.total }}</span><span class="rq-stat-lbl">Total</span></div>
@@ -623,12 +771,24 @@ const copyTalkSnippet = () => {
           <div v-if="selectedForBulk.length > 0" class="rq-bulk-banner">
             <span class="rq-bulk-count">{{ selectedForBulk.length }} selected</span>
             <div class="rq-bulk-actions">
-              <button class="rq-bbtn rq-bbtn-accept" @click="handleBulkDecision('accepted')" title="Accept"><CdxIcon :icon="cdxIconCheck" /></button>
-              <button class="rq-bbtn rq-bbtn-reject" @click="handleBulkDecision('rejected')" title="Reject"><CdxIcon :icon="cdxIconClear" /></button>
-              <button class="rq-bbtn rq-bbtn-remove" @click="handleBulkRemove" title="Remove"><CdxIcon :icon="cdxIconTrash" /></button>
+              <button type="button" class="rq-bbtn rq-bbtn-accept" @click.prevent="handleBulkDecision('accepted')" title="Accept"><CdxIcon :icon="cdxIconCheck" /></button>
+              <button type="button" class="rq-bbtn rq-bbtn-reject" @click.prevent="handleBulkDecision('rejected')" title="Reject"><CdxIcon :icon="cdxIconClear" /></button>
+              <button type="button" class="rq-bbtn rq-bbtn-remove" @click.prevent="handleBulkRemove" title="Remove"><CdxIcon :icon="cdxIconTrash" /></button>
             </div>
           </div>
         </transition>
+        <div v-if="selectedForBulk.length > 1" class="rq-bulk-comment-panel">
+          <div class="rq-bulk-comment-heading">
+            <span>Bulk review comment</span>
+            <span class="rq-bulk-comment-hint">Added to all {{ selectedForBulk.length }} selected articles</span>
+          </div>
+          <textarea
+            v-model="bulkComment"
+            class="rq-input rq-bulk-comment-input"
+            rows="2"
+            placeholder="Add comment"
+          ></textarea>
+        </div>
 
         <div class="rq-panel-scroll">
           <div class="rq-group">
@@ -636,16 +796,15 @@ const copyTalkSnippet = () => {
               <div class="rq-group-header-left">
                 <span class="rq-dot rq-dot-pending"></span>
                 <span class="rq-group-title">Pending Review</span>
-                <span class="rq-group-count">{{ newArticles.length }}</span>
               </div>
-              <CdxIcon :icon="showNewArticles ? cdxIconUpTriangle : cdxIconDownTriangle" class="rq-group-chevron" :class="{ 'is-reversed': !showNewArticles }" />
+              <CdxIcon :icon="cdxIconDownTriangle" class="rq-group-chevron" :class="{ 'is-open': showNewArticles }" />
             </button>
             
-            <div class="rq-group-content" :class="{ 'is-open': showNewArticles }">
+            <div v-if="showNewArticles" class="rq-group-content is-open">
               <div class="rq-group-inner">
                 <ul class="rq-list">
                   <li
-                    v-for="a in newArticles"
+                    v-for="a in visibleSidebarArticles('pending', newArticles)"
                     :key="a.article_id"
                     class="rq-list-item rq-item-pending"
                     :class="{ 'is-active': currentArticle?.article_id === a.article_id, 'is-locked': a.locked_by && a.locked_by !== myUsername }"
@@ -664,6 +823,12 @@ const copyTalkSnippet = () => {
                     <CdxIcon :icon="cdxIconArticleCheck" class="rq-empty-icon" />
                     <span>All caught up!</span>
                   </li>
+                  <li v-if="hasMoreSidebarArticles('pending', newArticles)" class="rq-load-more-wrap">
+                    <button type="button" class="rq-load-more" @click="loadMoreSidebarArticles('pending', newArticles)">Show 100 more</button>
+                  </li>
+                  <li v-if="!hasMoreSidebarArticles('pending', newArticles) && hasMoreAssignedArticles" class="rq-load-more-wrap">
+                    <button type="button" class="rq-load-more" @click="loadMoreAssignedArticles">Load next 250 articles from server</button>
+                  </li>
                 </ul>
               </div>
             </div>
@@ -676,13 +841,13 @@ const copyTalkSnippet = () => {
                 <span class="rq-group-title">Other Judges</span>
                 <span class="rq-group-count">{{ otherReviewedArticles.length }}</span>
               </div>
-              <CdxIcon :icon="showOtherReviewed ? cdxIconUpTriangle : cdxIconDownTriangle" class="rq-group-chevron" :class="{ 'is-reversed': !showOtherReviewed }" />
+              <CdxIcon :icon="cdxIconDownTriangle" class="rq-group-chevron" :class="{ 'is-open': showOtherReviewed }" />
             </button>
-            <div class="rq-group-content" :class="{ 'is-open': showOtherReviewed }">
+            <div v-if="showOtherReviewed" class="rq-group-content is-open">
               <div class="rq-group-inner">
                 <ul class="rq-list">
                   <li
-                    v-for="a in otherReviewedArticles"
+                    v-for="a in visibleSidebarArticles('other', otherReviewedArticles)"
                     :key="`other-${a.article_id}`"
                     class="rq-list-item rq-item-readonly"
                   >
@@ -690,6 +855,9 @@ const copyTalkSnippet = () => {
                       <span class="rq-item-title">{{ a.title }}</span>
                       <span class="rq-item-meta">{{ a.reviews.map(r => r.reviewer).join(', ') }}</span>
                     </div>
+                  </li>
+                  <li v-if="hasMoreSidebarArticles('other', otherReviewedArticles)" class="rq-load-more-wrap">
+                    <button class="rq-load-more" @click="loadMoreSidebarArticles('other', otherReviewedArticles)">Load 100 more</button>
                   </li>
                 </ul>
               </div>
@@ -703,14 +871,14 @@ const copyTalkSnippet = () => {
                 <span class="rq-group-title">My Judged</span>
                 <span class="rq-group-count">{{ judgedArticles.length }}</span>
               </div>
-              <CdxIcon :icon="showJudgedArticles ? cdxIconUpTriangle : cdxIconDownTriangle" class="rq-group-chevron" :class="{ 'is-reversed': !showJudgedArticles }" />
+              <CdxIcon :icon="cdxIconDownTriangle" class="rq-group-chevron" :class="{ 'is-open': showJudgedArticles }" />
             </button>
             
-            <div class="rq-group-content" :class="{ 'is-open': showJudgedArticles }">
+            <div v-if="showJudgedArticles" class="rq-group-content is-open">
               <div class="rq-group-inner">
                 <ul class="rq-list">
                   <li
-                    v-for="a in judgedArticles"
+                    v-for="a in visibleSidebarArticles('judged', judgedArticles)"
                     :key="a.article_id"
                     class="rq-list-item"
                     :class="['rq-item-' + getMyLatestDecision(a), { 'is-active': currentArticle?.article_id === a.article_id }]"
@@ -723,6 +891,9 @@ const copyTalkSnippet = () => {
                   </li>
                   <li v-if="!judgedArticles.length" class="rq-list-empty">
                     <span>Nothing judged yet</span>
+                  </li>
+                  <li v-if="hasMoreSidebarArticles('judged', judgedArticles)" class="rq-load-more-wrap">
+                    <button class="rq-load-more" @click="loadMoreSidebarArticles('judged', judgedArticles)">Load 100 more</button>
                   </li>
                 </ul>
               </div>
@@ -811,10 +982,10 @@ const copyTalkSnippet = () => {
                 
                 <div class="rq-actions-wrapper">
                   <div class="rq-primary-actions">
-                    <button class="rq-btn rq-btn-accept" :disabled="isSubmitting" @click="handleDecision('accepted')">
+                    <button type="button" class="rq-btn rq-btn-accept" :disabled="isSubmitting" @click.prevent="handleDecision('accepted')">
                       <CdxIcon :icon="cdxIconCheck" /> <span>Accept</span>
                     </button>
-                    <button class="rq-btn rq-btn-reject" :disabled="isSubmitting" @click="handleDecision('rejected')">
+                    <button type="button" class="rq-btn rq-btn-reject" :disabled="isSubmitting" @click.prevent="handleDecision('rejected')">
                       <CdxIcon :icon="cdxIconClear" /> <span>Reject</span>
                     </button>
                   </div>
@@ -824,7 +995,7 @@ const copyTalkSnippet = () => {
                       <CdxIcon :icon="cdxIconNext" /> <span class="rq-desktop-only">Skip</span>
                     </button>
                     <button class="rq-btn-ghost rq-btn-remove" :disabled="isSubmitting" @click="handleRemove">
-                      <CdxIcon :icon="cdxIconTrash" /> <span class="rq-desktop-only">Remove</span>
+                      <CdxIcon :icon="cdxIconTrash" /> <span class="rq-desktop-only">Delete</span>
                     </button>
                   </div>
                 </div>
@@ -850,403 +1021,4 @@ const copyTalkSnippet = () => {
   </div>
 </template>
 
-<style scoped>
-:root {
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  
-  /* Solid colors - removed transparency */
-  --rq-bg: #09090b; /* Zinc 950 */
-  --rq-surface: #18181b; /* Zinc 900 */
-  --rq-surface-hover: #27272a; /* Zinc 800 */
-  --rq-border: #27272a; /* Solid Zinc 800 */
-  --rq-border-light: #3f3f46; /* Solid Zinc 700 */
-  
-  --rq-text: #fafafa;
-  --rq-text-muted: #a1a1aa;
-  
-  --rq-accent: #6366f1;
-  --rq-accent-hover: #818cf8;
-  --rq-accent-bg: #1e1b4b; /* Solid deep indigo */
-  
-  --rq-success: #10b981;
-  --rq-success-dark: #059669;
-  --rq-danger: #ef4444;
-  --rq-danger-dark: #dc2626;
-  --rq-warning: #f59e0b;
-  
-  --rq-font: 'Inter', system-ui, -apple-system, sans-serif;
-}
-
-* { box-sizing: border-box; }
-
-.rq-app {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  height: 100dvh;
-  background: var(--rq-bg);
-  font-family: var(--rq-font);
-  color: var(--rq-text);
-  overflow: hidden;
-}
-
-.rq-app *::-webkit-scrollbar { width: 6px; height: 6px; }
-.rq-app *::-webkit-scrollbar-track { background: transparent; }
-.rq-app *::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
-.rq-app *::-webkit-scrollbar-thumb:hover { background: #52525b; }
-
-button, input, textarea { font-family: inherit; }
-button { cursor: pointer; }
-
-.rq-center-state {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  flex: 1; padding: 40px 24px; gap: 12px; color: var(--rq-text-muted);
-}
-.rq-center-full { height: 100%; }
-
-.rq-card-unauth, .rq-card-done {
-  text-align: center; background: var(--rq-surface); border: 1px solid var(--rq-border);
-  border-radius: 8px; padding: 48px; max-width: 400px;
-  box-shadow: 0 12px 32px rgba(0,0,0,0.5);
-}
-.rq-icon-large, .rq-done-icon { font-size: 3rem; margin-bottom: 16px; }
-.rq-done-icon { color: var(--rq-success); }
-.rq-card-done h3 { color: var(--rq-text); margin: 0 0 8px; font-size: 1.4rem; font-weight: 600; }
-.rq-card-done p { margin: 0; font-size: 0.85rem; line-height: 1.6; }
-
-.rq-spinner {
-  width: 40px; height: 40px; border: 3px solid #27272a;
-  border-top-color: var(--rq-accent); border-radius: 50%;
-  animation: rq-spin 0.8s linear infinite;
-}
-.rq-spinner-sm { width: 24px; height: 24px; border-width: 2px; }
-@keyframes rq-spin { to { transform: rotate(360deg); } }
-
-/* --- 2-COLUMN LAYOUT (DESKTOP) --- */
-.rq-layout {
-  display: flex;
-  flex-direction: row;
-  gap: 8px;
-  padding: 8px;
-  height: 100%;
-  min-height: 0;
-}
-
-.rq-panel {
-  background: var(--rq-surface);
-  border: 1px solid var(--rq-border);
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-}
-
-/* --- QUEUE PANEL (COLLAPSIBLE) --- */
-.rq-queue-panel {
-  width: 340px;
-  flex-shrink: 0;
-  transition: width 300ms var(--ease-out), opacity 300ms var(--ease-out), margin 300ms var(--ease-out);
-}
-.rq-queue-panel.is-collapsed {
-  width: 0;
-  opacity: 0;
-  margin: 0;
-  border: none;
-}
-.rq-panel-header-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-.rq-icon-btn {
-  display: flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px; border-radius: 6px; border: 1px solid var(--rq-border);
-  background: var(--rq-surface); color: var(--rq-text-muted);
-  transition: transform 160ms var(--ease-out), background 160ms var(--ease-out);
-}
-.rq-icon-btn:hover { background: var(--rq-surface-hover); color: var(--rq-text); }
-.rq-icon-btn:active { transform: scale(0.95); }
-
-.rq-panel-header {
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--rq-border);
-  background: #121214;
-}
-.rq-brand-eyebrow { display: flex; align-items: center; gap: 8px; }
-.rq-eyebrow-text { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--rq-text-muted); }
-.rq-badge-live { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; background: #064e3b; color: var(--rq-success); padding: 2px 6px; border-radius: 4px; }
-.rq-panel-title { margin: 0 0 16px 0; font-size: 1.1rem; font-weight: 600; color: var(--rq-text); }
-
-.rq-stats-strip { display: flex; gap: 8px; }
-.rq-stat { flex: 1; display: flex; flex-direction: column; align-items: center; background: #18181b; border: 1px solid var(--rq-border); border-radius: 8px; padding: 8px 4px; }
-.rq-stat-pending { border-color: #78350f; }
-.rq-stat-ok { border-color: #064e3b; }
-.rq-stat-rej { border-color: #7f1d1d; }
-.rq-stat-val { font-size: 0.9rem; font-weight: 700; color: var(--rq-text); }
-.rq-stat-pending .rq-stat-val { color: var(--rq-warning); }
-.rq-stat-ok .rq-stat-val { color: var(--rq-success); }
-.rq-stat-rej .rq-stat-val { color: var(--rq-danger); }
-.rq-stat-lbl { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--rq-text-muted); margin-top: 4px; }
-
-.rq-panel-scroll { flex: 1; overflow-y: auto; padding-bottom: 24px; }
-
-.rq-group { margin-bottom: 8px; }
-.rq-group-header {
-  width: 100%; display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 16px; background: #121214; border: none; border-bottom: 1px solid var(--rq-border);
-  position: sticky; top: 0; z-index: 5; transition: background 160ms var(--ease-out);
-}
-.rq-group-header:hover { background: var(--rq-surface-hover); }
-.rq-group-header-left { display: flex; align-items: center; gap: 10px; }
-.rq-dot { width: 8px; height: 8px; border-radius: 50%; }
-.rq-dot-pending { background: var(--rq-warning); }
-.rq-dot-other { background: var(--rq-text-muted); }
-.rq-dot-judged { background: var(--rq-success); }
-.rq-group-title { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--rq-text); }
-.rq-group-count { background: #27272a; padding: 2px 8px; border-radius: 8px; font-size: 0.7rem; font-weight: 600; color: var(--rq-text-muted); }
-.rq-group-chevron { color: var(--rq-text-muted); font-size: 1.2rem; transition: transform 250ms var(--ease-out); }
-.rq-group-chevron.is-reversed { transform: rotate(-90deg); }
-
-.rq-group-content {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 250ms var(--ease-out);
-}
-.rq-group-content.is-open {
-  grid-template-rows: 1fr;
-}
-.rq-group-inner {
-  overflow: hidden;
-}
-
-.rq-list { list-style: none; padding: 0; margin: 0; }
-.rq-list-item {
-  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
-  border-bottom: 1px solid #1f1f22; border-left: 3px solid transparent;
-  cursor: pointer; transition: background 160ms var(--ease-out), opacity 200ms var(--ease-out), transform 200ms var(--ease-out);
-}
-.rq-list-item:hover { background: var(--rq-surface-hover); }
-.rq-list-item.is-active { background: var(--rq-accent-bg); border-left-color: var(--rq-accent); }
-
-.rq-fade-enter-active, .rq-fade-leave-active {
-  transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out);
-}
-.rq-fade-enter-from, .rq-fade-leave-to {
-  opacity: 0;
-  transform: translateY(-8px);
-}
-.rq-item-pending { border-left-color: #78350f; }
-.rq-item-accepted { border-left-color: #064e3b; }
-.rq-item-rejected { border-left-color: #7f1d1d; }
-.rq-item-skipped { border-left-color: #3f3f46; }
-.rq-item-readonly { cursor: default; }
-
-.rq-cb-wrapper { display: flex; align-items: center; }
-.rq-cb { width: 16px; height: 16px; accent-color: var(--rq-accent); cursor: pointer; }
-
-.rq-item-content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.rq-item-title { font-size: 0.85rem; font-weight: 500; color: var(--rq-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rq-list-item.is-active .rq-item-title { color: var(--rq-accent-hover); font-weight: 600; }
-.rq-item-meta { font-size: 0.8rem; color: var(--rq-text-muted); }
-.rq-list-item.is-locked { opacity: 0.5; }
-.rq-icon-lock { color: var(--rq-text-muted); font-size: 1.1rem; }
-.rq-list-empty { padding: 32px 24px; text-align: center; color: var(--rq-text-muted); font-size: 0.8rem; display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.rq-empty-icon { font-size: 2rem; opacity: 0.3; }
-
-.rq-bulk-banner { padding: 8px 16px; background: #312e81; border-bottom: 1px solid var(--rq-border); display: flex; align-items: center; justify-content: space-between; }
-.rq-bulk-count { font-size: 0.85rem; font-weight: 600; color: #a5b4fc; }
-.rq-bulk-actions { display: flex; gap: 6px; }
-.rq-bbtn {
-  width: 32px; height: 32px; border-radius: 8px; border: none; display: flex; align-items: center; justify-content: center;
-  color: #fff; transition: transform 160ms var(--ease-out), filter 160ms var(--ease-out);
-}
-.rq-bbtn:hover:not(:disabled) { filter: brightness(1.2); }
-.rq-bbtn:active:not(:disabled) { transform: scale(0.95); }
-.rq-bbtn-accept { background: var(--rq-success-dark); }
-.rq-bbtn-reject { background: var(--rq-danger-dark); }
-.rq-bbtn-skip { background: #3f3f46; border: 1px solid var(--rq-border-light); }
-.rq-bbtn-remove { background: #450a0a; border: 1px solid #7f1d1d; }
-
-/* --- REVIEW AREA (PREVIEW + DECISION) --- */
-.rq-review-area {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-width: 0;
-}
-
-/* --- PREVIEW PANEL --- */
-.rq-preview-panel {
-  flex: 1;
-  min-height: 0;
-}
-.rq-article-header {
-  display: flex; align-items: center; padding: 8px 16px;
-  background: #121214; border-bottom: 1px solid var(--rq-border); gap: 12px;
-}
-.rq-hamburger-btn {
-  display: flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--rq-border);
-  background: var(--rq-surface); color: var(--rq-text);
-  transition: transform 160ms var(--ease-out), background 160ms var(--ease-out);
-}
-.rq-hamburger-btn:hover { background: var(--rq-surface-hover); }
-.rq-hamburger-btn:active { transform: scale(0.95); }
-
-.rq-back-btn {
-  display: flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--rq-border);
-  background: var(--rq-surface); color: var(--rq-text);
-  transition: transform 160ms var(--ease-out), background 160ms var(--ease-out);
-}
-.rq-back-btn:active { transform: scale(0.95); }
-.rq-mobile-only { display: none; }
-
-.rq-article-meta-area { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-.rq-article-title-link {
-  font-size: 1.1rem; font-weight: 700; color: var(--rq-text); text-decoration: none;
-  font-family: 'Linux Libertine', Georgia, serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  transition: color 160ms var(--ease-out);
-}
-.rq-article-title-link:hover { color: var(--rq-accent-hover); }
-
-.rq-tags { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.rq-tag { font-size: 0.7rem; font-weight: 500; color: var(--rq-text-muted); background: #27272a; padding: 4px 10px; border-radius: 6px; }
-.rq-tag-locked { background: #451a03; color: var(--rq-warning); display: flex; align-items: center; gap: 4px; }
-.rq-tag-verdict { font-weight: 600; }
-.rq-tag-accepted { background: #064e3b; color: var(--rq-success); }
-.rq-tag-rejected { background: #7f1d1d; color: var(--rq-danger); }
-.rq-tag-skipped { background: #3f3f46; color: var(--rq-text-muted); }
-
-.rq-btn-secondary {
-  display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 600;
-  color: var(--rq-text); background: var(--rq-surface); border: 1px solid var(--rq-border);
-  padding: 8px 14px; border-radius: 8px; text-decoration: none;
-  transition: transform 160ms var(--ease-out), background 160ms var(--ease-out);
-}
-.rq-btn-secondary:active { transform: scale(0.97); }
-.rq-btn-secondary:hover { background: var(--rq-surface-hover); }
-.rq-wiki-link-btn { color: var(--rq-accent-hover); border-color: #312e81; background: #1e1b4b; }
-.rq-wiki-link-btn:hover { background: #312e81; }
-
-.rq-preview-container { flex: 1; min-height: 0; background: #000; display: flex; flex-direction: column; }
-.rq-wiki-iframe { flex: 1; width: 100%; border: none; }
-
-/* --- DECISION PANEL (BOTTOM) --- */
-.rq-decision-panel {
-  flex-shrink: 0;
-  background: var(--rq-surface);
-}
-.rq-decision-body {
-  padding: 8px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.rq-decision-form {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 12px;
-}
-
-.rq-error-msg { color: var(--rq-danger); font-size: 0.85rem; padding: 12px; background: #450a0a; border-radius: 8px; border: 1px solid #7f1d1d; margin-bottom: -4px; }
-
-.rq-input {
-  flex: 1;
-  background: #09090b; border: 1px solid var(--rq-border-light);
-  border-radius: 8px; padding: 8px 16px; color: var(--rq-text); font-size: 0.85rem;
-  transition: border-color 160ms var(--ease-out), background 160ms var(--ease-out);
-  resize: none;
-  height: 40px; /* Fixed height for 1-2 lines */
-}
-.rq-input:focus { outline: none; border-color: var(--rq-accent); background: #18181b; }
-
-.rq-actions-wrapper {
-  display: flex;
-  gap: 12px;
-  flex-shrink: 0;
-}
-.rq-primary-actions { display: flex; gap: 8px; }
-.rq-secondary-actions { display: flex; gap: 8px; }
-
-.rq-btn {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  padding: 0 12px; height: 40px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; border: none; color: #fff;
-  transition: transform 160ms var(--ease-out), filter 160ms var(--ease-out);
-}
-.rq-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.rq-btn:active:not(:disabled) { transform: scale(0.97); }
-.rq-btn:hover:not(:disabled) { filter: brightness(1.15); }
-
-.rq-btn-accept { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
-.rq-btn-reject { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
-
-.rq-btn-ghost {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  padding: 0 12px; height: 40px; border-radius: 8px; font-size: 0.8rem; font-weight: 600;
-  background: #18181b; border: 1px solid var(--rq-border-light); color: var(--rq-text-muted);
-  transition: transform 160ms var(--ease-out), background 160ms var(--ease-out), color 160ms var(--ease-out);
-}
-.rq-btn-ghost:hover:not(:disabled) { background: #27272a; color: var(--rq-text); }
-.rq-btn-ghost:active:not(:disabled) { transform: scale(0.97); }
-.rq-btn-ghost.rq-btn-remove:hover { border-color: #7f1d1d; color: var(--rq-danger); background: #450a0a; }
-
-/* --- MOBILE NAV --- */
-.rq-mobile-nav {
-  display: none; background: #121214; border-top: 1px solid var(--rq-border);
-  padding-bottom: env(safe-area-inset-bottom);
-}
-.rq-nav-btn {
-  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
-  padding: 12px 8px; background: none; border: none; color: var(--rq-text-muted);
-  transition: color 160ms var(--ease-out), transform 160ms var(--ease-out); position: relative;
-}
-.rq-nav-btn.is-active { color: var(--rq-accent-hover); }
-.rq-nav-btn:active { transform: scale(0.95); }
-.rq-nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-.rq-nav-icon { font-size: 1.4rem; }
-.rq-nav-label { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
-.rq-nav-badge { position: absolute; top: 6px; right: 25%; background: var(--rq-accent); color: #fff; font-size: 0.65rem; font-weight: 700; padding: 2px 6px; border-radius: 8px; }
-
-/* --- RESPONSIVE LAYOUT --- */
-@media (max-width: 1024px) {
-  .rq-decision-form { flex-direction: column; align-items: stretch; }
-  .rq-actions-wrapper { justify-content: space-between; }
-  .rq-input { height: 48px; }
-}
-
-@media (max-width: 768px) {
-  .rq-desktop-only { display: none !important; }
-  .rq-mobile-only { display: flex !important; }
-  
-  .rq-app { padding-bottom: 70px; }
-  .rq-layout { display: flex; flex-direction: column; padding: 0; gap: 0; }
-  
-  .mobile-hidden { display: none !important; }
-  
-  .rq-panel { border-radius: 0; border: none; border-bottom: 1px solid var(--rq-border); box-shadow: none; }
-  .rq-queue-panel { flex: 1; transition: none; width: 100%; opacity: 1; }
-  
-  .rq-review-area { flex: 1; display: flex; flex-direction: column; position: relative; gap: 0; }
-  .rq-preview-panel { flex: 1; border-bottom: none; margin-bottom: 190px; }
-  
-  .rq-decision-panel {
-    position: fixed; bottom: 70px; left: 0; right: 0;
-    border-radius: 12px 12px 0 0; border: 1px solid var(--rq-border);
-    border-bottom: none; box-shadow: 0 -8px 32px rgba(0,0,0,0.8);
-    z-index: 40; padding-bottom: env(safe-area-inset-bottom);
-  }
-  .rq-decision-body { padding: 12px; gap: 8px; }
-  .rq-decision-form { flex-direction: column; gap: 8px; }
-  .rq-input { height: 48px; }
-  .rq-actions-wrapper { flex-direction: column; gap: 8px; }
-  .rq-primary-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; gap: 8px; }
-  .rq-secondary-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; gap: 8px; }
-  
-  .rq-mobile-nav { display: flex; position: fixed; bottom: 0; left: 0; right: 0; height: 70px; z-index: 50; }
-}
-</style>
+<style scoped src="../styles/views/ReviewQueue.css"></style>

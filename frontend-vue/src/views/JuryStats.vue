@@ -22,10 +22,16 @@ const router = useRouter();
 const isLoading = ref(true);
 const articles = ref([]);
 const roles = ref({ is_jury: false, is_owner: false });
+const juryProgress = ref([]);
 const isAuthorized = computed(() => roles.value.is_jury || roles.value.is_owner);
 const activeTab = ref('overview');
 const removingArticleId = ref(null);
 const removalError = ref('');
+const selectedErrorIds = ref([]);
+const selectedSubmissionIds = ref([]);
+const expandedSubmitters = ref({});
+const visibleGroupCounts = ref({});
+const isBulkRemoving = ref(false);
 
 const fetchArticles = async () => {
   const res = await fetch(`/api/contests/${route.params.code}/log`);
@@ -44,6 +50,8 @@ onMounted(async () => {
     }
 
     await fetchArticles();
+    const progressRes = await fetch(`/api/jury-panel/contests/${route.params.code}/progress`);
+    if (progressRes.ok) juryProgress.value = await progressRes.json();
   } catch (err) {
     console.error(err);
   } finally {
@@ -71,6 +79,7 @@ const juryStats = computed(() => {
   const stats = {};
   for (const a of articles.value) {
     for (const r of a.reviews) {
+      if (!roles.value.is_owner && r.reviewer !== user.value?.wiki_username) continue;
       if (!stats[r.reviewer]) stats[r.reviewer] = { articles: {} };
       const previous = stats[r.reviewer].articles[a.article_id];
       const previousTime = previous?.reviewed_at ? new Date(previous.reviewed_at).getTime() : -1;
@@ -91,6 +100,16 @@ const juryStats = computed(() => {
   }).sort((a, b) => b.total - a.total);
 });
 
+const juryProgressRows = computed(() => juryProgress.value.map(row => ({
+  name: row.username,
+  assigned: row.assigned,
+  judged: row.judged,
+  remaining: row.remaining,
+  accepted: row.accepted,
+  rejected: row.rejected,
+  progress: row.progress_percent,
+})));
+
 const statusLabel = (status) => ({
   accepted: 'Accepted',
   rejected: 'Rejected',
@@ -98,8 +117,65 @@ const statusLabel = (status) => ({
   validation_failed: 'Validation failed',
 }[status] || status);
 
+const erroredArticles = computed(() => articles.value.filter(article => article.status === 'validation_failed'));
+const displayedSubmissions = computed(() => activeTab.value === 'errors' ? erroredArticles.value : articles.value);
+const allErrorsSelected = computed(() => erroredArticles.value.length > 0 && selectedErrorIds.value.length === erroredArticles.value.length);
+const groupedSubmissions = computed(() => {
+  const groups = new Map();
+  for (const article of articles.value) {
+    const username = article.submitted_by || 'Unknown user';
+    if (!groups.has(username)) groups.set(username, []);
+    groups.get(username).push(article);
+  }
+  return Array.from(groups, ([username, groupArticles]) => ({ username, articles: groupArticles }));
+});
+const allSubmissionIds = computed(() => groupedSubmissions.value.flatMap(group => group.articles.map(article => article.article_id)));
+const allSubmissionsSelected = computed(() => allSubmissionIds.value.length > 0 && allSubmissionIds.value.every(id => selectedSubmissionIds.value.includes(id)));
+const someSubmissionsSelected = computed(() => selectedSubmissionIds.value.length > 0 && !allSubmissionsSelected.value);
+
+const toggleErrorSelection = (articleId) => {
+  selectedErrorIds.value = selectedErrorIds.value.includes(articleId)
+    ? selectedErrorIds.value.filter(id => id !== articleId)
+    : [...selectedErrorIds.value, articleId];
+};
+
+const toggleAllErrors = () => {
+  selectedErrorIds.value = allErrorsSelected.value ? [] : erroredArticles.value.map(article => article.article_id);
+};
+const toggleSubmissionSelection = (articleId) => {
+  selectedSubmissionIds.value = selectedSubmissionIds.value.includes(articleId)
+    ? selectedSubmissionIds.value.filter(id => id !== articleId)
+    : [...selectedSubmissionIds.value, articleId];
+};
+const toggleAllSubmissions = () => {
+  selectedSubmissionIds.value = selectedSubmissionIds.value.length ? [] : [...allSubmissionIds.value];
+};
+const groupSelectedCount = (group) => group.articles.filter(article => selectedSubmissionIds.value.includes(article.article_id)).length;
+const groupPartiallySelected = (group) => groupSelectedCount(group) > 0 && groupSelectedCount(group) < group.articles.length;
+const toggleGroupSelection = (group) => {
+  const groupIds = group.articles.map(article => article.article_id);
+  const shouldClear = groupSelectedCount(group) > 0;
+  selectedSubmissionIds.value = shouldClear
+    ? selectedSubmissionIds.value.filter(id => !groupIds.includes(id))
+    : [...new Set([...selectedSubmissionIds.value, ...groupIds])];
+};
+const toggleSubmitter = (username) => {
+  expandedSubmitters.value = { ...expandedSubmitters.value, [username]: !expandedSubmitters.value[username] };
+  if (visibleGroupCounts.value[username] === undefined) {
+    visibleGroupCounts.value = { ...visibleGroupCounts.value, [username]: 100 };
+  }
+};
+const visibleGroupArticles = (group) => group.articles.slice(0, visibleGroupCounts.value[group.username] || 100);
+const groupHasMore = (group) => visibleGroupArticles(group).length < group.articles.length;
+const loadMoreGroupArticles = (group) => {
+  visibleGroupCounts.value = {
+    ...visibleGroupCounts.value,
+    [group.username]: Math.min((visibleGroupCounts.value[group.username] || 100) + 100, group.articles.length),
+  };
+};
+
 const removeArticle = async (article) => {
-  if (!confirm(`Remove "${article.title}" permanently from this contest?`)) return;
+  if (!confirm(`Remove "${article.title}" from this contest?`)) return;
 
   removingArticleId.value = article.article_id;
   removalError.value = '';
@@ -107,11 +183,63 @@ const removeArticle = async (article) => {
     const res = await fetch(`/api/articles/${article.article_id}`, { method: 'DELETE' });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || 'Could not remove the article.');
+    selectedErrorIds.value = selectedErrorIds.value.filter(id => id !== article.article_id);
+    selectedSubmissionIds.value = selectedSubmissionIds.value.filter(id => id !== article.article_id);
     await fetchArticles();
   } catch (err) {
     removalError.value = err.message || 'Could not remove the article.';
   } finally {
     removingArticleId.value = null;
+  }
+};
+const removeSelectedSubmissions = async (group = null) => {
+  if (isBulkRemoving.value) return;
+  const ids = group
+    ? group.articles.map(article => article.article_id).filter(id => selectedSubmissionIds.value.includes(id))
+    : [...selectedSubmissionIds.value];
+  if (!ids.length) return;
+  if (!confirm(`Remove ${ids.length} submitted article(s) from this contest?`)) return;
+  isBulkRemoving.value = true;
+  removalError.value = '';
+  try {
+    const res = await fetch('/api/articles/bulk-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ article_ids: ids }),
+    });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(result.detail || 'Could not remove selected articles.');
+    const failed = (result.failed || []).map(item => item.article_id);
+    selectedSubmissionIds.value = selectedSubmissionIds.value.filter(id => failed.includes(id));
+    if (failed.length) throw new Error(`Could not remove ${failed.length} article(s).`);
+    await fetchArticles();
+  } catch (err) {
+    removalError.value = err.message || 'Could not remove selected articles.';
+  } finally {
+    isBulkRemoving.value = false;
+  }
+};
+const removeSelectedErrors = async () => {
+  if (!selectedErrorIds.value.length || isBulkRemoving.value) return;
+  if (!confirm(`Remove ${selectedErrorIds.value.length} errored article(s) from this contest?`)) return;
+  isBulkRemoving.value = true;
+  removalError.value = '';
+  try {
+    const res = await fetch('/api/articles/bulk-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ article_ids: selectedErrorIds.value }),
+    });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(result.detail || 'Could not remove selected articles.');
+    const failed = (result.failed || []).map(item => item.article_id);
+    selectedErrorIds.value = failed;
+    if (failed.length) throw new Error(`Could not remove ${failed.length} article(s).`);
+    await fetchArticles();
+  } catch (err) {
+    removalError.value = err.message || 'Could not remove selected articles.';
+  } finally {
+    isBulkRemoving.value = false;
   }
 };
 const doughnutData = computed(() => ({
@@ -135,7 +263,7 @@ const doughnutOptions = {
       labels: {
         padding: 20,
         font: { size: 13, family: 'Inter, sans-serif' },
-        color: '#9ca3af',
+        color: '#47637c',
         usePointStyle: true,
         pointStyleWidth: 10,
       },
@@ -175,7 +303,7 @@ const barOptions = {
       position: 'top',
       labels: {
         font: { size: 12, family: 'Inter, sans-serif' },
-        color: '#9ca3af',
+        color: '#47637c',
         usePointStyle: true,
       },
     },
@@ -189,13 +317,13 @@ const barOptions = {
     x: {
       stacked: true,
       grid: { color: 'rgba(255,255,255,0.05)' },
-      ticks: { font: { size: 12 }, color: '#6b7280', stepSize: 1 },
+      ticks: { font: { size: 12 }, color: '#47637c', stepSize: 1 },
       border: { display: false },
     },
     y: {
       stacked: true,
       grid: { display: false },
-      ticks: { font: { size: 13 }, color: '#9ca3af' },
+      ticks: { font: { size: 13 }, color: '#47637c' },
       border: { display: false },
     },
   },
@@ -269,6 +397,12 @@ const handleExportWikitable = () => {
           :class="{ active: activeTab === 'submissions' }"
           @click="activeTab = 'submissions'"
         >All submitted <span>{{ articles.length }}</span></button>
+        <button
+          type="button"
+          class="jury-tab jury-tab-errors"
+          :class="{ active: activeTab === 'errors' }"
+          @click="activeTab = 'errors'"
+        >Errored <span>{{ erroredArticles.length }}</span></button>
       </nav>
 
       <template v-if="activeTab === 'overview'">
@@ -285,7 +419,7 @@ const handleExportWikitable = () => {
               </div>
             </div>
           </div>
-          <button class="judge-hero-btn" @click="router.push(`/${route.params.code}/jury/review`)">
+          <button class="judge-hero-btn" @click="router.push(`/${route.params.code}/jury/review-v2`)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
             Start Judging
           </button>
@@ -419,15 +553,56 @@ const handleExportWikitable = () => {
           </tbody>
         </table>
       </div>
+      <div class="jury-section jury-progress-section">
+        <div class="section-title">Jury Progress</div>
+        <table class="jury-table">
+          <thead>
+            <tr>
+              <th>Jury Member</th>
+              <th>Assigned</th>
+              <th>Judged</th>
+              <th>Remaining</th>
+              <th>Progress</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="jury in juryProgressRows" :key="`progress-${jury.name}`">
+              <td>
+                <div class="jury-name-cell">
+                  <div class="jury-avatar">{{ jury.name[0].toUpperCase() }}</div>
+                  {{ jury.name }}
+                </div>
+              </td>
+              <td><strong>{{ jury.assigned }}</strong></td>
+              <td class="text-green">{{ jury.judged }}</td>
+              <td>{{ jury.remaining }}</td>
+              <td>
+                <div class="mini-bar-wrap">
+                  <div class="mini-bar"><div class="mini-bar-fill" :style="{ width: `${jury.progress}%` }"></div></div>
+                  <span class="jury-progress-count">{{ jury.judged.toLocaleString() }} / {{ jury.assigned.toLocaleString() }}</span>
+                </div>
+              </td>
+            </tr>
+            <tr v-if="juryProgressRows.length === 0">
+              <td colspan="5" class="empty-state">No jury assignment data available yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       </template>
 
-      <section v-else class="submissions-panel">
+      <section v-else-if="activeTab === 'errors'" class="submissions-panel">
         <div class="submissions-header">
           <div>
-            <h2>All Submitted Articles</h2>
-            <p>Review every submission, including validation failures, and remove entries when needed.</p>
+            <h2>{{ activeTab === 'errors' ? 'Errored Articles' : 'All Submitted Articles' }}</h2>
+            <p>{{ activeTab === 'errors' ? 'Validation-failed submissions that can be removed in bulk.' : 'Review every submission, including validation failures, and remove entries when needed.' }}</p>
           </div>
-          <button type="button" class="refresh-submissions" @click="fetchArticles">Refresh</button>
+          <div class="submission-toolbar">
+            <button v-if="activeTab === 'errors' && erroredArticles.length" type="button" class="bulk-remove-submissions" :disabled="!selectedErrorIds.length || isBulkRemoving" @click="removeSelectedErrors">
+              {{ isBulkRemoving ? 'Removing…' : `Delete selected (${selectedErrorIds.length})` }}
+            </button>
+            <button type="button" class="refresh-submissions" @click="fetchArticles">Refresh</button>
+          </div>
         </div>
 
         <p v-if="removalError" class="removal-error">{{ removalError }}</p>
@@ -436,6 +611,7 @@ const handleExportWikitable = () => {
           <table class="submissions-table">
             <thead>
               <tr>
+                <th v-if="activeTab === 'errors'" class="selection-column"><input type="checkbox" :checked="allErrorsSelected" @change="toggleAllErrors" aria-label="Select all errored articles" /></th>
                 <th>Article</th>
                 <th>Submitted by</th>
                 <th>Status</th>
@@ -444,7 +620,8 @@ const handleExportWikitable = () => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="article in articles" :key="article.article_id">
+              <tr v-for="article in displayedSubmissions" :key="article.article_id">
+                <td v-if="activeTab === 'errors'" class="selection-column"><input type="checkbox" :checked="selectedErrorIds.includes(article.article_id)" @change="toggleErrorSelection(article.article_id)" :aria-label="`Select ${article.title}`" /></td>
                 <td class="submission-title">{{ article.title }}</td>
                 <td>
                   <router-link :to="`/${route.params.code}/user/${encodeURIComponent(article.submitted_by)}`" class="jury-name-link">
@@ -464,422 +641,69 @@ const handleExportWikitable = () => {
                 </td>
               </tr>
               <tr v-if="!articles.length">
-                <td colspan="5" class="empty-state">No articles have been submitted yet.</td>
+                <td :colspan="activeTab === 'errors' ? 6 : 5" class="empty-state">{{ activeTab === 'errors' ? 'No errored articles.' : 'No articles have been submitted yet.' }}</td>
               </tr>
             </tbody>
           </table>
+        </div>
+      </section>
+      <section v-else class="submissions-panel submission-groups">
+        <div class="submissions-header">
+          <div class="submission-heading-copy">
+            <span class="submission-eyebrow">Contest submissions</span>
+            <h2>All Submitted Articles</h2>
+            <p>Submissions are grouped by user. Expand a user to select individual articles or manage the whole group.</p>
+            <div class="submission-heading-meta" aria-label="Submission summary">
+              <span><strong>{{ articles.length.toLocaleString() }}</strong> articles</span>
+              <span><strong>{{ groupedSubmissions.length.toLocaleString() }}</strong> users</span>
+              <span v-if="selectedSubmissionIds.length"><strong>{{ selectedSubmissionIds.length.toLocaleString() }}</strong> selected</span>
+            </div>
+          </div>
+          <div class="submission-toolbar">
+            <label class="select-all-submissions">
+              <input type="checkbox" :checked="allSubmissionsSelected" :indeterminate="someSubmissionsSelected" @change="toggleAllSubmissions" aria-label="Select all submitted articles" />
+              Select all
+            </label>
+            <button type="button" class="bulk-remove-submissions" :disabled="!selectedSubmissionIds.length || isBulkRemoving" @click="removeSelectedSubmissions()">
+              {{ isBulkRemoving ? 'Removing…' : `Delete selected (${selectedSubmissionIds.length})` }}
+            </button>
+            <button type="button" class="refresh-submissions" @click="fetchArticles">Refresh</button>
+          </div>
+        </div>
+        <p v-if="removalError" class="removal-error">{{ removalError }}</p>
+        <div v-if="!groupedSubmissions.length" class="empty-state group-empty">No articles have been submitted yet.</div>
+        <div v-else class="submitter-groups">
+          <article v-for="group in groupedSubmissions" :key="group.username" class="submitter-group">
+            <header class="submitter-group-header">
+              <button type="button" class="submitter-toggle" :aria-expanded="!!expandedSubmitters[group.username]" @click="toggleSubmitter(group.username)">
+                <span class="group-chevron" :class="{ open: expandedSubmitters[group.username] }">›</span>
+                <span class="group-user">{{ group.username }}</span>
+                <span class="group-count">{{ group.articles.length }}</span>
+              </button>
+              <label class="group-select">
+                <input type="checkbox" :checked="groupSelectedCount(group) === group.articles.length" :indeterminate="groupPartiallySelected(group)" @change="toggleGroupSelection(group)" :aria-label="`Select all articles by ${group.username}`" />
+                Select all
+              </label>
+              <button type="button" class="group-delete" :disabled="!groupSelectedCount(group) || isBulkRemoving" @click="removeSelectedSubmissions(group)">Delete selected</button>
+            </header>
+            <div v-if="expandedSubmitters[group.username]" class="submitter-articles">
+              <label v-for="article in visibleGroupArticles(group)" :key="article.article_id" class="submitter-article">
+                <input type="checkbox" :checked="selectedSubmissionIds.includes(article.article_id)" @change="toggleSubmissionSelection(article.article_id)" :aria-label="`Select ${article.title}`" />
+                <span class="submitter-article-copy">
+                  <strong>{{ article.title }}</strong>
+                  <small>{{ statusLabel(article.status) }} · {{ article.validation_error || 'No validation error' }}</small>
+                </span>
+                <button type="button" class="remove-submission" :disabled="removingArticleId === article.article_id" title="Remove article from contest" @click.stop="removeArticle(article)"><CdxIcon :icon="cdxIconTrash" /></button>
+              </label>
+              <button v-if="groupHasMore(group)" type="button" class="load-more-group" @click="loadMoreGroupArticles(group)">
+                Load 100 more
+              </button>
+            </div>
+          </article>
         </div>
       </section>
     </div>
   </div>
 </template>
 
-<style scoped>
-/* Unauthorized Banner */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
-.unauthorized-banner {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 60px 20px;
-}
-.unauthorized-content {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
-  padding: 40px;
-  max-width: 480px;
-  text-align: center;
-}
-.unauthorized-content .icon { font-size: 2.5rem; display: block; margin-bottom: 12px; }
-.unauthorized-content h2 { color: #f3f4f6; font-size: 1.25rem; font-weight: 700; margin: 0 0 8px; }
-.unauthorized-content p { color: #9ca3af; margin: 0; font-size: 0.95rem; line-height: 1.5; }
-
-.stats-page { min-height: 100vh; background: #0a0a0a; }
-
-.stats-layout {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow-y: auto;
-  background: #0a0a0a;
-  font-family: 'Inter', sans-serif;
-}
-
-.jury-tabs {
-  display: flex;
-  gap: 2px;
-  padding: 16px 32px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-}
-.jury-tab {
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: #9ca3af;
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.875rem;
-  font-weight: 600;
-  padding: 10px 14px;
-}
-.jury-tab:hover { color: #e2e8f0; background: rgba(255,255,255,0.04); }
-.jury-tab.active { color: #ffffff; border-bottom-color: #ffffff; }
-.jury-tab span { margin-left: 5px; color: #9ca3af; font-size: 0.75rem; }
-
-.submissions-panel { padding: 28px 32px 32px; }
-.submissions-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 20px;
-}
-.submissions-header h2 { margin: 0 0 4px; color: #e2e8f0; font-size: 1.4rem; }
-.submissions-header p { margin: 0; color: #9ca3af; font-size: 0.875rem; }
-.refresh-submissions,
-.remove-submission {
-  border: 1px solid rgba(255,255,255,0.14);
-  border-radius: 4px;
-  background: transparent;
-  color: #e2e8f0;
-  cursor: pointer;
-  font: inherit;
-}
-.refresh-submissions { padding: 7px 12px; font-size: 0.8rem; }
-.refresh-submissions:hover { background: rgba(255,255,255,0.08); }
-.removal-error { margin: 0 0 16px; color: #f87171; font-size: 0.875rem; }
-.submissions-table-wrap { overflow-x: auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; }
-.submissions-table { width: 100%; min-width: 760px; border-collapse: collapse; }
-.submissions-table th,
-.submissions-table td { padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: left; vertical-align: middle; }
-.submissions-table th { color: #9ca3af; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
-.submissions-table td { color: #e2e8f0; font-size: 0.875rem; }
-.submissions-table tr:last-child td { border-bottom: 0; }
-.submission-title { font-weight: 600; }
-.submission-details { max-width: 320px; color: #9ca3af !important; line-height: 1.4; }
-.submission-status { display: inline-block; border: 1px solid rgba(255,255,255,0.14); border-radius: 4px; color: #d1d5db; font-size: 0.72rem; padding: 3px 6px; white-space: nowrap; }
-.submission-status.status-validation_failed { color: #f87171; border-color: rgba(248,113,113,0.45); }
-.submission-action { width: 48px; text-align: right !important; }
-.remove-submission { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; color: #9ca3af; }
-.remove-submission:hover:not(:disabled) { color: #f87171; border-color: #f87171; }
-.remove-submission:disabled { cursor: wait; opacity: 0.5; }
-.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-
-/* Loading */
-.loading-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  gap: 16px;
-  padding: 64px;
-  color: #6b7280;
-  font-size: 0.95rem;
-}
-.spinner {
-  width: 32px; height: 32px;
-  border: 3px solid rgba(255,255,255,0.1);
-  border-top-color: #ffffff;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* Page Header */
-.page-header {
-  padding: 28px 32px 0;
-}
-.page-header h2 {
-  margin: 0 0 4px;
-  font-size: 1.5rem;
-  font-weight: 800;
-  color: #e2e8f0;
-}
-.page-header p { margin: 0; color: #64748b; font-size: 0.875rem; }
-
-/* KPI Cards */
-.kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: 16px;
-  padding: 24px 32px;
-}
-.kpi-card {
-  background: #1a1a1a;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.07);
-  padding: 20px 20px 0;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-  overflow: hidden;
-  transition: box-shadow 0.15s, transform 0.15s;
-}
-.kpi-card:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.4); transform: translateY(-2px); }
-.kpi-inner { padding-bottom: 16px; }
-.kpi-value {
-  font-size: 2rem;
-  font-weight: 800;
-  color: #e2e8f0;
-  line-height: 1;
-}
-.kpi-unit { font-size: 1.1rem; font-weight: 600; }
-.kpi-label {
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #9ca3af;
-  margin-top: 4px;
-}
-.kpi-bar-bg {
-  height: 4px;
-  background: rgba(255,255,255,0.06);
-}
-.kpi-bar-fill {
-  height: 100%;
-  transition: width 0.9s cubic-bezier(0.4,0,0.2,1);
-}
-.kpi-blue .kpi-value { color: #60a5fa; }
-.kpi-green .kpi-value { color: #4ade80; }
-.kpi-red .kpi-value { color: #f87171; }
-.kpi-amber .kpi-value { color: #fbbf24; }
-.kpi-purple .kpi-value { color: #a78bfa; }
-
-/* Mobile layout adjustments */
-@media (max-width: 768px) {
-  .jury-tabs { padding: 10px 16px 0; overflow-x: auto; }
-  .jury-tab { flex: 0 0 auto; }
-  .page-header { padding: 16px 16px 0; flex-direction: column; align-items: flex-start !important; gap: 12px; }
-  .kpi-grid { padding: 16px; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-  .charts-row { padding: 0 16px 16px; }
-  .jury-section { margin: 0 16px 24px; }
-  .judge-hero-banner { margin: 16px 16px 0; padding: 24px 20px; }
-  .judge-hero-inner { flex-direction: column; align-items: flex-start; }
-  .judge-hero-btn { width: 100%; justify-content: center; }
-  .submissions-panel { padding: 20px 16px 24px; }
-  .submissions-header { flex-direction: column; }
-}
-
-.chart-card {
-  background: #1a1a1a;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.07);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-  padding: 20px 24px 24px;
-}
-
-.chart-card-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 20px;
-}
-.chart-title {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: #e2e8f0;
-}
-.chart-subtitle {
-  font-size: 0.75rem;
-  color: #9ca3af;
-}
-
-/* Doughnut */
-.doughnut-wrap {
-  position: relative;
-  height: 240px;
-}
-.doughnut-center-label {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -62%);
-  text-align: center;
-  pointer-events: none;
-}
-.dcl-val {
-  font-size: 1.8rem;
-  font-weight: 800;
-  color: #e2e8f0;
-  line-height: 1;
-}
-.dcl-sub {
-  font-size: 0.7rem;
-  color: #9ca3af;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-/* Bar */
-.bar-wrap {
-  position: relative;
-}
-.empty-chart {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: #9ca3af;
-  font-style: italic;
-  font-size: 0.9rem;
-}
-
-/* Jury Table */
-.jury-section {
-  margin: 0 32px 32px;
-  background: #1a1a1a;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.07);
-  overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-}
-.section-title {
-  padding: 16px 20px;
-  font-size: 0.875rem;
-  font-weight: 700;
-  color: #e2e8f0;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
-  background: rgba(255,255,255,0.03);
-}
-.jury-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-.jury-table th, .jury-table td {
-  padding: 12px 20px;
-  text-align: left;
-  font-size: 0.875rem;
-}
-.jury-table th {
-  background: rgba(255,255,255,0.04);
-  color: #64748b;
-  font-weight: 600;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
-}
-.jury-table td { border-bottom: 1px solid rgba(255,255,255,0.05); color: #e2e8f0; }
-.jury-table tr:last-child td { border-bottom: none; }
-.jury-table tr:hover td { background: rgba(255,255,255,0.03); }
-.jury-name-cell {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 600;
-  transition: color 0.15s;
-}
-.jury-name-link {
-  text-decoration: none;
-  color: inherit;
-}
-.jury-name-link:hover .jury-name-cell {
-  color: #ffffff;
-}
-.jury-avatar {
-  width: 28px; height: 28px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #4f46e5, #2563eb);
-  color: white;
-  font-size: 0.75rem;
-  font-weight: 700;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-.text-green { color: #22c55e; font-weight: 600; }
-.text-red { color: #ef4444; font-weight: 600; }
-.mini-bar-wrap { display: flex; align-items: center; gap: 8px; }
-.mini-bar {
-  flex: 1;
-  height: 6px;
-  background: rgba(255,255,255,0.08);
-  border-radius: 6px;
-  overflow: hidden;
-  min-width: 60px;
-}
-.mini-bar-fill { height: 100%; background: #22c55e; border-radius: 6px; transition: width 0.4s; }
-.mini-bar-pct { font-size: 0.78rem; color: #6b7280; font-weight: 600; white-space: nowrap; }
-.empty-state { text-align: center; color: #9ca3af; font-style: italic; padding: 32px !important; }
-
-/* Judge Hero Banner */
-.judge-hero-banner {
-  position: relative;
-  overflow: hidden;
-  border-radius: 16px;
-  margin: 24px 32px 8px;
-  padding: 36px 40px;
-  background: #111111;
-  border: 1px solid rgba(255,255,255,0.1);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-}
-.judge-hero-bg {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse at 20% 50%, rgba(255,255,255,0.05) 0%, transparent 60%),
-    radial-gradient(ellipse at 80% 50%, rgba(255,255,255,0.03) 0%, transparent 60%);
-  pointer-events: none;
-}
-.judge-hero-inner {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  flex-wrap: wrap;
-}
-.judge-hero-left {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-}
-.judge-hero-icon {
-  font-size: 3rem;
-  line-height: 1;
-  filter: drop-shadow(0 0 16px rgba(99,102,241,0.6));
-}
-.judge-hero-text {}
-.judge-hero-title {
-  font-size: 1.6rem;
-  font-weight: 800;
-  color: #fff;
-  letter-spacing: -0.02em;
-  margin-bottom: 6px;
-}
-.judge-hero-sub {
-  font-size: 1rem;
-  color: rgba(255,255,255,0.65);
-  line-height: 1.4;
-}
-.judge-hero-count {
-  font-size: 1.2rem;
-  font-weight: 800;
-  color: #a5b4fc;
-}
-.judge-hero-btn {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: #2563eb;
-  color: #fff;
-  border: none;
-  padding: 14px 32px;
-  border-radius: 12px;
-  font-size: 1rem;
-  font-weight: 700;
-  cursor: pointer;
-  white-space: nowrap;
-  box-shadow: 0 4px 20px rgba(37,99,235,0.5);
-  transition: background 0.15s, transform 0.12s, box-shadow 0.15s;
-  letter-spacing: 0.01em;
-}
-.judge-hero-btn:hover {
-  background: #1d4ed8;
-  transform: translateY(-2px);
-  box-shadow: 0 8px 28px rgba(37,99,235,0.6);
-}
-.judge-hero-btn:active { transform: translateY(0); }
-</style>
+<style scoped src="../styles/views/JuryStatsFresh.css"></style>

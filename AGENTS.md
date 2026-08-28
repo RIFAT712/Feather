@@ -79,6 +79,8 @@ D:\Quote Contest\article-tool\
 | **User**       | `users`         | `id`, `wiki_username` (unique), `role` (participant \| owner), `oauth_access_token`             |
 | **Contest**     | `contests`      | `id`, `code` (6-char hex, unique), `name`, `start_date`, `end_date`, `rule_must_be_creator`, `min_bytes`, `min_words`, `min_refs`, `rule_no_redirect`, `rule_no_disambig`, `rule_mainspace_only`, `allow_self_review`, `add_talk_template`, `talk_template_name`, `include_talk_header` |
 | **ContestJury** | `contest_jury` | `id`, `contest_id` (FK), `user_id` (FK)                                  |
+| **ContestJuryRestriction** | `contest_jury_restrictions` | `id`, `contest_id` (FK), `jury_user_id` (FK), `submitter_user_id` (FK), unique contest/jury/submitter pair |
+| **ContestBannedUser** | `contest_banned_users` | `id`, `contest_id` (FK), `user_id` (FK), unique contest/user pair; hides submitter articles from review-v2 |
 | **Article**    | `articles`      | `id`, `title`, `submitter_id` (FK), `contest_id` (FK), `status` (pending/accepted/rejected/validation_failed), `validation_error`, `wiki_creation_date`, `wiki_creator`, `submitted_at` |
 | **Review**     | `reviews`       | `id`, `article_id` (FK), `reviewer_id` (FK), `status` (accepted/rejected/skipped), `comment`, `timestamp` |
 
@@ -116,9 +118,16 @@ D:\Quote Contest\article-tool\
 | DELETE | `/api/admin/contests/{code}`           | Delete contest                     | Owner |
 | POST   | `/api/admin/assign-jury`               | Assign jury members                | Owner |
 | POST   | `/api/admin/unassign-jury`             | Remove jury member                 | Owner |
+| GET    | `/api/admin/contests/{code}/jury-restrictions` | List jury/submitter COI restrictions | Owner |
+| POST   | `/api/admin/contests/{code}/jury-restrictions` | Add jury/submitter COI restriction | Owner |
+| DELETE | `/api/admin/contests/{code}/jury-restrictions/{restriction_id}` | Remove COI restriction | Owner |
+| GET    | `/api/admin/contests/{code}/banned-users` | List review-v2 exclusions | Owner |
+| POST   | `/api/admin/contests/{code}/banned-users` | Hide a submitter from review-v2 | Owner |
+| DELETE | `/api/admin/contests/{code}/banned-users/{ban_id}` | Restore a submitter to review-v2 | Owner |
 | GET    | `/api/admin/contests/{code}/export/csv`  | Export contest submissions CSV     | Owner |
 | GET    | `/api/admin/contests/{code}/export/json` | Export contest submissions JSON    | Owner |
 | GET    | `/api/admin/contests/{code}/export/wikitable` | Export contest submissions Wikitable | Owner |
+| GET    | `/api/admin/backup/download`          | Download current SQLite database or MariaDB dump | Owner |
 
 ### Articles & Reviews
 | Method | Path                                          | Description                        | Auth       |
@@ -127,7 +136,11 @@ D:\Quote Contest\article-tool\
 | GET    | `/api/articles/{contest_code}/pending/next`   | Next pending article for review    | Jury/Owner |
 | POST   | `/api/articles/{article_id}/lock`             | Lock article for review            | Required   |
 | POST   | `/api/articles/{article_id}/review`           | Submit review decision             | Jury/Owner |
+| POST   | `/api/articles/bulk-review`                   | Review up to 500 articles in one request | Jury/Owner |
 | DELETE | `/api/articles/{article_id}`                  | Remove article from contest        | Jury/Owner |
+| POST   | `/api/articles/bulk-delete`                   | Remove up to 500 articles in one request | Jury/Owner |
+| GET    | `/api/jury-panel/contests/{code}/articles/page` | Paginated assigned jury queue with counts | Jury/Owner |
+| GET    | `/api/jury-panel/contests/{code}/progress`     | Assigned/judged jury progress      | Jury/Owner |
 | GET    | `/api/proxy/article/{title}`                  | Proxy bn.wiktionary article HTML   | None       |
 
 ---
@@ -181,12 +194,116 @@ npm run dev                  # Starts on http://localhost:3000
 | `SESSION_SECRET`          | JWT signing key & session middleware   |
 | `OAUTH_CALLBACK_URL`      | OAuth redirect URI (default: `http://localhost:3000/auth/callback`) |
 
+Before schema migrations run, the backend writes a rollback snapshot under `backup/pre_migration/` in the project codebase (or under `BACKUP_ROOT/backup/pre_migration/` when `BACKUP_ROOT` is set). SQLite uses exact database-file copies. Toolforge MariaDB uses `mysqldump` when available and otherwise stores every application table, column, and row in JSON; any local SQLite projection databases are copied too. These snapshots contain credentials/tokens and should be kept private.
+
 ---
 
 ## Change Log
 
+| 2026-08-28 | Fixed Jury Progress loading by moving its initial API request into `onMounted`, so `/jury` no longer reports “No jury assignment data available yet” on first render. |
+| 2026-08-28 | Added bounded jury queue pagination with server-side totals/status counts and bulk review/delete endpoints (up to 500 IDs per request); Review v2 now requests 250-item pages and appends additional server pages on demand. |
+| 2026-08-28 | Added recoverable article deletion snapshots with a five-minute, permission-checked undo token; single and bulk deletion responses now expose restore metadata, and Review v2/Jury Stats show an Undo action. The duplicate Pending Review count was removed from the queue group header because the pending total is already shown in the compact stats strip. |
+| 2026-08-28 | Fixed Undo to retain multiple recent deletion tokens and restore them together; bulk deletion reconciliation in Review v2 now refreshes silently without showing the full-screen queue loader. |
+| 2026-08-28 | Removed the optional article-deletion Undo feature at the user’s request; deletion snapshots, restore endpoint, undo UI, and related migration were removed. Bulk deletion remains available without recovery prompts. |
+| 2026-08-28 | Closed `/api/submit-bulk` outside the contest start/end window, including before-start protection; Submit Articles also disables fetching and submitting with a clear contest-closed message, while backend enforcement remains authoritative. |
+| 2026-08-28 | Simplified incremental loading controls by removing misleading client-side “remaining” counts; progress-table Remaining values are unchanged because they represent jury assignment data. |
+| 2026-08-28 | Removed the unnecessary mobile preview bottom margin that created a visible gap before the fixed review decision panel. |
+| 2026-08-28 | Made mobile review decisions a single four-button inline row with compact colored icons and labels: Accept, Reject, Skip, and Delete; desktop action layout is unchanged. |
+| 2026-08-28 | Added a compact mobile review workspace for `/jury/review`: tightened queue rows/groups, owner controls, statistics, article header, decision dock, action buttons, mobile navigation, and review top-bar spacing while preserving desktop behavior. |
+| 2026-08-28 | Added the missing light-mode review top-bar theme so `/jury/review-v2` switches its Back to Jury control, contest title, borders, and background to the shared light palette. |
+| 2026-08-28 | Redesigned the full-screen review top bar with a slate-blue gradient shell, compact elevated Back to Jury control, readable contest title, active-status accent, focus state, and improved responsive spacing. |
+| 2026-08-28 | Fixed empty Jury Progress data by moving the progress API request into `JuryStats.vue` initial loading; article deletion handlers no longer own the initial progress fetch. |
+| 2026-08-28 | Updated Jury Progress rows to show each member’s judged/assigned count directly beside the completion bar, such as `1,245 / 3,319`. |
+| 2026-08-28 | Kept the original Jury Activity Breakdown table and added Jury Progress as a separate section at the end of `/:code/jury`, showing assigned, judged, remaining, and completion percentage. |
+| 2026-08-28 | Added the missing contest `/progress` route as an alias to the Jury Progress/Statistics view, fixing the blank `/:code/progress` page while preserving the existing `/jury` route. |
+| 2026-08-28 | Restricted the ReviewQueue “Other Judges” article section to owners, added owner/current-jury scoped `/api/jury-panel/contests/{code}/progress`, and replaced Jury Statistics activity rows with assigned/judged/remaining progress and completion percentage. |
+| 2026-08-28 | Improved jury-panel distribution after COI/self-review changes: assignment metadata now fingerprints the actual restrictions and self-review setting, pending work is balanced against each jury’s existing reviewed load, and self-review eligibility follows `allow_self_review`. |
+| 2026-08-28 | Fixed bulk review preview state: when the currently previewed article is included in a successful bulk Accept/Reject, the old preview is cleared before advancing; preview request IDs prevent stale article responses from overwriting the next article. |
+| 2026-08-28 | Fixed bulk Accept/Reject to refresh the review queue silently with `fetchArticles(false)` and added explicit non-submit behavior to bulk action buttons, preventing the loading screen from replacing the workspace. |
+| 2026-08-28 | Made the post-review background queue reconciliation silent by calling `fetchArticles(false)`, preventing the full “Loading review queue…” state from replacing the workspace after Accept/Reject. |
+| 2026-08-28 | Changed ReviewQueue Accept/Reject handling to update the local article queue optimistically, advance immediately without waiting for a full refetch, reconcile server data in the background, and explicitly prevent native button submission/navigation. |
+| 2026-08-28 | Simplified the ReviewQueue bulk comment placeholder to `Add comment`. |
+| 2026-08-28 | Compacted the ReviewQueue owner View as controls and Total/Pending/OK/Rejected statistics strip to reduce left-panel height and preserve article navigation space. |
+| 2026-08-28 | Compacted the ReviewQueue bulk-review comment panel with tighter padding, inline truncated helper text, and a smaller resizable textarea so the left article queue retains more navigation space when multiple articles are selected. |
+| 2026-08-28 | Optimized `/jury/review-v2` sidebar expansion by unmounting collapsed queue lists, rendering each expanded section in 100-item batches with Load more controls, and replacing the expensive grid-height transition; corrected group arrows to point right when collapsed and down when expanded. |
+| 2026-08-28 | Removed the unintended white backing from the grouped Jury submissions section so the page uses one continuous blue-gray canvas while retaining elevated white header and user cards. |
+| 2026-08-28 | Refined the grouped Jury submission header with a dedicated contest-submissions label, article/user/selection summary pills, clearer action grouping, improved button hierarchy, and responsive mobile behavior. |
+| 2026-08-28 | Updated the Jury Statistics submission workspace to group all submitted articles by submitter in collapsed user cards, with per-article selection, per-user select-all, global select-all, and bulk deletion through the existing article removal endpoint. |
+| 2026-08-28 | Added contest-scoped submitter bans: owners can hide users from the `/review-v2` jury panel through Contest Configuration; banned articles remain in contest records and exports, while the jury projection removes them and rebuilds when bans change. Added `ContestBannedUser`, migration, and owner-only ban management APIs. |
+| 2026-08-28 | Redesigned the owner Admin Management Suite styling around the shared light Feather palette with clearer command navigation, calmer surfaces, readable tables/forms, responsive controls, and a review-exclusion KPI; admin contest-list and stats responses now include ban counts. |
+| 2026-08-28 | Replaced the Admin Management Suite's prominent emoji-only KPI and navigation indicators with local Heroicons-style SVG assets under `frontend-vue/src/assets/admin-icons/`; CSS masks keep the icons scalable and CDN-independent. |
+| 2026-08-28 | Improved non-review page text contrast by normalizing legacy gray supporting-text selectors to the readable `--feather-muted` token in `light-theme.css`; the ReviewQueue theme remains isolated. |
+| 2026-08-28 | Fixed light-theme activity-log count badges so values such as per-user submission counts use navy text on a readable blue-gray surface with a defined border. |
+| 2026-08-28 | Added a final light-theme contrast pass for legacy button and label classes across all non-review stylesheets, including `.preset-chip`, rule badges, jury chips, tabs, secondary actions, and slate utility text. |
+| 2026-08-28 | Paired remaining legacy non-review dark panels with light surfaces and readable foreground tokens, preventing navy text from appearing on dark backgrounds across logs, stats, submissions, profiles, results, admin, and configuration views. |
+| 2026-08-28 | Corrected the Activity Log view switch so `.toggle-bar` remains a quiet wrapper and only the segmented control receives the tinted control surface, avoiding an oversized white block. |
+| 2026-08-28 | Completed the Activity Log component contrast audit: restored semantic surfaces and readable dark text for Total, Accepted, Rejected, Pending, and Errors stat chips instead of applying the generic white-panel rule. |
+| 2026-08-28 | Completed a component-level Jury Stats light-theme audit, pairing its scoped hero, KPI, chart, table, submission, and moderation surfaces with readable Feather foreground colors and updated chart labels/ticks. |
+| 2026-08-28 | Rebuilt the Jury Stats route from a fresh `JuryStatsFresh.css` canvas instead of layering overrides over its dark legacy stylesheet; the existing workflow now uses a clean command-center composition with responsive analytics and moderation sections. |
+| 2026-08-28 | Strengthened the Activity Log active `Per-User Table` tab override with explicit white text and text-fill color so the selected control cannot inherit a dark foreground. |
+| 2026-08-28 | Enhanced the Admin Dashboard Create New Contest wizard with a live setup summary, date-duration readout, core-rule/jury/template counters, connected step navigation, and responsive wizard footer guidance while preserving the existing form payload and API flow. |
+| 2026-08-28 | Redesigned `/:code/config` with an owner-controls header, contest code and live summary strip, clearer tab navigation, lighter form/rule surfaces, two-column jury management layout, and responsive mobile behavior. |
+| 2026-08-28 | Made the contest configuration route a full-width continuous Feather canvas so centered content no longer creates mismatched left/right background bands. |
+| 2026-08-28 | Fixed the normal contest shell background split by changing `.contest-content` from a white fill to the shared Feather canvas; configuration content now grows uniformly without blue-center/white-side bands. |
+| 2026-08-28 | Restyled contest configuration COI restriction rows as readable light cards with emphasized jury/submitter names, distinct remove actions, and mobile stacking. |
+| 2026-08-28 | Fixed Activity Log segmented tabs such as `Per-User Table` so inactive labels remain readable and the active tab uses the Feather accent with white text and a clear selected state. |
+
+| 2026-08-28 | Completed a second light-theme audit: added explicit overrides for remaining dark admin, contest, profile, log, results, jury, and article-submission panels, including their inputs, lists, tables, modal layers, and action states; the full-screen review workspace remains independently themed. |
+| 2026-08-28 | Fixed the normal contest shell used by `/:code`: explicitly overrides the scoped dark layout, header, content, navigation, active-link, and date-chip styles while leaving `/jury/review` and `/jury/review-v2` untouched. |
+| 2026-08-28 | Extracted every Vue view’s embedded scoped stylesheet into `frontend-vue/src/styles/views/*.css` and switched the views to external `<style scoped src>` files; shared application styling remains in `src/style.css`, making the light theme and per-view CSS maintainable without changing selector scoping. |
+| 2026-08-28 | Removed duplicate global dark/light CSS layers and the unused Codex dark-mode import; `src/style.css` now contains only structural defaults, while `src/styles/light-theme.css` is the single shared application theme. |
+| 2026-08-28 | Redesigned `ContestDashboard.vue` hero into a light contest overview layout with a clear title/date area, dedicated countdown and jury panel, stronger action hierarchy, responsive spacing, and light statistic cards; removed inline hero styles. |
+| 2026-08-28 | Restored shared form, focus, Codex menu/progress, button, and document-color behavior removed during the CSS deduplication pass; these are now maintained once in `styles/light-theme.css` using light tokens. |
+| 2026-08-28 | Redesigned the `/` home page in `Home.css` with a light editorial hero, restrained ambient decoration, clearer contest cards, accessible status colors, improved spacing, and mobile-specific layout behavior while preserving existing content and navigation. |
+| 2026-08-28 | Unified the home page into one continuous light surface by removing the hero wave divider and separate section boundary; welcome content and contest discovery now share the same visual canvas and spacing rhythm. |
+| 2026-08-28 | Redesigned the bottom cookie-consent panel for the light theme with a white elevated surface, readable navy/muted text, light secondary action, and consistent border/shadow treatment. |
+| 2026-08-28 | Fixed the remaining black strip beneath the home page by overriding the dark `App.vue` `.app-layout` and `.app-main` wrappers with the shared light background. |
+| 2026-08-28 | Simplified the home hero by removing the grid texture and section-divider styling that created a distracting white line above the Contests heading; the page now uses a quieter continuous light background. |
+| 2026-08-28 | Made the home page `.section-header` transparent so the Contests label no longer receives the shared alternate-surface background and the unified page canvas remains visually continuous. |
+| 2026-08-28 | Redesigned the app-wide navbar in extracted `styles/App.css` with a light glass shell, clearer active navigation, refined brand/account controls, and a compact mobile layout; extracted the remaining `App.vue` stylesheet from the component. |
+| 2026-08-28 | Added `docs/STYLE_GUIDE.md` documenting the light palette, component rules, CSS ownership, review-route exception, maintenance workflow, and the `frontend-app-builder` and `human-writing-style` skills used for the visual work. |
+| 2026-08-28 | Applied the Review v2 slate/navy light palette across all non-review routes via a scoped global theme layer; `/review-v2` retains its independent dark/light switch. Updated surfaces, typography, forms, Codex controls, tables, navigation, and scrollbars. |
+| 2026-08-28 | Changed the ReviewQueue default theme from dark to light so the entire application opens in the shared light palette; an explicitly saved dark preference and the manual theme switch remain supported. |
+| 2026-08-28 | Extended pre-migration snapshots to preserve every local SQLite database, including `jury_panel.db`, alongside the primary application database. |
+| 2026-08-28 | Excluded runtime `backup/` snapshots from version control because pre-migration backups contain private database/session data; backups remain stored on the deployed Toolforge filesystem. |
+| 2026-08-28 | Added a mandatory pre-migration database snapshot: SQLite databases are copied exactly, while Toolforge MariaDB uses `mysqldump` with a complete table/row JSON fallback; migrations stop if an existing database cannot be backed up. |
+| 2026-08-28 | Added an owner-only Admin Dashboard `Download Backup` button and `/api/admin/backup/download`; SQLite downloads the live DB file, while Toolforge downloads a freshly generated SQL/JSON database dump. |
+| 2026-08-28 | Added an explicit idempotent `contest_jury_restrictions` table migration for Toolforge upgrades; existing database tables and rows are preserved, and the SQLite jury projection now has a busy timeout for concurrent access. |
+| 2026-08-28 | Made contest configuration loading aggregate article counts and submitters in SQL instead of loading every article, and added a 30-second SQLite busy timeout to the jury projection for concurrent refresh safety. |
+| 2026-08-28 | Added conflict-of-interest-aware jury distribution: juries cannot receive their own articles or configured submitter conflicts; pending assignments are balanced across eligible juries, and backend review endpoints enforce the same restrictions. Added owner controls in Contest Configuration to add/remove jury-versus-submitter restrictions. |
+| 2026-08-28 | Added a projection-count recovery check so queues previously emptied by the refresh regression automatically rebuild once after deployment. |
+| 2026-08-28 | Fixed a jury-panel refresh regression that rebuilt/deleted the projection on unchanged polls; also replaced per-article projection lookups with a single preload query to reduce initial sync latency. |
+| 2026-08-28 | Fixed the ReviewQueue light theme for the left article-list scrollbar and bulk-selection checkboxes, including native light control rendering and scrollbar track/thumb colors. |
+| 2026-08-28 | Prevented aborted ReviewQueue refreshes from incorrectly clearing the loading state of a newer request. |
+| 2026-08-28 | Optimized ReviewQueue refreshes by caching the contest role, aborting superseded article requests, and cancelling in-flight polling on unmount to prevent overlapping network work. |
+| 2026-08-28 | Optimized jury-panel refreshes with a per-contest projection fingerprint; unchanged queues skip full article/review mirroring while still preserving persistent assignments and detecting new submissions or reviews. |
+| 2026-08-28 | Added a bulk review comment panel to `ReviewQueue.vue` when multiple articles are selected; the entered comment is submitted with each bulk accept/reject decision and clears when the selection drops below two. |
+| 2026-08-28 | Fixed remaining ReviewQueue light-mode surfaces: the article sidebar scroll container and comment textarea now override global dark native-form styling, including focus and placeholder states. |
+| 2026-08-28 | Fixed jury-panel projection freshness: article statuses, validation metadata, and non-skipped review history are synchronized on each queue read, and deleted legacy articles are removed from the projection. Assignment ownership remains persistent. |
+| 2026-08-28 | Updated `ReviewQueue.vue` with a slate/navy color palette and a persistent Light/Dark mode switch stored in `localStorage`; existing review behavior remains unchanged. |
+| 2026-08-28 | Completed ReviewQueue theme switching: light/dark variables now cover the full review shell, and the wiki article iframe rebuilds with a matching light or dark stylesheet when the theme changes. |
+| 2026-08-28 | Reworked the wiki preview dark stylesheet to use the slate/navy review palette instead of pure black, white, and grey surfaces. |
+| 2026-08-28 | Applied the provided HSL/OKLCH color palette to ReviewQueue dark and light theme tokens, with HSL fallbacks and OKLCH overrides. |
+| 2026-08-28 | Aligned the outer article preview container, review input, and preview error state with the new theme palette instead of the remaining hardcoded dark-blue/black values. |
+| 2026-08-28 | Added a dedicated Errored tab to `JuryStats.vue` for validation-failed submissions, with select-all, multi-select, and bulk deletion using the existing article-delete API. |
+| 2026-08-28 | Optimized `/api/jury-panel/contests/{code}/articles`: owner Judge mode now filters server-side with `view_as`, and the review database skips full 10k-article mirroring when its article count is already current. |
+| 2026-08-28 | Fixed local wiki-replica configuration loading by loading `backend/.env` before importing `database.py`; configured the Bengali replica tunnel to use local port `4407` instead of the English replica port. |
+| 2026-08-28 | Added article selection ranges of 10, 100, 1,000, and 2,000 in `SubmitArticles.vue`; unavailable ranges are disabled and manual selection is capped at the chosen range. |
+| 2026-08-28 | Restored the original `Select all` behavior as an explicit selection-range option alongside the numeric ranges. |
+| 2026-08-28 | Changed submission ranges to auto-apply on dropdown changes and added a Custom article-count input; numeric and custom limits are enforced for manual checkbox selection. |
+| 2026-08-28 | Made the submission range selector start with an unset `—` placeholder so no articles are selected until the user explicitly chooses a range. |
+| 2026-08-28 | Improved large submission-list performance by rendering available articles in batches of 200 and already-submitted articles in batches of 100 with Load more controls; selection still operates on the complete in-memory data set. |
+| 2026-08-28 | Added `/jury/review-v2`, reusing the existing review interface with `GET /api/jury-panel/contests/{code}/articles`; the original `/jury/review` remains the all-articles fallback queue. |
+| 2026-08-28 | Updated the Jury Stats Start Judging action to open `/jury/review-v2`; the contest layout now treats both review routes as full-screen review pages. |
+| 2026-08-28 | Fixed `/jury/review-v2` document overflow by making `App.vue` hide the app header on the new full-screen review route; internal queue and preview areas retain scrolling. |
+| 2026-08-28 | Added sanitized `backend/.env.example` and expanded `services/jury-panel/.env.example` with required local configuration placeholders; no secret values were copied. |
+| 2026-08-28 | Added `backend/jury_panel_store.py` and `GET /api/jury-panel/contests/{code}/articles`; the new endpoint mirrors read-only article data into `backend/jury_panel.db` and assigns pending articles across juries while leaving the legacy queue endpoint unchanged. |
+
 | Date       | Change Description                                              |
 | 2026-08-07 | Removed both navigation bars (app-level header and contest header) from the `/jury/review` route. `App.vue` now conditionally hides `<header>` when `route.path` ends with `/jury/review`. `ContestLayout.vue` replaces the contest header with a slim `review-topbar` containing a `← Back to Jury` button that navigates to `/{code}/jury`. The review layout uses `100dvh` (full viewport) since the app header is absent. |
+| 2026-08-28 | Updated the embedded wiki preview dark theme to use the configured OKLCH palette for its page, tables, infoboxes, navigation frames, headings, and inline-style overrides, preventing the preview iframe from remaining black while the review shell uses the selected theme. |
+| 2026-08-28 | Fixed ReviewQueue Codex icons inheriting incompatible dark/light colors by explicitly binding icon SVGs to the review theme and defining readable hover and action-button states. |
+| 2026-08-28 | Improved ReviewQueue sidebar toggling with a shorter width-only transition to reduce layout reflow lag, and added light-mode overrides for remaining dark status chips, wiki link, error message, inputs, and borders. |
 | 2026-08-07 | Fixed mobile scroll issues across the tool: (1) `ContestLayout.vue` switched from `100vh` to `100dvh` so content is no longer clipped behind the mobile browser address bar; (2) on mobile, non-review pages (Submit, Dashboard, Results) now use `overflow-y:auto` instead of `overflow:hidden` so they are scrollable; only the review shell stays locked; (3) `ReviewQueue.vue` mobile `.review-area` switched from `overflow:hidden` to `overflow-y:auto` + `-webkit-overflow-scrolling:touch` + `padding-bottom:174px` so the article preview is fully scrollable above the fixed review bar; (4) `style.css` disables `scrollbar-gutter:stable` on mobile (overlay scrollbars need no gutter) and adds `overscroll-behavior-y:none` to prevent accidental pull-to-refresh. |
 | 2026-08-07 | Fixed two `ReviewQueue.vue` bugs: (1) Preview iframe link colors restored to Wikipedia standard — blue (#3366cc) for unvisited, purple (#795cb2) for visited, and red (#d33) for missing-page red-links (`.new` class); previously all links were overridden to gray (#d1d5db). (2) Removed random article selection on mount and after bulk actions — the queue now always advances serially to `availableNewArticles[0]` so articles are reviewed in submission order. |
 | 2026-08-06 | Removed unused files and components: deleted root-level utility scripts (`app.py`, `recolor.py`, `data.json`, `names.txt`), the `benchmark/` directory and `benchmark_results.json`, the Vite starter assets (`assets/hero.png`, `assets/vite.svg`, `assets/vue.svg`), and the four obsolete starter components (`components/HelloWorld.vue`, `AdminPanel.vue`, `BulkSubmit.vue`, `ReviewQueue.vue`). Removed the duplicate `jury-stats` route alias from `router.js` and updated `ContestDashboard.vue` to link to `/jury` instead. |

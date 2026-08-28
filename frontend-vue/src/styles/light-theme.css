@@ -1,0 +1,371 @@
+/* Final application light layer. Loaded after Codex so legacy dark view rules
+   and dark design tokens cannot leak into normal contest/admin pages. */
+:root {
+  color-scheme: light;
+  --feather-bg: #e7f0f8;
+  --feather-surface: #ffffff;
+  --feather-surface-alt: #f4f8fb;
+  --feather-border: #c7d6e3;
+  --feather-text: #20364d;
+  --feather-muted: #47637c;
+  --feather-accent: #355b80;
+}
+
+body:not(:has(.rq-app)),
+body:not(:has(.rq-app)) #app {
+  background: var(--feather-bg) !important;
+  color: var(--feather-text) !important;
+}
+body:not(:has(.rq-app)) html,
+body:not(:has(.rq-app)) body { color: var(--feather-text); }
+body:not(:has(.rq-app)) button { font-family: inherit; }
+body:not(:has(.rq-app)) button:focus-visible,
+body:not(:has(.rq-app)) a:focus-visible,
+body:not(:has(.rq-app)) input:focus-visible,
+body:not(:has(.rq-app)) textarea:focus-visible,
+body:not(:has(.rq-app)) select:focus-visible {
+  outline: 3px solid rgba(53,91,128,.22) !important;
+  outline-offset: 2px;
+}
+body:not(:has(.rq-app)) .app-header,
+body:not(:has(.rq-app)) .contest-header,
+body:not(:has(.rq-app)) .contest-content,
+body:not(:has(.rq-app)) .contest-layout,
+body:not(:has(.rq-app)) .home-root,
+body:not(:has(.rq-app)) .admin-suite,
+body:not(:has(.rq-app)) .config-page,
+body:not(:has(.rq-app)) .dashboard,
+body:not(:has(.rq-app)) .result-page,
+body:not(:has(.rq-app)) .gp-page,
+body:not(:has(.rq-app)) .stats-page,
+body:not(:has(.rq-app)) .submit-page,
+body:not(:has(.rq-app)) .user-profile,
+body:not(:has(.rq-app)) .log-root {
+  background: var(--feather-bg) !important;
+  color: var(--feather-text) !important;
+}
+body:not(:has(.rq-app)) .app-header,
+body:not(:has(.rq-app)) .contest-header {
+  background: rgba(255,255,255,.96) !important;
+  border-color: var(--feather-border) !important;
+  box-shadow: 0 1px 12px rgba(32,54,77,.08) !important;
+}
+body:not(:has(.rq-app)) .app-layout,
+body:not(:has(.rq-app)) .app-main {
+  background: var(--feather-bg) !important;
+  color: var(--feather-text) !important;
+}
+body:not(:has(.rq-app)) .cookie-banner-inner {
+  background: rgba(255,255,255,.97) !important;
+  border-color: var(--feather-border) !important;
+  box-shadow: 0 14px 34px rgba(32,54,77,.16) !important;
+}
+body:not(:has(.rq-app)) .cookie-icon { color: var(--feather-accent) !important; }
+body:not(:has(.rq-app)) .cookie-text strong { color: var(--feather-text) !important; }
+body:not(:has(.rq-app)) .cookie-text span { color: var(--feather-muted) !important; }
+body:not(:has(.rq-app)) .cookie-btn--decline {
+  background: #f4f8fb !important;
+  border-color: var(--feather-border) !important;
+  color: var(--feather-accent) !important;
+}
+body:not(:has(.rq-app)) .cookie-btn--decline:hover {
+  background: #e7f0f7 !important;
+  color: var(--feather-text) !important;
+}
+
+body:not(:has(.rq-app)) :where(
+  .card, .contest-card, .admin-header-card, .kpi-card, .controls-card,
+  .empty-card, .table-card, .form-pane-card, .rule-input-card,
+  .wikitext-preview-card, .jury-hub-card, .jury-add-card, .jury-list,
+  .stat-card, .leaderboard-card, .jury-card, .hero-card, .event-card,
+  .chart-card, .chart-card-wide, .submissions-panel, .submissions-table-wrap,
+  .user-card, .timeline-card, .table-wrapper, .results-card,
+  .results-table-wrapper, .modal-card, .search-box, .chip-filter,
+  .view-switch, .card-metrics-row, .rule-card-toggle, .restriction-panel,
+  .restriction-list, .restriction-row, .article-section, .article-list,
+  .article-item, .article-item__box, .article-search, .preview-box,
+  .code-box, .inner-table, .empty-state
+) {
+  background: var(--feather-surface) !important;
+  border-color: var(--feather-border) !important;
+  color: var(--feather-text) !important;
+  box-shadow: 0 8px 24px rgba(32,54,77,.08) !important;
+}
+body:not(:has(.rq-app)) :where(
+  .card-top-bar, .section-header, .article-section__header,
+  .submissions-header, .submission-toolbar, .modal-header, .modal-footer,
+  .filter-group, .jury-section-title, .table-header
+) { background: var(--feather-surface-alt) !important; }
+
+body:not(:has(.rq-app)) :where(
+  h1, h2, h3, h4, h5, h6, .suite-title, .section-title,
+  .card-title, .card-code, .contest-name, .result-title,
+  .profile-name, .article-item__title, .table-title
+) { color: var(--feather-text) !important; }
+body:not(:has(.rq-app)) :where(
+  p, small, .suite-desc, .field-hint, .card-desc, .card-meta,
+  .card-dates, .filter-label, .kpi-lbl, .kpi-sub, .muted,
+  .article-item__meta, .empty-msg, .result-message, .td-reviewer,
+  .td-date, .timeline-meta, .event-meta
+) { color: var(--feather-muted) !important; }
+body:not(:has(.rq-app)) :where(a, .nav-link, .nav-tab, .link-btn, .article-link) {
+  color: var(--feather-accent) !important;
+}
+
+/* Keep supporting copy readable on the light canvas. Some view styles still
+   carry legacy gray values, so normalize their common text roles here. */
+body:not(:has(.rq-app)) :where(
+  .suite-desc, .header p, .page-header p, .form-pane-header p,
+  .field-hint, .toggle-desc, .restriction-help, .restriction-empty,
+  .loading-state, .no-jurors-notice, .empty-card p, .empty-state,
+  .card-dates, .card-meta, .timeline-meta, .td-reviewer, .td-date,
+  .muted-cell, .date-cell, .spinner-label, .search-icon, .home-icon,
+  .filter-label, .kpi-lbl, .kpi-sub, .chip-lbl, .text-slate-400,
+  .text-slate-500, .text-gray-500, .text-gray-400
+) {
+  color: var(--feather-muted) !important;
+}
+body:not(:has(.rq-app)) :where(.text-slate-400, .text-gray-400) {
+  color: #47637c !important;
+}
+body:not(:has(.rq-app)) .count-badge {
+  background: #dce9f2 !important;
+  color: #20364d !important;
+  border: 1px solid #b7ccdc !important;
+}
+body:not(:has(.rq-app)) button:not(.cdx-button--weight-primary):not(.action-btn.primary):not(.card-btn.primary):not(.submit-btn.primary):not(.save-btn):not(.admin-btn):not(.primary-action):not(.judge-hero-btn):not(.export-btn) {
+  color: var(--feather-text) !important;
+}
+body:not(:has(.rq-app)) :where(
+  .preset-chip, .rule-tag, .rule-badge, .juror-chip, .jury-tag-new,
+  .tag, .jury-pill-btn, .tab-btn, .view-tab, .filter-btn, .w-tab,
+  .submit-btn.quiet, .card-btn.secondary, .icon-action-btn,
+  .action-btn.secondary, .text-slate-100, .text-slate-200,
+  .text-gray-100, .text-gray-200
+) {
+  color: var(--feather-text) !important;
+}
+body:not(:has(.rq-app)) .preset-chip,
+body:not(:has(.rq-app)) .w-tab,
+body:not(:has(.rq-app)) .submit-btn.quiet {
+  background: #f4f8fb !important;
+  border-color: var(--feather-border) !important;
+}
+body:not(:has(.rq-app)) .preset-chip:hover,
+body:not(:has(.rq-app)) .w-tab.active {
+  background: #dce9f2 !important;
+  color: var(--feather-text) !important;
+}
+body:not(:has(.rq-app)) .preset-chip.active {
+  background: var(--feather-accent) !important;
+  border-color: var(--feather-accent) !important;
+  color: #ffffff !important;
+}
+body:not(:has(.rq-app)) .segmented-control {
+  background: #e4eef5 !important;
+  border: 1px solid var(--feather-border) !important;
+}
+body:not(:has(.rq-app)) .seg-btn {
+  color: var(--feather-muted) !important;
+}
+body:not(:has(.rq-app)) .seg-btn.active {
+  background: var(--feather-accent) !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 7px rgba(53,91,128,.22) !important;
+}
+body:not(:has(.rq-app)) .seg-btn:not(.active):hover {
+  background: #d6e5ef !important;
+  color: var(--feather-text) !important;
+}
+
+body:not(:has(.rq-app)) :where(
+  input, textarea, select, .native-input, .search-input,
+  .article-search__input, .selection-custom-input, .cdx-text-input,
+  .cdx-text-input__input
+) {
+  color-scheme: light !important;
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  border-color: var(--feather-border) !important;
+  color: var(--feather-text) !important;
+  box-shadow: none !important;
+}
+body:not(:has(.rq-app)) :where(input, textarea, select)::placeholder {
+  color: #6b8297 !important;
+}
+body:not(:has(.rq-app)) :where(input, textarea, select):focus {
+  border-color: #6c91b1 !important;
+  box-shadow: 0 0 0 3px rgba(53,91,128,.14) !important;
+}
+body:not(:has(.rq-app)) select option {
+  background: #ffffff !important;
+  color: var(--feather-text) !important;
+}
+body:not(:has(.rq-app)) .cdx-menu {
+  background: #ffffff !important;
+  border-color: var(--feather-border) !important;
+  box-shadow: 0 12px 30px rgba(32,54,77,.16) !important;
+}
+body:not(:has(.rq-app)) .cdx-menu-item,
+body:not(:has(.rq-app)) .cdx-menu-item__content,
+body:not(:has(.rq-app)) .cdx-label__label {
+  color: var(--feather-text) !important;
+}
+body:not(:has(.rq-app)) .cdx-menu-item--highlighted,
+body:not(:has(.rq-app)) .cdx-menu-item--active { background: #e7f0f7 !important; }
+body:not(:has(.rq-app)) .cdx-menu__no-results,
+body:not(:has(.rq-app)) .cdx-menu__pending {
+  background: #ffffff !important;
+  color: var(--feather-muted) !important;
+}
+body:not(:has(.rq-app)) .cdx-progress-bar,
+body:not(:has(.rq-app)) .cdx-text-input__progress-bar {
+  background: #dbe7f0 !important;
+  background-image: none !important;
+}
+body:not(:has(.rq-app)) .cdx-progress-bar__bar,
+body:not(:has(.rq-app)) .cdx-text-input__progress-bar::after {
+  background: var(--feather-accent) !important;
+  background-image: none !important;
+}
+body:not(:has(.rq-app)) .cdx-button:not(.cdx-button--weight-primary) {
+  min-height: 32px;
+  border-color: var(--feather-border) !important;
+  background: #ffffff !important;
+  color: var(--feather-accent) !important;
+}
+body:not(:has(.rq-app)) .cdx-button:not(.cdx-button--weight-primary):hover {
+  background: #e7f0f7 !important;
+  color: var(--feather-text) !important;
+}
+body:not(:has(.rq-app)) .cdx-button--weight-primary {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+body:not(:has(.rq-app)) .cdx-checkbox__input:enabled + .cdx-checkbox__icon {
+  background: #ffffff !important;
+  border-color: #8fa7bb !important;
+}
+body:not(:has(.rq-app)) .cdx-checkbox__input:enabled:checked + .cdx-checkbox__icon {
+  background: var(--feather-accent) !important;
+  border-color: var(--feather-accent) !important;
+}
+
+body:not(:has(.rq-app)) :where(
+  button.admin-btn, button.action-btn.primary, button.card-btn.primary,
+  button.card-cta, button.save-btn, button.submit-btn, button.btn-primary,
+  button.primary-action, button.judge-hero-btn, button.export-btn
+) {
+  background: var(--feather-accent) !important;
+  border-color: var(--feather-accent) !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+body:not(:has(.rq-app)) :where(
+  .nav-link:hover, .nav-tab:hover, .link-btn:hover,
+  .action-btn.secondary:hover, .card-btn.secondary:hover,
+  .view-switch button:hover, .chip-filter button:hover
+) { background: #e7f0f7 !important; color: var(--feather-text) !important; }
+body:not(:has(.rq-app)) table,
+body:not(:has(.rq-app)) th,
+body:not(:has(.rq-app)) td { border-color: var(--feather-border) !important; color: var(--feather-text) !important; }
+body:not(:has(.rq-app)) th { background: #e7f0f7 !important; }
+body:not(:has(.rq-app)) tr:nth-child(even) td { background: #f4f8fb !important; }
+body:not(:has(.rq-app)) ::-webkit-scrollbar-track { background: #edf3f7 !important; }
+body:not(:has(.rq-app)) ::-webkit-scrollbar-thumb { background: #91a7ba !important; border-color: #edf3f7 !important; }
+body:not(:has(.rq-app)) * { scrollbar-color: #91a7ba #edf3f7; }
+
+/* The normal contest shell gets a direct override even if :has() is not
+   available in an older browser. */
+body .contest-layout:not(.review-layout) {
+  background: var(--feather-bg) !important;
+  color: var(--feather-text) !important;
+}
+body .contest-layout:not(.review-layout) .contest-header,
+body .contest-layout:not(.review-layout) .contest-header {
+  background: var(--feather-surface) !important;
+  border-color: var(--feather-border) !important;
+}
+body .contest-layout:not(.review-layout) .contest-content {
+  background: var(--feather-bg) !important;
+  border-color: var(--feather-border) !important;
+}
+
+/* Legacy normal-page panels: keep background and foreground tokens paired. */
+body:not(:has(.rq-app)) :where(
+  .log-root, .stats-page, .submit-page, .user-profile, .result-page,
+  .admin-suite, .config-page, .home-root, .dashboard
+) { background: var(--feather-bg) !important; color: var(--feather-text) !important; }
+body:not(:has(.rq-app)) :where(
+  .stats-bar, .user-header, .user-table-wrap, .timeline-card,
+  .error-box, .wikitext-preview-card, .talk-options-expanded,
+  .assigned-jurors-grid, .tag-input-wrapper, .jury-suggest-dropdown,
+  .suggestions, .preview-box, .unauthorized-content, .toast-banner,
+  .user-table, .data-table, .submissions-table,
+  .inner-table, .article-list, .article-item
+) {
+  background: #ffffff !important;
+  border-color: var(--feather-border) !important;
+  color: var(--feather-text) !important;
+  box-shadow: 0 6px 18px rgba(32,54,77,.07) !important;
+}
+body:not(:has(.rq-app)) :where(
+  .log-root, .stats-page, .submit-page, .user-profile, .result-page,
+  .admin-suite, .config-page
+) :where(.text-slate-100, .text-slate-200, .text-gray-100, .text-gray-200,
+  .card-title, .section-title, .page-title, .article-title, .user-name) {
+  color: var(--feather-text) !important;
+}
+body:not(:has(.rq-app)) :where(.wikitext-preview-card, .preview-box) pre,
+body:not(:has(.rq-app)) :where(.wikitext-preview-card, .preview-box) code {
+  color: var(--feather-text) !important;
+}
+body:not(:has(.rq-app)) .toggle-bar {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+body:not(:has(.rq-app)) .toggle-bar .segmented-control {
+  background: #e4eef5 !important;
+  border: 1px solid var(--feather-border) !important;
+  box-shadow: none !important;
+}
+body:not(:has(.rq-app)) .stats-bar {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+body:not(:has(.rq-app)) .stats-bar .stat-chip {
+  border: 1px solid transparent !important;
+  box-shadow: none !important;
+}
+body:not(:has(.rq-app)) .stats-bar .chip-total {
+  background: #e4eef5 !important;
+  border-color: #bfd1df !important;
+  color: #294963 !important;
+}
+body:not(:has(.rq-app)) .stats-bar .chip-accepted {
+  background: #eaf7ef !important;
+  border-color: #b9dfc5 !important;
+  color: #216e3a !important;
+}
+body:not(:has(.rq-app)) .stats-bar .chip-rejected,
+body:not(:has(.rq-app)) .stats-bar .chip-failed {
+  background: #fff0f0 !important;
+  border-color: #e6bcbc !important;
+  color: #a33a3a !important;
+}
+body:not(:has(.rq-app)) .stats-bar .chip-pending {
+  background: #fff6df !important;
+  border-color: #ead49a !important;
+  color: #8a5a00 !important;
+}
+body:not(:has(.rq-app)) .toggle-bar .segmented-control .seg-btn.active {
+  background: var(--feather-accent) !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+body .contest-layout:not(.review-layout) .contest-name,
+body .contest-layout:not(.review-layout) .nav-link--active { color: var(--feather-text) !important; }
+body .contest-layout:not(.review-layout) .contest-dates-chip,
+body .contest-layout:not(.review-layout) .nav-link { color: var(--feather-muted) !important; }

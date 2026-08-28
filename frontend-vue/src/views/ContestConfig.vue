@@ -42,6 +42,11 @@ const jurySearchValue = ref('');
 const juryUsername = ref('');
 const juryMenuItems = ref([]);
 const juryTags = ref([]);
+const juryRestrictions = ref([]);
+const restrictionJury = ref('');
+const restrictionSubmitter = ref('');
+const bannedUsers = ref([]);
+const banUsername = ref('');
 
 let searchTimeout;
 watch(jurySearchValue, (newVal) => {
@@ -92,6 +97,8 @@ const fetchContest = async () => {
       const c = await res.json();
       contest.value = c;
       juries.value = c.juries || [];
+      juryRestrictions.value = c.jury_restrictions || [];
+      bannedUsers.value = (c.banned_users || []).map((username, index) => ({ id: `legacy-${index}`, username }));
       
       editName.value = c.name;
       const start = utcToBangladeshParts(c.start_date);
@@ -202,6 +209,61 @@ const handleUnassignJury = async (username) => {
   }
 };
 
+const handleAddRestriction = async () => {
+  if (!restrictionJury.value || !restrictionSubmitter.value) {
+    showToast('Choose both a jury member and a submitter.', true);
+    return;
+  }
+  try {
+    const res = await fetch(`/api/admin/contests/${contest.value.code}/jury-restrictions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contest_code: contest.value.code, jury_username: restrictionJury.value, submitter_username: restrictionSubmitter.value })
+    });
+    if (!res.ok) throw new Error('Failed');
+    showToast(`Restricted ${restrictionJury.value} from ${restrictionSubmitter.value}'s articles.`);
+    restrictionJury.value = '';
+    restrictionSubmitter.value = '';
+    await fetchContest();
+  } catch (e) { showToast('Failed to add restriction.', true); }
+};
+
+const handleDeleteRestriction = async (restriction) => {
+  try {
+    const res = await fetch(`/api/admin/contests/${contest.value.code}/jury-restrictions/${restriction.id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Failed');
+    juryRestrictions.value = juryRestrictions.value.filter(item => item.id !== restriction.id);
+    showToast('Jury restriction removed.');
+  } catch (e) { showToast('Failed to remove restriction.', true); }
+};
+
+const handleBanUser = async () => {
+  const username = banUsername.value.trim();
+  if (!username) {
+    showToast('Enter a Wikimedia username.', true);
+    return;
+  }
+  try {
+    const res = await fetch(`/api/admin/contests/${contest.value.code}/banned-users`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contest_code: contest.value.code, username })
+    });
+    if (!res.ok) throw new Error('Failed');
+    banUsername.value = '';
+    showToast(`${username}'s articles are hidden from review-v2.`);
+    await fetchContest();
+  } catch (e) { showToast('Failed to ban user.', true); }
+};
+
+const handleUnbanUser = async (ban) => {
+  if (!String(ban.id).match(/^\d+$/)) return;
+  try {
+    const res = await fetch(`/api/admin/contests/${contest.value.code}/banned-users/${ban.id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Failed');
+    bannedUsers.value = bannedUsers.value.filter(item => item.id !== ban.id);
+    showToast(`${ban.username} can appear in review-v2 again.`);
+  } catch (e) { showToast('Failed to remove ban.', true); }
+};
+
 const wikitextPreview = computed(() => {
   if (!editAddTalkTemplate.value) return '';
   let tName = editTalkTemplateName.value.trim() || 'উইকিঅভিধান প্রতিযোগিতা ২০২৬';
@@ -215,6 +277,14 @@ const wikitextPreview = computed(() => {
   text += tName;
   return text;
 });
+
+const enabledRuleCount = computed(() => [
+  editMustBeCreator.value,
+  editMainspaceOnly.value,
+  editNoRedirect.value,
+  editNoDisambig.value,
+  editAllowSelfReview.value
+].filter(Boolean).length);
 </script>
 
 <template>
@@ -241,8 +311,20 @@ const wikitextPreview = computed(() => {
 
     <div v-else-if="contest" class="config-container">
       <div class="header">
-        <h2>Contest Configuration</h2>
+        <div class="header-title-row">
+          <div>
+            <span class="config-kicker">Owner controls</span>
+            <h2>Contest Configuration</h2>
+          </div>
+          <code class="config-code">{{ contest.code }}</code>
+        </div>
         <p>Modify settings and manage jury members for <strong>{{ contest.name }}</strong></p>
+        <div class="config-summary-strip">
+          <div><strong>{{ contest.articles_count || 0 }}</strong><span>submissions</span></div>
+          <div><strong>{{ contest.juries?.length || 0 }}</strong><span>jury members</span></div>
+          <div><strong>{{ enabledRuleCount }}/5</strong><span>active controls</span></div>
+          <div><strong>{{ bannedUsers.length }}</strong><span>review exclusions</span></div>
+        </div>
       </div>
 
       <div class="tabs">
@@ -348,56 +430,52 @@ const wikitextPreview = computed(() => {
             </tbody>
           </table>
         </div>
+
+        <div class="jury-list mt-4 restriction-panel">
+          <h3>Conflict-of-interest restrictions</h3>
+          <p class="restriction-help">Prevent a jury member from judging articles submitted by a specific user. Those articles will be redistributed among the remaining eligible juries.</p>
+          <div class="restriction-form">
+            <select v-model="restrictionJury" class="native-input" aria-label="Jury member to restrict">
+              <option value="">Select jury member</option>
+              <option v-for="jury in juries" :key="`restriction-jury-${jury}`" :value="jury">{{ jury }}</option>
+            </select>
+            <select v-model="restrictionSubmitter" class="native-input" aria-label="Submitter to restrict">
+              <option value="">Select submitter</option>
+              <option v-for="submitter in (contest.submitters || [])" :key="`restriction-submitter-${submitter}`" :value="submitter">{{ submitter }}</option>
+            </select>
+            <button class="save-btn" @click="handleAddRestriction" :disabled="!restrictionJury || !restrictionSubmitter">Add restriction</button>
+          </div>
+          <div v-if="juryRestrictions.length" class="restriction-list">
+            <div v-for="restriction in juryRestrictions" :key="restriction.id" class="restriction-row">
+              <span><strong>{{ restriction.jury_username }}</strong> cannot judge <strong>{{ restriction.submitter_username }}</strong></span>
+              <button class="remove-btn" @click="handleDeleteRestriction(restriction)">Remove</button>
+            </div>
+          </div>
+          <p v-else class="restriction-empty">No jury restrictions configured.</p>
+        </div>
+
+        <div class="jury-list mt-4 restriction-panel ban-panel">
+          <h3>Hide a submitter from review-v2</h3>
+          <p class="restriction-help">Banned users' articles remain in the contest records, but are not copied into the /review-v2 judgment panel.</p>
+          <div class="restriction-form ban-form">
+            <select v-model="banUsername" class="native-input" aria-label="Submitter to ban">
+              <option value="">Select submitter</option>
+              <option v-for="submitter in (contest.submitters || [])" :key="`ban-${submitter}`" :value="submitter">{{ submitter }}</option>
+            </select>
+            <input v-model="banUsername" class="native-input" placeholder="Or enter Wikimedia username" aria-label="Username to ban" />
+            <button class="save-btn" @click="handleBanUser" :disabled="!banUsername.trim()">Hide from review-v2</button>
+          </div>
+          <div v-if="bannedUsers.length" class="restriction-list">
+            <div v-for="ban in bannedUsers" :key="ban.id" class="restriction-row">
+              <span><strong>{{ ban.username }}</strong> is hidden from review-v2</span>
+              <button class="remove-btn" @click="handleUnbanUser(ban)">Restore</button>
+            </div>
+          </div>
+          <p v-else class="restriction-empty">No users are hidden from review-v2.</p>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
-<style scoped>
-.config-page { padding: 32px; max-width: 800px; margin: 0 auto; color: #e2e8f0; }
-.header h2 { font-size: 1.8rem; margin-bottom: 8px; color: #ffffff; }
-.header p { color: #9ca3af; margin-bottom: 24px; }
-
-.tabs { display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; }
-.tabs button { background: none; border: none; color: #9ca3af; padding: 8px 16px; cursor: pointer; font-size: 1rem; border-radius: 6px; }
-.tabs button:hover { background: rgba(255,255,255,0.05); }
-.tabs button.active { color: #f9fafb; font-weight: 600; background: rgba(255,255,255,0.07); }
-
-.form-section { background: #0f0f0f; padding: 24px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); }
-.form-group { margin-bottom: 16px; }
-.form-group label { display: block; margin-bottom: 6px; font-weight: 500; color: #cbd5e1; }
-.native-input { background: #111111; border: 1px solid rgba(255,255,255,0.1); color: #e5e7eb; padding: 9px 13px; border-radius: 6px; width: 100%; box-sizing: border-box; font-family: inherit; }
-.rule-item { margin-bottom: 12px; }
-.mt-3 { margin-top: 16px; }
-.mt-4 { margin-top: 24px; }
-
-.preview-box { background: #000; padding: 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); }
-.preview-box pre { color: #d1d5db; margin-top: 8px; font-family: monospace; white-space: pre-wrap; }
-
-.actions { margin-top: 24px; display: flex; justify-content: flex-end; }
-.save-btn { background: #2563eb; color: #ffffff; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 700; cursor: pointer; transition: background 0.15s; }
-.save-btn:hover { background: #1d4ed8; }
-.save-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-.jury-add-card, .jury-list { background: #0f0f0f; padding: 24px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); }
-.jury-add-card h3, .jury-list h3 { margin-top: 0; color: #ffffff; margin-bottom: 16px; font-size: 1.2rem; }
-.suggestions { background: #1a1a1a; border: 1px solid #333333; border-radius: 6px; max-height: 150px; overflow-y: auto; margin-bottom: 12px; }
-.suggestion-item { padding: 8px 12px; cursor: pointer; transition: background 0.1s; }
-.suggestion-item:hover { background: rgba(255,255,255,0.07); }
-.tags { display: flex; flex-wrap: wrap; gap: 8px; }
-.tag { background: rgba(255,255,255,0.1); color: #e5e7eb; padding: 4px 10px; border-radius: 14px; font-size: 0.82rem; display: flex; align-items: center; gap: 6px; }
-.remove-tag { background: none; border: none; color: white; font-weight: bold; cursor: pointer; padding: 0; }
-
-.jury-table { width: 100%; border-collapse: collapse; }
-.jury-table th, .jury-table td { padding: 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); }
-.jury-table th { color: #9ca3af; text-transform: uppercase; font-size: 0.8rem; }
-.remove-btn { background: rgba(255,255,255,0.1); color: #d1d5db; border: 1px solid rgba(255,255,255,0.1); padding: 5px 11px; border-radius: 4px; cursor: pointer; font-size: 0.82rem; }
-.remove-btn:hover { background: rgba(255,255,255,0.1); }
-
-.toast-banner { position: fixed; bottom: 20px; right: 20px; background: #1f1f1f; border: 1px solid rgba(255,255,255,0.1); color: #e5e7eb; padding: 12px 20px; border-radius: 8px; display: flex; gap: 8px; font-weight: 600; font-size: 0.88rem; box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 1000; }
-.toast-error { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.1); color: #9ca3af; }
-
-.loading-state { text-align: center; padding: 40px; color: #9ca3af; }
-.unauthorized-banner { text-align: center; padding: 40px; }
-.unauthorized-content { background: rgba(255,255,255,0.05); padding: 40px; border-radius: 8px; display: inline-block; border: 1px solid rgba(255,255,255,0.1); }
-</style>
+<style scoped src="../styles/views/ContestConfig.css"></style>

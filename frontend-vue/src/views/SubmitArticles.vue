@@ -20,10 +20,18 @@ const onBehalfMenu = ref([]);
 
 const userCreatedArticles = ref([]);
 const selectedArticles = ref([]);
+const selectionRange = ref('');
+const customSelectionCount = ref(1);
 const isFetchingArticles = ref(false);
 const fetchError = ref(null);
 const alreadySubmittedTitles = ref([]);
 const articleSearch = ref('');
+const availableDisplayLimit = ref(200);
+const submittedDisplayLimit = ref(100);
+
+const contestDate = (value) => new Date(`${value}${String(value).endsWith('Z') ? '' : 'Z'}`);
+const submissionNotOpen = computed(() => props.contest?.start_date && Date.now() < contestDate(props.contest.start_date).getTime());
+const submissionClosed = computed(() => props.contest?.end_date && Date.now() > contestDate(props.contest.end_date).getTime());
 
 let searchTimeout;
 watch(onBehalfSearch, (newVal) => {
@@ -47,11 +55,21 @@ watch([isOnBehalf, onBehalfUsername], () => {
   fetchError.value = null;
   articleSearch.value = '';
 });
+watch(articleSearch, () => {
+  availableDisplayLimit.value = 200;
+  submittedDisplayLimit.value = 100;
+});
 
 let fetchSeq = 0;
 
 const fetchUserArticles = async () => {
   if (!props.contest || !user.value) return;
+  if (submissionClosed.value || submissionNotOpen.value) {
+    fetchError.value = submissionClosed.value
+      ? 'This contest has ended. New article submissions are closed.'
+      : 'This contest has not started yet. Submissions are not open.';
+    return;
+  }
   const mySeq = ++fetchSeq;
   isFetchingArticles.value = true;
   fetchError.value = null;
@@ -129,11 +147,49 @@ const filteredSubmittedArticles = computed(() => {
   return submittedArticles.value.filter(title => title.toLowerCase().includes(query));
 });
 
-const selectAll = () => { selectedArticles.value = [...filteredAvailableArticles.value]; };
+const visibleAvailableArticles = computed(() => filteredAvailableArticles.value.slice(0, availableDisplayLimit.value));
+const visibleSubmittedArticles = computed(() => filteredSubmittedArticles.value.slice(0, submittedDisplayLimit.value));
+const showMoreAvailable = () => { availableDisplayLimit.value += 200; };
+const showMoreSubmitted = () => { submittedDisplayLimit.value += 100; };
+
+const selectionOptions = ['all', 10, 100, 1000, 2000, 'custom'];
+const effectiveSelectionLimit = computed(() => !selectionRange.value
+  ? 0
+  : selectionRange.value === 'all'
+  ? Infinity
+  : selectionRange.value === 'custom' ? Math.max(1, Number(customSelectionCount.value) || 1) : selectionRange.value);
+const selectionRangeLabel = computed(() => selectionRange.value === 'all'
+  ? 'all'
+  : !selectionRange.value ? '—'
+  : selectionRange.value === 'custom' ? effectiveSelectionLimit.value.toLocaleString() : selectionRange.value.toLocaleString());
+const applySelectionRange = () => {
+  selectedArticles.value = effectiveSelectionLimit.value === Infinity
+    ? [...filteredAvailableArticles.value]
+    : filteredAvailableArticles.value.slice(0, effectiveSelectionLimit.value);
+};
 const deselectAll = () => { selectedArticles.value = []; };
+const toggleArticleSelection = (title, event) => {
+  if (event.target.checked) {
+    if (selectedArticles.value.length >= effectiveSelectionLimit.value) {
+      event.target.checked = false;
+      return;
+    }
+    selectedArticles.value = [...selectedArticles.value, title];
+  } else {
+    selectedArticles.value = selectedArticles.value.filter(item => item !== title);
+  }
+};
+
+watch([selectionRange, customSelectionCount], applySelectionRange);
 
 const handleSubmit = async () => {
   if (!selectedArticles.value.length) return;
+  if (submissionNotOpen.value || submissionClosed.value) {
+    fetchError.value = submissionNotOpen.value
+      ? 'This contest has not started yet. Submissions are not open.'
+      : 'This contest has ended. New article submissions are closed.';
+    return;
+  }
   isLoading.value = true;
   totalToSubmit.value = selectedArticles.value.length;
   processedCount.value = 0;
@@ -205,6 +261,12 @@ const targetDisplayName = computed(() =>
 
 <template>
   <div class="submit-page">
+    <div v-if="submissionClosed" class="submission-window-alert" role="alert">
+      This contest has ended. New article submissions are closed.
+    </div>
+    <div v-else-if="submissionNotOpen" class="submission-window-alert" role="status">
+      This contest has not started yet. Submissions are not open.
+    </div>
         <div class="page-header">
       <h1 class="page-title">Submit Articles</h1>
       <p class="page-subtitle">
@@ -252,7 +314,7 @@ const targetDisplayName = computed(() =>
           class="fetch-btn"
           :class="{ 'fetch-btn--loading': isFetchingArticles }"
           @click="fetchUserArticles"
-          :disabled="isFetchingArticles || (isOnBehalf && !onBehalfUsername)"
+          :disabled="submissionClosed || submissionNotOpen || isFetchingArticles || (isOnBehalf && !onBehalfUsername)"
         >
           <span v-if="isFetchingArticles" class="spinner"></span>
           <span v-else>
@@ -289,14 +351,23 @@ const targetDisplayName = computed(() =>
               </span>
             </span>
             <div class="article-section__actions" @click.stop>
-              <button class="link-btn" @click="selectAll">Select all</button>
+              <label class="selection-range-control">
+                <span>Select</span>
+                <select v-model="selectionRange" aria-label="Number of articles to select">
+                  <option value="" disabled>—</option>
+                  <option v-for="amount in selectionOptions" :key="amount" :value="amount" :disabled="amount !== 'all' && amount !== 'custom' && filteredAvailableArticles.length < amount">
+                    {{ amount === 'all' ? 'All' : amount === 'custom' ? 'Custom' : amount.toLocaleString() }}
+                  </option>
+                </select>
+                <input v-if="selectionRange === 'custom'" v-model.number="customSelectionCount" type="number" min="1" :max="filteredAvailableArticles.length || 1" class="selection-custom-input" aria-label="Custom number of articles" />
+              </label>
               <span class="link-btn-sep">·</span>
               <button class="link-btn" @click="deselectAll">Deselect all</button>
             </div>
           </div>
           <div class="article-list" v-show="isAvailableOpen">
             <label
-              v-for="title in filteredAvailableArticles"
+              v-for="title in visibleAvailableArticles"
               :key="title"
               class="article-item"
               :class="{ 'article-item--checked': selectedArticles.includes(title) }"
@@ -304,7 +375,8 @@ const targetDisplayName = computed(() =>
               <input
                 type="checkbox"
                 :value="title"
-                v-model="selectedArticles"
+                :checked="selectedArticles.includes(title)"
+                @change="toggleArticleSelection(title, $event)"
                 class="article-item__input"
               />
               <span class="article-item__box">
@@ -313,6 +385,9 @@ const targetDisplayName = computed(() =>
               <span class="article-item__title">{{ title }}</span>
             </label>
           </div>
+          <button v-if="visibleAvailableArticles.length < filteredAvailableArticles.length" type="button" class="load-more-articles" @click="showMoreAvailable">
+            Load more
+          </button>
         </div>
 
                 <div v-if="filteredSubmittedArticles.length > 0" class="article-section" style="margin-top: 24px;">
@@ -324,7 +399,7 @@ const targetDisplayName = computed(() =>
           </div>
           <div class="article-list" v-show="isSubmittedOpen">
             <label
-              v-for="title in filteredSubmittedArticles"
+              v-for="title in visibleSubmittedArticles"
               :key="title"
               class="article-item article-item--disabled"
             >
@@ -336,6 +411,9 @@ const targetDisplayName = computed(() =>
               <span class="already-submitted-inline-badge" style="font-size: 0.75rem; color: #64748b; background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px; margin-left: 8px;">Already submitted</span>
             </label>
           </div>
+          <button v-if="visibleSubmittedArticles.length < filteredSubmittedArticles.length" type="button" class="load-more-articles" @click="showMoreSubmitted">
+            Load more
+          </button>
         </div>
 
                 <div v-if="userCreatedArticles.length === 0 || (userCreatedArticles.length > 0 && availableArticles.length === 0 && submittedArticles.length === 0)" class="empty-state">
@@ -366,7 +444,7 @@ const targetDisplayName = computed(() =>
         <button
           class="submit-btn"
           @click="handleSubmit"
-          :disabled="isLoading || selectedArticles.length === 0"
+          :disabled="submissionClosed || submissionNotOpen || isLoading || selectedArticles.length === 0"
           :class="{ 'submit-btn--loading': isLoading }"
         >
           <span v-if="isLoading" class="spinner spinner--white"></span>
@@ -418,521 +496,4 @@ const targetDisplayName = computed(() =>
   </div>
 </template>
 
-<style scoped>
-/* ── Base ── */
-.submit-page {
-  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
-  background: #0a0a0a;
-  min-height: 100%;
-  padding: 32px 24px 64px;
-  max-width: 860px;
-  margin: 0 auto;
-  box-sizing: border-box;
-}
-
-/* ── Page Header ── */
-.page-header {
-  margin-bottom: 28px;
-}
-.page-title {
-  font-size: 1.875rem;
-  font-weight: 700;
-  color: #e2e8f0;
-  margin: 0 0 6px;
-  letter-spacing: -0.02em;
-}
-.page-subtitle {
-  font-size: 0.9375rem;
-  color: #6b7280;
-  margin: 0;
-}
-
-/* ── On-Behalf Banner ── */
-.behalf-banner {
-  background: rgba(255,255,255,0.1);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 12px;
-  padding: 14px 20px;
-  margin-bottom: 20px;
-}
-.behalf-banner__inner {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 16px;
-}
-.behalf-toggle {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  user-select: none;
-}
-.behalf-toggle__input {
-  display: none;
-}
-.behalf-toggle__track {
-  position: relative;
-  width: 40px;
-  height: 22px;
-  background: rgba(255,255,255,0.1);
-  border-radius: 11px;
-  transition: background 0.2s;
-  flex-shrink: 0;
-}
-.behalf-toggle__input:checked + .behalf-toggle__track {
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
-}
-.behalf-toggle__thumb {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 16px;
-  height: 16px;
-  background: #fff;
-  border-radius: 50%;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-  transition: transform 0.2s;
-}
-.behalf-toggle__input:checked ~ .behalf-toggle__track .behalf-toggle__thumb {
-  transform: translateX(18px);
-}
-.behalf-toggle__label {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #e5e7eb;
-}
-.behalf-lookup {
-  flex: 1;
-  min-width: 220px;
-  max-width: 320px;
-}
-
-/* ── Card ── */
-.card {
-  background: #1a1a1a;
-  border-radius: 16px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 4px 16px rgba(0,0,0,0.2);
-  border: 1px solid rgba(255,255,255,0.07);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 20px;
-}
-.card__header {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 20px 24px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-}
-.card__header-text {
-  flex: 1;
-  min-width: 0;
-}
-.card__header-icon {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  background: rgba(255,255,255,0.1);
-  color: #d1d5db;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.card__header-icon--green {
-  background: rgba(255,255,255,0.1);
-  color: #d1d5db;
-}
-.card__title {
-  font-size: 1rem;
-  font-weight: 700;
-  color: #e2e8f0;
-  margin: 0 0 3px;
-}
-.card__title-user {
-  color: #e5e7eb;
-}
-.card__desc {
-  font-size: 0.8125rem;
-  color: #64748b;
-  margin: 0;
-}
-.card__body {
-  padding: 20px 24px 24px;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-/* ── Article Search ── */
-.article-search {
-  position: relative;
-  margin-bottom: 8px;
-}
-.article-search__input {
-  width: 100%;
-  padding: 10px 14px 10px 36px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 8px;
-  font-family: inherit;
-  font-size: 0.875rem;
-  color: #e2e8f0;
-  transition: border-color 0.2s, background 0.2s;
-  box-sizing: border-box;
-}
-.article-search__input:focus {
-  outline: none;
-  border-color: rgba(255,255,255,0.1);
-  background: rgba(255,255,255,0.06);
-}
-.article-search__input::placeholder {
-  color: #64748b;
-}
-.search-icon {
-  position: absolute;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 16px;
-  height: 16px;
-  color: #64748b;
-  pointer-events: none;
-}
-
-/* ── Fetch Button ── */
-.fetch-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 9px 18px;
-  background: rgba(255,255,255,0.1);
-  color: #d1d5db;
-  border: 1.5px solid rgba(255,255,255,0.1);
-  border-radius: 8px;
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.18s, border-color 0.18s;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.fetch-btn:hover:not(:disabled) {
-  background: rgba(255,255,255,0.1);
-  border-color: rgba(255,255,255,0.1);
-}
-.fetch-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* ── Spinner ── */
-.spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid currentColor;
-  border-top-color: transparent;
-  border-radius: 50%;
-  display: inline-block;
-  animation: spin 0.7s linear infinite;
-}
-.spinner--white {
-  border-color: rgba(255,255,255,0.5);
-  border-top-color: transparent;
-}
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-/* ── Fetch Error ── */
-.fetch-error {
-  font-size: 0.8125rem;
-  color: #d1d5db;
-  background: rgba(255,255,255,0.1);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 8px;
-  padding: 8px 12px;
-  margin: 0;
-}
-
-/* ── Article Section ── */
-.article-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.article-section__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.article-section__label {
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: #cbd5e1;
-}
-.article-section__actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.link-btn {
-  background: none;
-  border: none;
-  font-size: 0.8125rem;
-  color: #d1d5db;
-  cursor: pointer;
-  padding: 0;
-  font-family: inherit;
-  font-weight: 500;
-  transition: color 0.15s;
-}
-.link-btn:hover { color: #d1d5db; }
-.link-btn-sep {
-  color: rgba(255,255,255,0.2);
-  font-size: 0.8125rem;
-}
-
-/* ── Article List ── */
-.article-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 340px;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-.article-list::-webkit-scrollbar { width: 5px; }
-.article-list::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); border-radius: 99px; }
-.article-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 99px; }
-
-/* ── Article Item ── */
-.article-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 14px;
-  border-radius: 8px;
-  border: 1.5px solid rgba(255,255,255,0.07);
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-  background: rgba(255,255,255,0.03);
-}
-.article-item:hover {
-  border-color: rgba(255,255,255,0.1);
-  background: rgba(255,255,255,0.1);
-}
-.article-item--checked {
-  border-color: #ffffff;
-  background: rgba(255,255,255,0.1);
-}
-.article-item__input {
-  display: none;
-}
-.article-item__box {
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  border: 1.5px solid rgba(255,255,255,0.15);
-  background: rgba(255,255,255,0.05);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: border-color 0.15s, background 0.15s;
-  color: #fff;
-}
-.article-item--checked .article-item__box {
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
-  border-color: #6366f1;
-}
-.article-item__title {
-  font-size: 0.8375rem;
-  color: #e2e8f0;
-  line-height: 1.4;
-  flex: 1;
-  word-break: break-word;
-}
-.article-item--disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.article-item--disabled:hover {
-  background: rgba(255,255,255,0.03);
-  border-color: rgba(255,255,255,0.07);
-}
-.article-item--disabled .article-item__box {
-  background: rgba(255,255,255,0.1);
-  border-color: rgba(255,255,255,0.2);
-}
-.already-submitted-inline-badge {
-  font-size: 0.75rem;
-  color: #d1d5db;
-  font-weight: 600;
-  background: rgba(255,255,255,0.1);
-  padding: 4px 8px;
-  border-radius: 6px;
-  white-space: nowrap;
-}
-
-
-
-/* ── Empty State ── */
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 48px 16px;
-  text-align: center;
-  color: #64748b;
-  flex: 1;
-}
-.empty-state svg { color: rgba(255,255,255,0.1); }
-.empty-state p {
-  font-size: 0.875rem;
-  line-height: 1.6;
-  max-width: 300px;
-  margin: 0;
-}
-.empty-state strong { color: #e5e7eb; }
-
-/* ── Submit Row & Progress ── */
-.submit-section {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 20px;
-  margin-bottom: 28px;
-}
-.submit-progress {
-  width: 100%;
-  max-width: 420px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  padding: 16px 20px;
-  box-sizing: border-box;
-}
-.submit-progress__info {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.875rem;
-  color: #e2e8f0;
-  font-weight: 500;
-  margin-bottom: 12px;
-}
-.submit-progress__bar {
-  width: 100%;
-  height: 8px;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 99px;
-  overflow: hidden;
-}
-.submit-progress__fill {
-  height: 100%;
-  background: linear-gradient(90deg, #2563eb, #818cf8);
-  border-radius: 99px;
-  transition: width 0.3s ease;
-  box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
-}
-.submit-row {
-  display: flex;
-  justify-content: center;
-  width: 100%;
-}
-.submit-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  max-width: 420px;
-  padding: 15px 36px;
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-  color: #fff;
-  border: none;
-  border-radius: 12px;
-  font-size: 1rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  cursor: pointer;
-  box-shadow: 0 4px 14px rgba(37,99,235,0.35);
-  transition: opacity 0.18s, transform 0.12s, box-shadow 0.18s;
-}
-.submit-btn:hover:not(:disabled) {
-  opacity: 0.92;
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(255,255,255,0.1);
-}
-.submit-btn:active:not(:disabled) { transform: translateY(0); }
-.submit-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-/* ── Results Card ── */
-.results-card { margin-top: 4px; }
-.results-table-wrapper {
-  overflow-x: auto;
-  border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.07);
-}
-.results-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.875rem;
-}
-.results-table thead th {
-  background: rgba(255,255,255,0.04);
-  padding: 10px 16px;
-  text-align: left;
-  font-weight: 600;
-  color: #94a3b8;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
-  white-space: nowrap;
-}
-.results-table tbody tr:not(:last-child) td {
-  border-bottom: 1px solid rgba(255,255,255,0.05);
-}
-.results-table td {
-  padding: 10px 16px;
-  vertical-align: middle;
-}
-.result-row--ok { background: rgba(255,255,255,0.1); }
-.result-row--err { background: rgba(255,255,255,0.1); }
-.result-title {
-  color: #e2e8f0;
-  font-weight: 500;
-  word-break: break-word;
-  max-width: 400px;
-}
-.result-message {
-  color: #6b7280;
-  font-size: 0.8125rem;
-}
-.status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border-radius: 99px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.status-badge--ok {
-  background: rgba(255,255,255,0.1);
-  color: #d1d5db;
-  border: 1px solid rgba(255,255,255,0.1);
-}
-.status-badge--err {
-  background: rgba(255,255,255,0.1);
-  color: #d1d5db;
-  border: 1px solid rgba(255,255,255,0.1);
-}
-</style>
+<style scoped src="../styles/views/SubmitArticles.css"></style>

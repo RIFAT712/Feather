@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Enum, Text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Enum, Text, UniqueConstraint
 from sqlalchemy.orm import declarative_base, relationship
 import enum
 from datetime import datetime
@@ -45,6 +45,8 @@ class Contest(Base):
     
     articles = relationship("Article", back_populates="contest")
     juries = relationship("ContestJury", back_populates="contest")
+    jury_restrictions = relationship("ContestJuryRestriction", back_populates="contest", cascade="all, delete-orphan")
+    banned_users = relationship("ContestBannedUser", back_populates="contest", cascade="all, delete-orphan")
 
 class ContestJury(Base):
     __tablename__ = 'contest_jury'
@@ -54,6 +56,29 @@ class ContestJury(Base):
     
     contest = relationship("Contest", back_populates="juries")
     user = relationship("User", back_populates="jury_assignments")
+
+class ContestJuryRestriction(Base):
+    __tablename__ = 'contest_jury_restrictions'
+    __table_args__ = (UniqueConstraint('contest_id', 'jury_user_id', 'submitter_user_id', name='uq_contest_jury_submitter'),)
+    id = Column(Integer, primary_key=True, index=True)
+    contest_id = Column(Integer, ForeignKey('contests.id'), nullable=False, index=True)
+    jury_user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    submitter_user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+
+    contest = relationship("Contest", back_populates="jury_restrictions")
+    jury_user = relationship("User", foreign_keys=[jury_user_id])
+    submitter_user = relationship("User", foreign_keys=[submitter_user_id])
+
+class ContestBannedUser(Base):
+    """A submitter whose articles are hidden from this contest's review-v2 panel."""
+    __tablename__ = 'contest_banned_users'
+    __table_args__ = (UniqueConstraint('contest_id', 'user_id', name='uq_contest_banned_user'),)
+    id = Column(Integer, primary_key=True, index=True)
+    contest_id = Column(Integer, ForeignKey('contests.id'), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+
+    contest = relationship("Contest", back_populates="banned_users")
+    user = relationship("User")
 
 class ArticleStatus(str, enum.Enum):
     pending = "pending"

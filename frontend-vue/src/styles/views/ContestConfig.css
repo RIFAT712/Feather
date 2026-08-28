@@ -1,0 +1,123 @@
+.config-page { padding: 32px; max-width: 800px; margin: 0 auto; color: #e2e8f0; }
+.header h2 { font-size: 1.8rem; margin-bottom: 8px; color: #ffffff; }
+.header p { color: #9ca3af; margin-bottom: 24px; }
+
+.tabs { display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; }
+.tabs button { background: none; border: none; color: #9ca3af; padding: 8px 16px; cursor: pointer; font-size: 1rem; border-radius: 6px; }
+.tabs button:hover { background: rgba(255,255,255,0.05); }
+.tabs button.active { color: #f9fafb; font-weight: 600; background: rgba(255,255,255,0.07); }
+
+.form-section { background: #0f0f0f; padding: 24px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); }
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; margin-bottom: 6px; font-weight: 500; color: #cbd5e1; }
+.native-input { background: #111111; border: 1px solid rgba(255,255,255,0.1); color: #e5e7eb; padding: 9px 13px; border-radius: 6px; width: 100%; box-sizing: border-box; font-family: inherit; }
+.rule-item { margin-bottom: 12px; }
+.mt-3 { margin-top: 16px; }
+.mt-4 { margin-top: 24px; }
+
+.preview-box { background: #000; padding: 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); }
+.preview-box pre { color: #d1d5db; margin-top: 8px; font-family: monospace; white-space: pre-wrap; }
+
+.actions { margin-top: 24px; display: flex; justify-content: flex-end; }
+.save-btn { background: #2563eb; color: #ffffff; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 700; cursor: pointer; transition: background 0.15s; }
+.save-btn:hover { background: #1d4ed8; }
+.save-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.jury-add-card, .jury-list { background: #0f0f0f; padding: 24px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); }
+.jury-add-card h3, .jury-list h3 { margin-top: 0; color: #ffffff; margin-bottom: 16px; font-size: 1.2rem; }
+.suggestions { background: #1a1a1a; border: 1px solid #333333; border-radius: 6px; max-height: 150px; overflow-y: auto; margin-bottom: 12px; }
+.suggestion-item { padding: 8px 12px; cursor: pointer; transition: background 0.1s; }
+.suggestion-item:hover { background: rgba(255,255,255,0.07); }
+.tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.tag { background: rgba(255,255,255,0.1); color: #e5e7eb; padding: 4px 10px; border-radius: 14px; font-size: 0.82rem; display: flex; align-items: center; gap: 6px; }
+.remove-tag { background: none; border: none; color: white; font-weight: bold; cursor: pointer; padding: 0; }
+
+.jury-table { width: 100%; border-collapse: collapse; }
+.jury-table th, .jury-table td { padding: 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.jury-table th { color: #9ca3af; text-transform: uppercase; font-size: 0.8rem; }
+.remove-btn { background: rgba(255,255,255,0.1); color: #d1d5db; border: 1px solid rgba(255,255,255,0.1); padding: 5px 11px; border-radius: 4px; cursor: pointer; font-size: 0.82rem; }
+.remove-btn:hover { background: rgba(255,255,255,0.1); }
+.restriction-help { color: #9ca3af; margin: -6px 0 16px; font-size: .9rem; line-height: 1.5; }
+.restriction-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: center; }
+.restriction-form .save-btn { margin-top: 0; white-space: nowrap; }
+.restriction-list { margin-top: 18px; border-top: 1px solid rgba(255,255,255,0.08); }
+.restriction-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid rgba(255,255,255,0.05); color: #d1d5db; font-size: .9rem; }
+.restriction-empty { color: #9ca3af; font-size: .88rem; }
+@media (max-width: 700px) { .restriction-form { grid-template-columns: 1fr; } .restriction-row { align-items: flex-start; flex-direction: column; } }
+.ban-panel { border-color: rgba(220, 38, 38, 0.25); }
+
+.toast-banner { position: fixed; bottom: 20px; right: 20px; background: #1f1f1f; border: 1px solid rgba(255,255,255,0.1); color: #e5e7eb; padding: 12px 20px; border-radius: 8px; display: flex; gap: 8px; font-weight: 600; font-size: 0.88rem; box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 1000; }
+.toast-error { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.1); color: #9ca3af; }
+
+.loading-state { text-align: center; padding: 40px; color: #9ca3af; }
+.unauthorized-banner { text-align: center; padding: 40px; }
+.unauthorized-content { background: rgba(255,255,255,0.05); padding: 40px; border-radius: 8px; display: inline-block; border: 1px solid rgba(255,255,255,0.1); }
+
+/* Configuration workspace refresh */
+.config-page { width: 100%; max-width: none; min-height: calc(100vh - 64px); box-sizing: border-box; margin: 0; padding: 30px clamp(18px, 4vw, 42px) 88px; background: var(--feather-bg); }
+.config-container { max-width: 1040px; margin: 0 auto; }
+.header { margin-bottom: 22px; }
+.header-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.config-kicker { display: block; color: #355b80; font-size: .7rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 6px; }
+.header h2 { font-size: clamp(1.65rem, 3vw, 2.25rem); letter-spacing: -.035em; margin: 0 0 6px; color: #20364d; }
+.header p { color: #47637c; margin: 0; line-height: 1.55; }
+.config-code { color: #355b80; background: #f4f8fb; border: 1px solid #c7d6e3; border-radius: 7px; padding: 7px 10px; font-size: .8rem; }
+.config-summary-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 22px; overflow: hidden; background: #c7d6e3; border: 1px solid #c7d6e3; border-radius: 12px; box-shadow: 0 6px 18px rgba(32,54,77,.06); }
+.config-summary-strip > div { background: #fff; padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+.config-summary-strip strong { color: #20364d; font-size: 1.25rem; }
+.config-summary-strip span { color: #47637c; font-size: .72rem; font-weight: 600; }
+.tabs { gap: 5px; margin-bottom: 18px; padding: 5px; background: #f4f8fb; border: 1px solid #c7d6e3; border-radius: 11px; }
+.tabs button { color: #47637c; font-weight: 650; padding: 10px 15px; border-radius: 7px; }
+.tabs button:hover { color: #20364d; background: #e7f0f7; }
+.tabs button.active { color: #fff; background: #355b80; box-shadow: 0 3px 8px rgba(53,91,128,.2); }
+.form-section { background: #fff; padding: clamp(20px, 3vw, 30px); border: 1px solid #c7d6e3; border-radius: 14px; box-shadow: 0 8px 24px rgba(32,54,77,.08); }
+.form-group label { color: #20364d; font-weight: 700; }
+.native-input { background: #fff; color: #20364d; border-color: #c7d6e3; }
+.rule-item { padding: 11px 13px; background: #f4f8fb; border: 1px solid #d8e3eb; border-radius: 9px; }
+.actions { margin-top: 0; padding-top: 16px; border-top: 1px solid #c7d6e3; }
+.save-btn { background: #355b80; box-shadow: 0 4px 10px rgba(53,91,128,.18); }
+.save-btn:hover { background: #274866; }
+.jury-section { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: 18px; align-items: start; }
+.jury-section > .jury-list { grid-column: 1 / -1; }
+.jury-add-card, .jury-list { background: #fff; padding: clamp(20px, 3vw, 28px); border: 1px solid #c7d6e3; border-radius: 14px; box-shadow: 0 8px 24px rgba(32,54,77,.08); }
+.jury-add-card h3, .jury-list h3 { color: #20364d; font-size: 1.08rem; }
+.suggestions { background: #fff; border-color: #c7d6e3; box-shadow: 0 10px 22px rgba(32,54,77,.12); }
+.suggestion-item:hover { background: #e7f0f7; }
+.restriction-panel { background: #f8fbfd; }
+.ban-panel { background: #fff8f8; border-color: #e6bcbc; }
+.restriction-list { display: grid; gap: 8px; margin-top: 18px; border-top: 0; }
+.restriction-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 14px;
+  background: #fff;
+  border: 1px solid #c7d6e3;
+  border-radius: 10px;
+  color: #47637c;
+  font-size: .88rem;
+  line-height: 1.45;
+  box-shadow: 0 3px 10px rgba(32,54,77,.045);
+}
+.restriction-row strong { color: #20364d; font-weight: 750; }
+.restriction-row .remove-btn {
+  flex: 0 0 auto;
+  padding: 6px 11px;
+  background: #fff7f7;
+  border: 1px solid #e0b2b2;
+  border-radius: 7px;
+  color: #9b3d3d;
+  font-size: .78rem;
+  font-weight: 700;
+}
+.restriction-row .remove-btn:hover { background: #fbe8e8; border-color: #c97979; color: #7f2828; }
+@media (max-width: 760px) {
+  .config-summary-strip { grid-template-columns: repeat(2, 1fr); }
+  .header-title-row { flex-direction: column; gap: 8px; }
+  .tabs { overflow-x: auto; }
+  .tabs button { white-space: nowrap; }
+  .jury-section { grid-template-columns: 1fr; }
+  .restriction-row { align-items: flex-start; flex-direction: column; }
+  .restriction-row .remove-btn { width: 100%; }
+}

@@ -1,21 +1,13 @@
+/* Shared structural defaults. Route styling lives in light-theme.css and
+   view-specific styles live in styles/views/*.css. */
 html, body {
   margin: 0;
   padding: 0;
   min-height: 100vh;
-  color: var(--color-base);
-  background-color: var(--background-color-base);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   scrollbar-gutter: stable;
   scroll-behavior: smooth;
-  /* Prevent accidental overscroll/pull-to-refresh on touch devices */
   overscroll-behavior-y: none;
-}
-
-/* Mobile: no scrollbar gutter needed (mobile browsers use overlay scrollbars) */
-@media (max-width: 768px) {
-  html, body {
-    scrollbar-gutter: auto;
-  }
 }
 
 #app {
@@ -24,176 +16,16 @@ html, body {
   min-height: 100vh;
 }
 
-/* ── Scrollbar ── */
+*, *::before, *::after { box-sizing: border-box; }
+button, input, textarea, select { font: inherit; }
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: #0a0a0a; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; border: 2px solid #0a0a0a; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
-::-webkit-scrollbar-corner { background: #0a0a0a; }
-* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) #0a0a0a; }
+::-webkit-scrollbar-track { background: #edf3f7; }
+::-webkit-scrollbar-thumb { background: #91a7ba; border-radius: 4px; border: 2px solid #edf3f7; }
+::-webkit-scrollbar-thumb:hover { background: #6f8da5; }
+::-webkit-scrollbar-corner { background: #edf3f7; }
+* { scrollbar-width: thin; scrollbar-color: #91a7ba #edf3f7; }
 
-:root { color-scheme: dark; }
-
-/* ── Native Form Controls ── */
-input[type="text"],
-input[type="date"],
-input[type="time"],
-input[type="number"],
-input[type="password"],
-textarea,
-select,
-.native-picker {
-  background-color: #111111 !important;
-  border: 1px solid rgba(255,255,255,0.1) !important;
-  color: #e5e7eb !important;
-  border-radius: 6px !important;
-  padding: 9px 13px !important;
-  font-family: inherit;
-  font-size: 0.9rem !important;
-  line-height: 1.4;
-  color-scheme: dark;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-select option {
-  background-color: #111111 !important;
-  color: #e5e7eb !important;
-}
-input[type="text"]:focus,
-input[type="date"]:focus,
-input[type="time"]:focus,
-input[type="number"]:focus,
-input[type="password"]:focus,
-textarea:focus,
-select:focus,
-.native-picker:focus {
-  outline: none !important;
-  border-color: rgba(255,255,255,0.35) !important;
-  box-shadow: 0 0 0 2px rgba(255,255,255,0.06) !important;
-}
-input::placeholder, textarea::placeholder {
-  color: #4b5563 !important;
-}
-
-/* ── Codex Text Input ── */
-.cdx-text-input {
-  background: rgba(255,255,255,0.03) !important;
-  background-image: none !important;
-}
-.cdx-text-input__input {
-  background-color: #111111 !important;
-  background-image: none !important;
-  border-color: rgba(255,255,255,0.1) !important;
-  color: #e5e7eb !important;
-  border-radius: 6px !important;
-  font-family: inherit;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.cdx-text-input__input:focus,
-.cdx-text-input__input:focus-within {
-  outline: none !important;
-  border-color: rgba(255,255,255,0.35) !important;
-  box-shadow: 0 0 0 2px rgba(255,255,255,0.06) !important;
-}
-.cdx-text-input__input::placeholder { color: #4b5563 !important; }
-.cdx-text-input__icon.cdx-icon { color: #4b5563 !important; }
-.cdx-text-input:not(.cdx-text-input--status-error) { border-color: rgba(255,255,255,0.1) !important; }
-
-/* ── Codex Menu / Dropdown ── */
-.cdx-menu {
-  background-color: #141414 !important;
-  border: 1px solid rgba(255,255,255,0.08) !important;
-  border-radius: 8px !important;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.7) !important;
-  overflow: hidden;
-}
-.cdx-menu-item { color: #9ca3af !important; border-bottom: 1px solid rgba(255,255,255,0.04) !important; }
-.cdx-menu-item:last-child { border-bottom: none !important; }
-.cdx-menu-item--enabled, .cdx-menu-item--enabled .cdx-menu-item__content { color: #9ca3af !important; }
-.cdx-menu-item--enabled .cdx-menu-item__text__description { color: #6b7280 !important; }
-.cdx-menu-item--enabled.cdx-menu-item--highlighted {
-  background-color: rgba(255,255,255,0.06) !important;
-  cursor: pointer;
-}
-.cdx-menu-item--enabled.cdx-menu-item--highlighted .cdx-menu-item__content { color: #e5e7eb !important; }
-.cdx-menu-item--enabled.cdx-menu-item--active { background-color: rgba(255,255,255,0.08) !important; }
-.cdx-menu-item--enabled.cdx-menu-item--selected { background-color: rgba(255,255,255,0.07) !important; color: #f9fafb !important; }
-.cdx-menu-item--enabled.cdx-menu-item--selected .cdx-menu-item__content { color: #f9fafb !important; }
-.cdx-menu__no-results, .cdx-menu__pending {
-  color: #6b7280 !important;
-  background-color: #141414 !important;
-  font-size: 0.85rem !important;
-  padding: 14px 16px !important;
-}
-
-/* ── Codex Progress Bar ── */
-.cdx-progress-bar { background-color: rgba(255,255,255,0.05) !important; }
-.cdx-progress-bar, .cdx-progress-bar__bar,
-.cdx-progress-bar--indeterminate .cdx-progress-bar__bar,
-.cdx-text-input__progress-bar, .cdx-text-input__progress-bar * { background-image: none !important; }
-.cdx-progress-bar__bar, .cdx-text-input__progress-bar { background-color: rgba(255,255,255,0.4) !important; }
-.cdx-progress-bar__bar::after, .cdx-text-input__progress-bar::after {
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent) !important;
-}
-.cdx-lookup .cdx-text-input { background: transparent !important; }
-.cdx-lookup--pending .cdx-text-input .cdx-text-input__input {
-  background-image: none !important;
-  background-color: rgba(255,255,255,0.04) !important;
-  border-color: rgba(255,255,255,0.25) !important;
-  animation: none !important;
-}
-
-/* ── Codex Checkbox ── */
-.cdx-checkbox__input:enabled + .cdx-checkbox__icon {
-  border-color: rgba(255,255,255,0.2) !important;
-  background-color: rgba(255,255,255,0.03) !important;
-}
-.cdx-checkbox__input:enabled:hover + .cdx-checkbox__icon {
-  border-color: rgba(255,255,255,0.4) !important;
-  background-color: rgba(255,255,255,0.06) !important;
-}
-.cdx-checkbox__input:enabled:checked + .cdx-checkbox__icon {
-  background-color: #e5e7eb !important;
-  border-color: #e5e7eb !important;
-}
-.cdx-checkbox__label, .cdx-label__label { color: #9ca3af !important; }
-
-/* ── Codex Button ── */
-.cdx-button:not(.cdx-button--weight-primary) {
-  color: #9ca3af !important;
-  border-color: rgba(255,255,255,0.1) !important;
-}
-.cdx-button:not(.cdx-button--weight-primary):hover {
-  background-color: rgba(255,255,255,0.05) !important;
-  border-color: rgba(255,255,255,0.15) !important;
-  color: #e5e7eb !important;
-}
-.cdx-button--weight-primary.cdx-button--action-progressive,
-.cdx-button--weight-primary.cdx-button--action-progressive *,
-.cdx-button--weight-primary.cdx-button--action-progressive .cdx-button__content {
-  background-color: #2563eb !important;
-  border-color: #2563eb !important;
-  color: #ffffff !important;
-  -webkit-text-fill-color: #ffffff !important;
-}
-.cdx-button--weight-primary.cdx-button--action-progressive:hover,
-.cdx-button--weight-primary.cdx-button--action-progressive:hover * {
-  background-color: #1d4ed8 !important;
-  border-color: #1d4ed8 !important;
-  color: #ffffff !important;
-  -webkit-text-fill-color: #ffffff !important;
-}
-.cdx-button--weight-primary.cdx-button--action-destructive,
-.cdx-button--weight-primary.cdx-button--action-destructive *,
-.cdx-button--weight-primary.cdx-button--action-destructive .cdx-button__content {
-  background-color: #dc2626 !important;
-  border-color: #dc2626 !important;
-  color: #fff !important;
-  -webkit-text-fill-color: #fff !important;
-}
-.cdx-button--weight-primary.cdx-button--action-destructive:hover,
-.cdx-button--weight-primary.cdx-button--action-destructive:hover * {
-  background-color: #b91c1c !important;
-  border-color: #b91c1c !important;
-  color: #fff !important;
-  -webkit-text-fill-color: #fff !important;
+@media (max-width: 768px) {
+  html, body { scrollbar-gutter: auto; }
 }

@@ -8,6 +8,10 @@ import configparser
 from datetime import datetime
 from dotenv import load_dotenv
 load_dotenv()
+import json
+import shutil
+import subprocess
+from pathlib import Path
 
 def get_toolforge_credentials():
     cnf_path = os.path.expanduser("~/replica.my.cnf")
@@ -61,6 +65,100 @@ else:
         cursor.execute("PRAGMA cache_size=-64000")
         cursor.execute("PRAGMA temp_store=MEMORY")
         cursor.close()
+
+def _pre_migration_backup(db_engine):
+    """Create a rollback snapshot before touching the application schema."""
+    backup_root = Path(os.getenv("BACKUP_ROOT", Path(__file__).resolve().parent.parent)) / "backup" / "pre_migration"
+    backup_root.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(backup_root, 0o700)
+    except OSError:
+        pass
+
+    def protect(path):
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+
+    stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+    is_mysql = "mysql" in str(db_engine.url)
+
+    # The jury panel projection is a second local SQLite database. Preserve
+    # it too when the primary application database is MariaDB.
+    if is_mysql:
+        for local_db in Path(__file__).resolve().parent.glob("*.db"):
+            local_target = backup_root / f"{local_db.stem}_{stamp}.db"
+            shutil.copy2(local_db, local_target)
+            protect(local_target)
+            print(f"[Migration Backup] Local SQLite snapshot created: {local_target}")
+
+    if not is_mysql:
+        source = Path(db_engine.url.database or "app.db")
+        if not source.is_absolute():
+            source = Path.cwd() / source
+        target = backup_root / f"app_{stamp}.db"
+        if source.exists():
+            shutil.copy2(source, target)
+            protect(target)
+            print(f"[Migration Backup] SQLite snapshot created: {target}")
+        else:
+            empty_target = backup_root / f"app_{stamp}.empty"
+            empty_target.write_text(
+                "Database did not exist before migration.\n", encoding="utf-8"
+            )
+            protect(empty_target)
+            print("[Migration Backup] SQLite database does not exist yet; recorded empty snapshot.")
+        source_resolved = source.resolve()
+        for local_db in Path(__file__).resolve().parent.glob("*.db"):
+            if local_db.resolve() == source_resolved:
+                continue
+            local_target = backup_root / f"{local_db.stem}_{stamp}.db"
+            shutil.copy2(local_db, local_target)
+            protect(local_target)
+            print(f"[Migration Backup] Local SQLite snapshot created: {local_target}")
+        return target if source.exists() else empty_target
+
+    # Prefer a native SQL dump because it preserves schema, indexes, and data.
+    sql_target = backup_root / f"app_{stamp}.sql"
+    dump_env = os.environ.copy()
+    if DB_PASSWORD:
+        dump_env["MYSQL_PWD"] = DB_PASSWORD
+    dump_cmd = [
+        "mysqldump", "--single-transaction", "--routines", "--triggers",
+        "--host", str(DB_HOST), "--port", str(DB_PORT), "--user", str(DB_USER),
+        str(DB_NAME),
+    ]
+    try:
+        with sql_target.open("wb") as output:
+            subprocess.run(dump_cmd, env=dump_env, stdout=output, stderr=subprocess.PIPE, check=True)
+        protect(sql_target)
+        print(f"[Migration Backup] MariaDB dump created: {sql_target}")
+        return sql_target
+    except (FileNotFoundError, subprocess.CalledProcessError) as error:
+        if sql_target.exists():
+            sql_target.unlink()
+        print(f"[Migration Backup] mysqldump unavailable or failed ({error}); using JSON snapshot.")
+
+    # Toolforge images do not always include mysqldump. This fallback still
+    # captures every table, column definition, and row before migration.
+    json_target = backup_root / f"app_{stamp}.json"
+    from sqlalchemy import inspect, text
+    inspector = inspect(db_engine)
+    snapshot = {"database": str(DB_NAME), "created_at": datetime.utcnow().isoformat(), "tables": {}}
+    with db_engine.connect() as connection:
+        for table in inspector.get_table_names():
+            columns = inspector.get_columns(table)
+            rows = connection.execute(text(f"SELECT * FROM `{table}`")).mappings().all()
+            snapshot["tables"][table] = {
+                "columns": [{"name": column["name"], "type": str(column["type"])} for column in columns],
+                "rows": [dict(row) for row in rows],
+            }
+    json_target.write_text(json.dumps(snapshot, ensure_ascii=False, default=str), encoding="utf-8")
+    protect(json_target)
+    print(f"[Migration Backup] MariaDB JSON snapshot created: {json_target}")
+    return json_target
+
 
 def run_auto_migrations(db_engine):
     """Idempotent schema migrations. Uses IF NOT EXISTS so it's safe to run every startup."""
@@ -209,10 +307,53 @@ def run_auto_migrations(db_engine):
         else:
             print("[Migration] 'system_logs' table already exists.")
 
+        if 'contest_jury_restrictions' not in existing_tables:
+            with db_engine.connect() as conn:
+                try:
+                    conn.execute(text(f"""
+                        CREATE TABLE IF NOT EXISTS contest_jury_restrictions (
+                            id INTEGER NOT NULL {"AUTO_INCREMENT" if is_mysql else ""} PRIMARY KEY,
+                            contest_id INTEGER NOT NULL,
+                            jury_user_id INTEGER NOT NULL,
+                            submitter_user_id INTEGER NOT NULL,
+                            CONSTRAINT uq_contest_jury_submitter UNIQUE (contest_id, jury_user_id, submitter_user_id),
+                            FOREIGN KEY (contest_id) REFERENCES contests(id),
+                            FOREIGN KEY (jury_user_id) REFERENCES users(id),
+                            FOREIGN KEY (submitter_user_id) REFERENCES users(id)
+                        )
+                    """))
+                    conn.commit()
+                    print("[Migration] Created 'contest_jury_restrictions' table.")
+                except Exception as ex:
+                    print(f"[Migration] WARN creating contest_jury_restrictions: {ex}")
+        else:
+            print("[Migration] 'contest_jury_restrictions' table already exists.")
+
+        if 'contest_banned_users' not in existing_tables:
+            with db_engine.connect() as conn:
+                try:
+                    conn.execute(text(f"""
+                        CREATE TABLE IF NOT EXISTS contest_banned_users (
+                            id INTEGER NOT NULL {"AUTO_INCREMENT" if is_mysql else ""} PRIMARY KEY,
+                            contest_id INTEGER NOT NULL,
+                            user_id INTEGER NOT NULL,
+                            CONSTRAINT uq_contest_banned_user UNIQUE (contest_id, user_id),
+                            FOREIGN KEY (contest_id) REFERENCES contests(id),
+                            FOREIGN KEY (user_id) REFERENCES users(id)
+                        )
+                    """))
+                    conn.commit()
+                    print("[Migration] Created 'contest_banned_users' table.")
+                except Exception as ex:
+                    print(f"[Migration] WARN creating contest_banned_users: {ex}")
+        else:
+            print("[Migration] 'contest_banned_users' table already exists.")
+
         print("[Migration] All done.")
     except Exception as e:
         print(f"[Migration] FATAL error: {e}")
 
+_pre_migration_backup(engine)
 run_auto_migrations(engine)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
