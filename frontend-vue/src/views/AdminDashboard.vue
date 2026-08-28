@@ -273,6 +273,9 @@ const handleExportCSV = (code) => {
 const handleDownloadDatabase = () => {
   window.location.href = '/api/admin/backup/download';
 };
+const handleDownloadJuryPanelDatabase = () => {
+  window.location.href = '/api/admin/jury-panel/backup/download';
+};
 
 const handleExportJSON = async (code, cName) => {
   try {
@@ -560,6 +563,10 @@ const formatDate = (iso) => {
             <button class="action-btn secondary" @click="handleDownloadDatabase" title="Download a database backup">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
               Download Backup
+            </button>
+            <button class="action-btn secondary" @click="handleDownloadJuryPanelDatabase" title="Download the jury-panel projection database (always plain SQLite) to inspect assignment state directly">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+              Download Jury Panel DB
             </button>
           </div>
         </div>

@@ -27,10 +27,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import case, exists, func
+from sqlalchemy import case, exists, func, text
 from database import get_db, engine, query_wiki_replica_batch, _pre_migration_backup
 import models
-from jury_panel_store import sync_and_get as sync_jury_panel
+from jury_panel_store import sync_and_get as sync_jury_panel, DB_PATH as JURY_PANEL_DB_PATH, engine as jury_panel_engine
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -696,6 +696,27 @@ def download_database_backup(_: models.User = Depends(get_owner_user)):
         str(database_path), media_type="application/x-sqlite3",
         filename="feather_app.db"
     )
+
+@app.get("/api/admin/jury-panel/backup/download")
+def download_jury_panel_backup(_: models.User = Depends(get_owner_user)):
+    """Download the jury-panel projection database directly. It's always local
+    SQLite (even when the main app database is MariaDB on Toolforge), so unlike
+    the main backup this never falls back to a JSON dump — open it in any SQLite
+    browser to inspect article/jury assignment state directly."""
+    if not JURY_PANEL_DB_PATH.exists():
+        raise HTTPException(status_code=404, detail="Jury panel database file not found")
+    # WAL mode can leave recent commits sitting in jury_panel.db-wal rather than
+    # the main file; checkpoint first so the downloaded file is complete on its own.
+    try:
+        with jury_panel_engine.begin() as connection:
+            connection.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+    except Exception as error:
+        print(f"[Jury Panel Backup] Checkpoint failed, downloading as-is: {error}")
+    return FileResponse(
+        str(JURY_PANEL_DB_PATH), media_type="application/x-sqlite3",
+        filename="feather_jury_panel.db"
+    )
+
 @app.post("/api/admin/contests")
 def create_contest(data: ContestCreate, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
     c = models.Contest(
