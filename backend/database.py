@@ -216,7 +216,7 @@ def _schema_requires_migration(db_engine):
     indexes = {
         index["name"] for index in inspector.get_indexes("articles")
     } if "articles" in tables else set()
-    if {"ix_articles_contest_id", "ix_articles_contest_status", "ix_articles_contest_assigned"} - indexes:
+    if {"ix_articles_contest_id", "ix_articles_contest_status", "ix_articles_contest_assigned", "ix_articles_contest_id_pk"} - indexes:
         return True
     return False
 
@@ -419,6 +419,13 @@ def run_auto_migrations(db_engine):
             "CREATE INDEX IF NOT EXISTS ix_articles_contest_id ON articles (contest_id)",
             "CREATE INDEX IF NOT EXISTS ix_articles_contest_status ON articles (contest_id, status)",
             "CREATE INDEX IF NOT EXISTS ix_articles_contest_assigned ON articles (contest_id, assigned_to_id)",
+            # /log and /articles/page filter by contest_id and paginate by
+            # ORDER BY id (keyset cursor). Without contest_id+id together in
+            # one index, MariaDB can't satisfy both the filter and the sort
+            # from an index and falls back to a much slower plan -- this is
+            # what made a 500-row page take ~2.2s on a live 12k-article
+            # contest instead of milliseconds.
+            "CREATE INDEX IF NOT EXISTS ix_articles_contest_id_pk ON articles (contest_id, id)",
         ]
         with db_engine.connect() as conn:
             for statement in index_statements:

@@ -360,12 +360,23 @@ def clear_all_pending_assignments(db: Session, contest: models.Contest):
     ).update({"assigned_to_id": None}, synchronize_session=False)
     db.commit()
 
+_rebalance_lock = threading.Lock()
+
 def rebalance_pending_articles(db: Session, contest: models.Contest, jury_map: dict = None):
     """Assign every pending article that has no valid, current jury owner to
     the least-loaded eligible jury, and backfill ownership for already-decided
     articles that predate the assigned_to_id column. Cheap no-op when nothing
     needs it, and safe to call from both write endpoints (proactively) and
-    read endpoints (as a self-heal safety net)."""
+    read endpoints (as a self-heal safety net).
+
+    Serialized process-wide: concurrent requests (e.g. several jury members
+    loading the panel at once) would otherwise all read the same "who's
+    least loaded" snapshot before any of them commit, redo the same backfill
+    work, and hand out assignments that don't account for each other."""
+    with _rebalance_lock:
+        _rebalance_pending_articles_locked(db, contest, jury_map)
+
+def _rebalance_pending_articles_locked(db: Session, contest: models.Contest, jury_map: dict = None):
     if jury_map is None:
         jury_map = get_eligible_juries(contest)
     jury_ids = set(jury_map.keys())
