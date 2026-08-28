@@ -1,8 +1,9 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, inject, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CdxIcon } from '@wikimedia/codex';
 import { cdxIconArticleCheck, cdxIconTrash } from '@wikimedia/codex-icons';
+import { fetchAllContestLogPages } from '../utils/contestLog';
 import { Doughnut, Bar } from 'vue-chartjs';
 import {
   Chart as ChartJS,
@@ -19,8 +20,11 @@ ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarEle
 
 const route = useRoute();
 const router = useRouter();
+const user = inject('user');
 const isLoading = ref(true);
 const articles = ref([]);
+const articlesLoaded = ref(false);
+const isLoadingArticles = ref(false);
 const roles = ref({ is_jury: false, is_owner: false });
 const juryProgress = ref([]);
 const isAuthorized = computed(() => roles.value.is_jury || roles.value.is_owner);
@@ -33,23 +37,50 @@ const expandedSubmitters = ref({});
 const visibleGroupCounts = ref({});
 const isBulkRemoving = ref(false);
 
-const fetchArticles = async () => {
-  const res = await fetch(`/api/contests/${route.params.code}/log`);
-  if (!res.ok) throw new Error('Could not load submitted articles.');
-  articles.value = await res.json();
+// Overview KPIs/charts come from grouped SQL counts, not the full article list —
+// the "All submitted"/"Errored" tabs are the only place that need per-article detail.
+const stats = ref({ status_counts: {}, jury_stats: [] });
+
+const fetchStats = async () => {
+  const res = await fetch(`/api/contests/${route.params.code}/stats`);
+  if (!res.ok) throw new Error('Could not load jury statistics.');
+  stats.value = await res.json();
 };
+
+// Loaded in bounded pages, and only once a tab that needs per-article rows is opened.
+const fetchArticles = async () => {
+  isLoadingArticles.value = true;
+  try {
+    await fetchAllContestLogPages(route.params.code, {
+      onPage: (items) => { articles.value = items; },
+    });
+    articlesLoaded.value = true;
+  } finally {
+    isLoadingArticles.value = false;
+  }
+};
+
+const ensureArticlesLoaded = () => {
+  if (!articlesLoaded.value && !isLoadingArticles.value) {
+    fetchArticles().catch(err => console.error(err));
+  }
+};
+
+watch(activeTab, (tab) => {
+  if (tab === 'submissions' || tab === 'errors') ensureArticlesLoaded();
+});
 
 onMounted(async () => {
   try {
     const roleRes = await fetch(`/api/contests/${route.params.code}/my-role`);
     if (roleRes.ok) roles.value = await roleRes.json();
-    
+
     if (!isAuthorized.value) {
       isLoading.value = false;
       return;
     }
 
-    await fetchArticles();
+    await fetchStats();
     const progressRes = await fetch(`/api/jury-panel/contests/${route.params.code}/progress`);
     if (progressRes.ok) juryProgress.value = await progressRes.json();
   } catch (err) {
@@ -60,14 +91,12 @@ onMounted(async () => {
 });
 
 const overallStats = computed(() => {
-  const total = articles.value.length;
-  let accepted = 0, rejected = 0, pending = 0;
-  for (const a of articles.value) {
-    if (a.status === 'accepted') accepted++;
-    else if (a.status === 'rejected') rejected++;
-    else pending++;
-  }
-  return { total, accepted, rejected, pending };
+  const counts = stats.value.status_counts || {};
+  const total = counts.total || 0;
+  const accepted = counts.accepted || 0;
+  const rejected = counts.rejected || 0;
+  // "Pending" here means everything not yet decided, including validation failures.
+  return { total, accepted, rejected, pending: total - accepted - rejected };
 });
 
 const acceptRate = computed(() => {
@@ -76,28 +105,10 @@ const acceptRate = computed(() => {
 });
 
 const juryStats = computed(() => {
-  const stats = {};
-  for (const a of articles.value) {
-    for (const r of a.reviews) {
-      if (!roles.value.is_owner && r.reviewer !== user.value?.wiki_username) continue;
-      if (!stats[r.reviewer]) stats[r.reviewer] = { articles: {} };
-      const previous = stats[r.reviewer].articles[a.article_id];
-      const previousTime = previous?.reviewed_at ? new Date(previous.reviewed_at).getTime() : -1;
-      const reviewTime = r.reviewed_at ? new Date(r.reviewed_at).getTime() : 0;
-      if (!previous || reviewTime >= previousTime) {
-        stats[r.reviewer].articles[a.article_id] = r;
-      }
-    }
-  }
-  return Object.keys(stats).map(name => {
-    const latestReviews = Object.values(stats[name].articles);
-    return {
-      name,
-      total: latestReviews.length,
-      accepted: latestReviews.filter(r => r.decision === 'accepted').length,
-      rejected: latestReviews.filter(r => r.decision === 'rejected').length,
-    };
-  }).sort((a, b) => b.total - a.total);
+  const rows = stats.value.jury_stats || [];
+  if (roles.value.is_owner) return rows;
+  const mine = user?.value?.wiki_username;
+  return rows.filter(row => row.name === mine);
 });
 
 const juryProgressRows = computed(() => juryProgress.value.map(row => ({
@@ -185,7 +196,7 @@ const removeArticle = async (article) => {
     if (!res.ok) throw new Error(data.detail || 'Could not remove the article.');
     selectedErrorIds.value = selectedErrorIds.value.filter(id => id !== article.article_id);
     selectedSubmissionIds.value = selectedSubmissionIds.value.filter(id => id !== article.article_id);
-    await fetchArticles();
+    await Promise.all([fetchArticles(), fetchStats()]);
   } catch (err) {
     removalError.value = err.message || 'Could not remove the article.';
   } finally {
@@ -212,7 +223,7 @@ const removeSelectedSubmissions = async (group = null) => {
     const failed = (result.failed || []).map(item => item.article_id);
     selectedSubmissionIds.value = selectedSubmissionIds.value.filter(id => failed.includes(id));
     if (failed.length) throw new Error(`Could not remove ${failed.length} article(s).`);
-    await fetchArticles();
+    await Promise.all([fetchArticles(), fetchStats()]);
   } catch (err) {
     removalError.value = err.message || 'Could not remove selected articles.';
   } finally {
@@ -235,7 +246,7 @@ const removeSelectedErrors = async () => {
     const failed = (result.failed || []).map(item => item.article_id);
     selectedErrorIds.value = failed;
     if (failed.length) throw new Error(`Could not remove ${failed.length} article(s).`);
-    await fetchArticles();
+    await Promise.all([fetchArticles(), fetchStats()]);
   } catch (err) {
     removalError.value = err.message || 'Could not remove selected articles.';
   } finally {
@@ -396,13 +407,13 @@ const handleExportWikitable = () => {
           class="jury-tab"
           :class="{ active: activeTab === 'submissions' }"
           @click="activeTab = 'submissions'"
-        >All submitted <span>{{ articles.length }}</span></button>
+        >All submitted <span>{{ (stats.status_counts.total || 0).toLocaleString() }}</span></button>
         <button
           type="button"
           class="jury-tab jury-tab-errors"
           :class="{ active: activeTab === 'errors' }"
           @click="activeTab = 'errors'"
-        >Errored <span>{{ erroredArticles.length }}</span></button>
+        >Errored <span>{{ (stats.status_counts.validation_failed || 0).toLocaleString() }}</span></button>
       </nav>
 
       <template v-if="activeTab === 'overview'">
@@ -601,7 +612,7 @@ const handleExportWikitable = () => {
             <button v-if="activeTab === 'errors' && erroredArticles.length" type="button" class="bulk-remove-submissions" :disabled="!selectedErrorIds.length || isBulkRemoving" @click="removeSelectedErrors">
               {{ isBulkRemoving ? 'Removing…' : `Delete selected (${selectedErrorIds.length})` }}
             </button>
-            <button type="button" class="refresh-submissions" @click="fetchArticles">Refresh</button>
+            <button type="button" class="refresh-submissions" @click="fetchArticles(); fetchStats()">Refresh</button>
           </div>
         </div>
 
@@ -640,7 +651,10 @@ const handleExportWikitable = () => {
                   ><CdxIcon :icon="cdxIconTrash" /></button>
                 </td>
               </tr>
-              <tr v-if="!articles.length">
+              <tr v-if="isLoadingArticles && !articles.length">
+                <td :colspan="activeTab === 'errors' ? 6 : 5" class="empty-state">Loading submissions…</td>
+              </tr>
+              <tr v-else-if="!articles.length">
                 <td :colspan="activeTab === 'errors' ? 6 : 5" class="empty-state">{{ activeTab === 'errors' ? 'No errored articles.' : 'No articles have been submitted yet.' }}</td>
               </tr>
             </tbody>
@@ -667,11 +681,12 @@ const handleExportWikitable = () => {
             <button type="button" class="bulk-remove-submissions" :disabled="!selectedSubmissionIds.length || isBulkRemoving" @click="removeSelectedSubmissions()">
               {{ isBulkRemoving ? 'Removing…' : `Delete selected (${selectedSubmissionIds.length})` }}
             </button>
-            <button type="button" class="refresh-submissions" @click="fetchArticles">Refresh</button>
+            <button type="button" class="refresh-submissions" @click="fetchArticles(); fetchStats()">Refresh</button>
           </div>
         </div>
         <p v-if="removalError" class="removal-error">{{ removalError }}</p>
-        <div v-if="!groupedSubmissions.length" class="empty-state group-empty">No articles have been submitted yet.</div>
+        <div v-if="isLoadingArticles && !groupedSubmissions.length" class="empty-state group-empty">Loading submissions…</div>
+        <div v-else-if="!groupedSubmissions.length" class="empty-state group-empty">No articles have been submitted yet.</div>
         <div v-else class="submitter-groups">
           <article v-for="group in groupedSubmissions" :key="group.username" class="submitter-group">
             <header class="submitter-group-header">

@@ -1227,49 +1227,111 @@ def get_contest_results(code: str, db: Session = Depends(get_db)):
     if not contest:
         raise HTTPException(status_code=404, detail="Contest not found")
 
-    articles = db.query(models.Article).options(
-        joinedload(models.Article.submitter),
-        selectinload(models.Article.reviews).joinedload(models.Review.reviewer)
-    ).filter_by(contest_id=contest.id).all()
+    # Aggregated in SQL instead of loading every article/review row into Python —
+    # on large contests that full load was the dominant cost of this public page.
+    submitter_rows = db.query(
+        models.User.wiki_username,
+        func.count(models.Article.id),
+        func.sum(case((models.Article.status == models.ArticleStatus.accepted, 1), else_=0)),
+        func.sum(case((models.Article.status == models.ArticleStatus.rejected, 1), else_=0)),
+        func.sum(case((models.Article.status == models.ArticleStatus.pending, 1), else_=0)),
+    ).join(models.Article, models.Article.submitter_id == models.User.id) \
+     .filter(models.Article.contest_id == contest.id) \
+     .group_by(models.User.wiki_username).all()
 
-    submitters = {}
-    juries = {}
-
-    for a in articles:
-        if a.submitter:
-            u = a.submitter.wiki_username
-            if u not in submitters:
-                submitters[u] = {"accepted": 0, "rejected": 0, "pending": 0, "total": 0}
-            submitters[u]["total"] += 1
-            if a.status.value == "accepted": submitters[u]["accepted"] += 1
-            elif a.status.value == "rejected": submitters[u]["rejected"] += 1
-            elif a.status.value == "pending": submitters[u]["pending"] += 1
-            
-        for r in a.reviews:
-            if r.reviewer:
-                j = r.reviewer.wiki_username
-                if j not in juries:
-                    juries[j] = {"accepted": 0, "rejected": 0, "total": 0}
-                juries[j]["total"] += 1
-                if r.status.value == "accepted": juries[j]["accepted"] += 1
-                elif r.status.value == "rejected": juries[j]["rejected"] += 1
+    jury_rows = db.query(
+        models.User.wiki_username,
+        func.count(models.Review.id),
+        func.sum(case((models.Review.status == models.ReviewStatus.accepted, 1), else_=0)),
+        func.sum(case((models.Review.status == models.ReviewStatus.rejected, 1), else_=0)),
+    ).join(models.Article, models.Article.id == models.Review.article_id) \
+     .join(models.User, models.User.id == models.Review.reviewer_id) \
+     .filter(models.Article.contest_id == contest.id) \
+     .group_by(models.User.wiki_username).all()
 
     return {
         "contest": {"name": contest.name, "code": contest.code},
-        "submitters": [{"username": u, **stats} for u, stats in submitters.items()],
-        "juries": [{"username": j, **stats} for j, stats in juries.items()]
+        "submitters": [
+            {"username": u, "total": int(t or 0), "accepted": int(a or 0), "rejected": int(r or 0), "pending": int(p or 0)}
+            for u, t, a, r, p in submitter_rows
+        ],
+        "juries": [
+            {"username": u, "total": int(t or 0), "accepted": int(a or 0), "rejected": int(r or 0)}
+            for u, t, a, r in jury_rows
+        ],
     }
 
-@app.get("/api/contests/{code}/log")
-def get_contest_log(code: str, db: Session = Depends(get_db)):
+@app.get("/api/contests/{code}/stats")
+def get_contest_stats(code: str, db: Session = Depends(get_db)):
+    """Grouped-count summary for dashboards/polling that only need totals, not every
+    article/review row. Also carries a cheap change signature so pollers can skip
+    re-fetching the full /log payload when nothing actually changed."""
     contest = db.query(models.Contest).filter_by(code=code).first()
     if not contest:
         raise HTTPException(status_code=404, detail="Contest not found")
 
+    status_counts = {s.value: 0 for s in models.ArticleStatus}
+    total = 0
+    for status, count in db.query(
+        models.Article.status, func.count(models.Article.id)
+    ).filter_by(contest_id=contest.id).group_by(models.Article.status).all():
+        status_counts[status.value] = int(count)
+        total += int(count)
+    status_counts["total"] = total
+
+    # Only the latest non-skipped review per (article, reviewer) counts toward a
+    # jury's stats, so a reopened/updated decision doesn't double-count.
+    latest_review = db.query(
+        models.Review.article_id,
+        models.Review.reviewer_id,
+        func.max(models.Review.id).label("latest_id"),
+    ).filter(models.Review.status != models.ReviewStatus.skipped) \
+     .group_by(models.Review.article_id, models.Review.reviewer_id).subquery()
+
+    jury_map = {}
+    for username, decision, count in db.query(
+        models.User.wiki_username, models.Review.status, func.count(models.Review.id)
+    ).join(latest_review, models.Review.id == latest_review.c.latest_id) \
+     .join(models.Article, models.Article.id == models.Review.article_id) \
+     .join(models.User, models.User.id == models.Review.reviewer_id) \
+     .filter(models.Article.contest_id == contest.id) \
+     .group_by(models.User.wiki_username, models.Review.status).all():
+        entry = jury_map.setdefault(username, {"name": username, "total": 0, "accepted": 0, "rejected": 0})
+        entry["total"] += int(count)
+        if decision == models.ReviewStatus.accepted:
+            entry["accepted"] += int(count)
+        elif decision == models.ReviewStatus.rejected:
+            entry["rejected"] += int(count)
+
+    latest_article_id = db.query(func.max(models.Article.id)).filter_by(contest_id=contest.id).scalar() or 0
+    latest_review_id = db.query(func.max(models.Review.id)) \
+        .join(models.Article, models.Article.id == models.Review.article_id) \
+        .filter(models.Article.contest_id == contest.id).scalar() or 0
+
+    return {
+        "status_counts": status_counts,
+        "jury_stats": sorted(jury_map.values(), key=lambda j: j["total"], reverse=True),
+        "signature": f"{total}:{latest_article_id}:{latest_review_id}",
+    }
+
+@app.get("/api/contests/{code}/log")
+def get_contest_log(
+    code: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=200, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+
+    total = db.query(func.count(models.Article.id)).filter_by(contest_id=contest.id).scalar()
+
     articles = db.query(models.Article).options(
         joinedload(models.Article.submitter),
         selectinload(models.Article.reviews).joinedload(models.Review.reviewer)
-    ).filter_by(contest_id=contest.id).order_by(models.Article.submitted_at.desc()).all()
+    ).filter_by(contest_id=contest.id).order_by(models.Article.submitted_at.desc()) \
+     .offset((page - 1) * page_size).limit(page_size).all()
 
     log = []
     now = datetime.utcnow()
@@ -1309,7 +1371,13 @@ def get_contest_log(code: str, db: Session = Depends(get_db)):
         }
         log.append(entry)
 
-    return log
+    return {
+        "items": log,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 @app.get("/api/jury-panel/contests/{code}/articles")
 def get_jury_panel_articles(code: str, view_as: Optional[str] = Query(default=None), current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):

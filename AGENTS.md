@@ -107,7 +107,8 @@ D:\Quote Contest\article-tool\
 | GET    | `/api/contests/{code}`                  | Get single contest                 | None      |
 | GET    | `/api/contests/{code}/my-role`          | Get user's role in contest         | Required  |
 | GET    | `/api/contests/{code}/my-submissions`   | User's own submissions             | Required  |
-| GET    | `/api/contests/{code}/log`              | Full activity log                  | Jury/Owner|
+| GET    | `/api/contests/{code}/stats`            | Grouped-count status/jury summary + cheap change signature; no per-article rows | None |
+| GET    | `/api/contests/{code}/log`              | Paginated activity log (`page`, `page_size`, default 200/max 500) — returns `{items, total, page, page_size, has_more}` | None |
 | GET    | `/api/contests/{code}/users/{username}` | User profile in contest context    | None      |
 
 ### Admin (Owner Only)
@@ -202,6 +203,7 @@ Before schema migrations run, the backend writes a rollback snapshot under `back
 
 ## Change Log
 
+| 2026-08-28 | Fixed the large-contest slowdown reported at 11k+ submissions: `/api/contests/{code}/log` now returns bounded pages (`page`/`page_size`, was an unpaginated full dump of every article + all reviews) instead of one giant query/payload. Added `/api/contests/{code}/stats` (grouped SQL counts + per-jury latest-review totals + a cheap change signature) so dashboards no longer need the full log just for numbers. `ContestDashboard.vue`’s 5s stats poll and `ReviewQueue.vue`’s legacy (`/jury/review`) 5s poll — previously both re-fetched the *entire* contest log every 5 seconds regardless of whether anything changed — now use `/stats`; the review queue’s poll only triggers a full refetch when the signature changes. `ActivityLog.vue` and `JuryStats.vue` fetch the log through the new pagination (progressively rendering as pages arrive), and `JuryStats.vue`’s Overview tab (KPIs, jury table, charts) is now driven entirely by `/stats`, loading the full per-article list lazily only when the All-submitted/Errored tabs are opened; this also fixed a latent bug where non-owner jury stats threw on an undefined `user` reference. `/api/contests/{code}/results` was rewritten from a Python loop over every article/review to grouped SQL aggregation. Added `frontend-vue/src/utils/contestLog.js` (`fetchAllContestLogPages`) shared by the three views that still need the complete per-article list. On the local 11k-article dev database this cut the previous ~2.8MB every-5-seconds full-log poll down to a `/stats` response of a few hundred bytes. |
 | 2026-08-28 | Reduced initial navigation cost by splitting all non-home Vue routes into lazy-loaded chunks and fetching contest metadata and the user’s contest role in parallel. Large jury datasets are loaded only after entering jury views. |
 
 | 2026-08-28 | Switched the local application and jury projection SQLite databases from TRUNCATE journaling to WAL mode with 60-second busy timeouts and pooled connections, allowing API reads to continue during submissions, projection refreshes, and maintenance writes. |

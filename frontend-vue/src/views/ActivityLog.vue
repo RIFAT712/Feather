@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { CdxIcon } from '@wikimedia/codex';
 import { cdxIconAlert } from '@wikimedia/codex-icons';
+import { fetchAllContestLogPages } from '../utils/contestLog';
 
 const props = defineProps(['contest']);
 const route = useRoute();
@@ -61,9 +62,11 @@ onMounted(async () => {
     const roleRes = await fetch(`/api/contests/${route.params.code}/my-role`);
     if (roleRes.ok) roles.value = await roleRes.json();
     
-    const res = await fetch(`/api/contests/${route.params.code}/log`);
-    if (!res.ok) throw new Error('Failed to load log');
-    log.value = await res.json();
+    // Loaded in bounded pages and rendered as pages arrive, rather than blocking
+    // on one request that joins and serializes every article + review at once.
+    await fetchAllContestLogPages(route.params.code, {
+      onPage: (items) => { log.value = items; },
+    });
   } catch (e) {
     error.value = e.message;
   } finally {

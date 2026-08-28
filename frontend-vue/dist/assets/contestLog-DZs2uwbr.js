@@ -1,0 +1,1 @@
+async function e(e,{pageSize:t=500,signal:n,onPage:r}={}){let i=[],a=1;for(;;){let o=await fetch(`/api/contests/${e}/log?page=${a}&page_size=${t}`,{signal:n});if(!o.ok)throw Error(`Failed to load activity log`);let s=await o.json();if(i.push(...s.items),r&&r(i,s),!s.has_more)break;a+=1}return i}export{e as t};

@@ -9,28 +9,30 @@ const router = useRouter();
 
 const roles = ref({ is_jury: false, is_owner: false });
 const isLoadingRoles = ref(true);
-const log = ref([]);
+const stats = ref({ total: 0, accepted: 0, rejected: 0, pending: 0 });
 
 const isActive = computed(() => {
   const now = new Date();
   return now >= new Date(props.contest.start_date) && now <= new Date(props.contest.end_date);
 });
 
-const stats = computed(() => {
-  const total = log.value.length;
-  const accepted = log.value.filter(a => a.status === 'accepted').length;
-  const rejected = log.value.filter(a => a.status === 'rejected').length;
-  const pending = log.value.filter(a => a.status === 'pending').length;
-  return { total, accepted, rejected, pending };
-});
-
 const timerText = ref("");
 let timerInterval;
 let statsInterval;
 
-const fetchContestLog = async () => {
-  const response = await fetch(`/api/contests/${route.params.code}/log`);
-  if (response.ok) log.value = await response.json();
+// Counts only — avoids re-downloading every article/review on the contest just
+// to show four numbers, which used to be re-fetched in full every 5 seconds.
+const fetchContestStats = async () => {
+  const response = await fetch(`/api/contests/${route.params.code}/stats`);
+  if (response.ok) {
+    const data = await response.json();
+    stats.value = {
+      total: data.status_counts.total,
+      accepted: data.status_counts.accepted,
+      rejected: data.status_counts.rejected,
+      pending: data.status_counts.pending,
+    };
+  }
 };
 
 const updateTimer = () => {
@@ -60,9 +62,9 @@ onMounted(() => {
       if (roleResponse.ok) roles.value = await roleResponse.json();
       isLoadingRoles.value = false;
       if (roles.value.is_jury || roles.value.is_owner) {
-        await fetchContestLog();
+        await fetchContestStats();
         statsInterval = setInterval(() => {
-          fetchContestLog().catch(error => console.error('Failed to refresh contest stats', error));
+          fetchContestStats().catch(error => console.error('Failed to refresh contest stats', error));
         }, 5000);
       }
     } catch (error) {
@@ -128,7 +130,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-        <div v-if="!isLoadingRoles && (roles.is_jury || roles.is_owner) && log.length > 0" class="stats-row">
+        <div v-if="!isLoadingRoles && (roles.is_jury || roles.is_owner) && stats.total > 0" class="stats-row">
       <div class="stat-card">
         <div class="stat-number">{{ stats.total }}</div>
         <div class="stat-label">Total Submitted</div>

@@ -20,6 +20,7 @@ import {
   cdxIconTrash,
   cdxIconUpTriangle,
 } from '@wikimedia/codex-icons';
+import { fetchAllContestLogPages } from '../utils/contestLog';
 
 const props = defineProps(['contest', 'assignedQueue']);
 const route = useRoute();
@@ -375,15 +376,13 @@ const fetchArticles = async (showLoading = true, append = false) => {
       return;
     }
 
-    const ownerQuery = props.assignedQueue && roles.value.is_owner && ownerViewMode.value === 'judge' && selectedJudge.value
-      ? `?view_as=${encodeURIComponent(selectedJudge.value)}` : '';
-    const articleEndpoint = props.assignedQueue
-      ? `/api/jury-panel/contests/${route.params.code}/articles/page?page=${append ? assignedPage.value + 1 : 1}&page_size=250${ownerQuery ? `&view_as=${encodeURIComponent(selectedJudge.value)}` : ''}`
-      : `/api/contests/${route.params.code}/log`;
-    const response = await fetch(articleEndpoint, { signal });
-    if (response.ok) {
-      const payload = await response.json();
-      if (props.assignedQueue) {
+    if (props.assignedQueue) {
+      const ownerQuery = roles.value.is_owner && ownerViewMode.value === 'judge' && selectedJudge.value
+        ? `&view_as=${encodeURIComponent(selectedJudge.value)}` : '';
+      const articleEndpoint = `/api/jury-panel/contests/${route.params.code}/articles/page?page=${append ? assignedPage.value + 1 : 1}&page_size=250${ownerQuery}`;
+      const response = await fetch(articleEndpoint, { signal });
+      if (response.ok) {
+        const payload = await response.json();
         const pageItems = ownerVisibleArticles(payload.items || []);
         assignedPage.value = payload.page || (append ? assignedPage.value + 1 : 1);
         assignedHasMore.value = Boolean(payload.has_more);
@@ -391,9 +390,23 @@ const fetchArticles = async (showLoading = true, append = false) => {
           ? { total: payload.total, ...payload.status_counts }
           : null;
         articles.value = append ? [...articles.value, ...pageItems] : pageItems;
-      } else {
-        articles.value = ownerVisibleArticles(payload);
       }
+    } else {
+      // The legacy fallback queue needs every article (for New/My Judged/Other
+      // Judges grouping), fetched in bounded pages instead of one giant request.
+      // The most recent page (likely to hold the still-pending articles) unblocks
+      // the UI immediately; older pages keep streaming in behind it.
+      let firstPage = true;
+      await fetchAllContestLogPages(route.params.code, {
+        signal,
+        onPage: (items) => {
+          articles.value = ownerVisibleArticles(items);
+          if (firstPage) {
+            firstPage = false;
+            if (showLoading) isLoading.value = false;
+          }
+        },
+      });
     }
   } catch (error) {
     if (error.name === 'AbortError') return;
@@ -489,11 +502,34 @@ const selectArticle = (article) => {
 };
 
 let statsInterval;
+let lastQueueSignature = null;
+
+// For the legacy (non-assignedQueue) queue, a full refresh means re-fetching
+// every article in bounded pages. Polling that unconditionally every 5s was the
+// dominant cost on large contests, so only do it when a cheap counts endpoint
+// reports something actually changed (new submission, new/updated review).
+const pollLegacyQueue = async () => {
+  try {
+    const res = await fetch(`/api/contests/${route.params.code}/stats`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.signature !== lastQueueSignature) {
+      lastQueueSignature = data.signature;
+      await fetchArticles(false);
+    }
+  } catch (error) {
+    console.error('Failed to check review queue for updates', error);
+  }
+};
 
 onMounted(async () => {
   await fetchArticles();
   statsInterval = setInterval(() => {
-    fetchArticles(false).catch(error => console.error('Failed to refresh review queue', error));
+    if (props.assignedQueue) {
+      fetchArticles(false).catch(error => console.error('Failed to refresh review queue', error));
+    } else {
+      pollLegacyQueue();
+    }
   }, 5000);
   if (availableNewArticles.value.length > 0 && !currentArticle.value) {
     selectArticle(availableNewArticles.value[0]);
