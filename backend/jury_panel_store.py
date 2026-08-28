@@ -4,7 +4,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, create_engine, func, text
+from sqlalchemy import Column, DateTime, Integer, String, Text, create_engine, func, or_, text
 from sqlalchemy.orm import declarative_base, joinedload, sessionmaker, selectinload
 
 Base = declarative_base()
@@ -93,11 +93,23 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
                             .scalar())
         meta = mirror.get(ProjectionMeta, contest.code)
         mirror_count = mirror.query(ArticleProjection).filter_by(contest_code=contest.code).count()
-        unassigned_pending = mirror.query(ArticleProjection).filter(
+        # Catches both truly-unassigned rows (assigned_to IS NULL) and rows still
+        # pointing at a name that is no longer a valid jury for this contest — a
+        # removed jury member, or a stale value left behind by an older allocator.
+        # Checking NULL alone missed that second case: those rows never counted as
+        # "unassigned," so needs_assignment stayed false and they were stuck with
+        # whatever a much older, capped allocator run had given them, forever.
+        stuck_pending_query = mirror.query(ArticleProjection).filter(
             ArticleProjection.contest_code == contest.code,
             ArticleProjection.status == "pending",
-            ArticleProjection.assigned_to.is_(None),
-        ).count()
+        )
+        if juries:
+            stuck_pending_query = stuck_pending_query.filter(
+                or_(ArticleProjection.assigned_to.is_(None), ~ArticleProjection.assigned_to.in_(juries))
+            )
+        else:
+            stuck_pending_query = stuck_pending_query.filter(ArticleProjection.assigned_to.is_(None))
+        unassigned_pending = stuck_pending_query.count()
         restriction_count = len(restrictions)
         jury_signature = "\x1f".join(sorted(juries))
         restriction_signature = "\x1f".join(f"{jury_id}:{submitter_id}" for jury_id, submitter_id in sorted(restrictions))
