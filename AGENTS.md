@@ -204,7 +204,7 @@ Before schema migrations run, the backend writes a rollback snapshot under `back
 
 | 2026-08-28 | Switched the local application and jury projection SQLite databases from TRUNCATE journaling to WAL mode with 60-second busy timeouts and pooled connections, allowing API reads to continue during submissions, projection refreshes, and maintenance writes. |
 
-| 2026-08-28 | Jury projection rebuilds now recover reviewed-page ownership from the latest non-skipped reviewer, keep those pages assigned to that jury, count them in the jury load, and distribute only pending pages evenly across eligible juries; the assignment fingerprint version forces a one-time repair of existing projections. |
+| 2026-08-28 | Jury projection rebuilds now recover reviewed-page ownership from the latest non-skipped reviewer, keep those pages assigned to that jury, count them in the jury load, and distribute all pending pages evenly across eligible juries; assignment fingerprint v3 forces repair of under-assigned legacy projections. |
 
 | 2026-08-28 | Removed startup and health-probe-triggered full database dumps; pre-migration snapshots now run only when metadata detects a pending schema change, hourly backups are opt-in and delayed until after the first hour, and contest counts use indexed aggregated SQL queries to keep API responses responsive on large databases. |
 

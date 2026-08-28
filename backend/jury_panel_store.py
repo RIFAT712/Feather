@@ -98,7 +98,10 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
         restriction_signature = "\x1f".join(f"{jury_id}:{submitter_id}" for jury_id, submitter_id in sorted(restrictions))
         # Version this fingerprint when assignment semantics change so older
         # projections are rebuilt and reviewed-page ownership is repaired once.
-        assignment_signature = f"v=2\x1eself={int(bool(contest.allow_self_review))}\x1e{restriction_signature}"
+        # Bump this whenever assignment rules change. v3 forces existing
+        # under-assigned projections (from the old 50-item rollout) to be
+        # rebuilt across the complete contest, not just the first page.
+        assignment_signature = f"v=3\x1eself={int(bool(contest.allow_self_review))}\x1e{restriction_signature}"
         banned_signature = "\x1f".join(sorted(
             row.user.wiki_username for row in contest.banned_users if row.user
         ))
@@ -263,6 +266,14 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
                 [{"article_id": row.article_id, "assigned_to": row.assigned_to} for row in assignment_rows],
             )
             mirror.commit()
+            assignment_counts = {
+                jury: sum(1 for row in assignment_rows if row.assigned_to == jury)
+                for jury in juries
+            }
+            print(
+                f"[Jury Panel] Distributed {len(assignment_rows)} articles for "
+                f"{contest.code}: {assignment_counts}"
+            )
 
         query = (mirror.query(ArticleProjection)
                  .filter_by(contest_code=contest.code)
