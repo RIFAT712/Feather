@@ -1,5 +1,6 @@
 """Separate review-database projection used by the new jury-panel endpoint."""
 import json
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -13,6 +14,7 @@ engine = create_engine(
     connect_args={"check_same_thread": False, "timeout": 30},
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+_sync_lock = threading.Lock()
 
 
 class ArticleProjection(Base):
@@ -57,6 +59,10 @@ with engine.begin() as connection:
 
 def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, include_meta=False):
     """Read the legacy DB, write only the projection DB, and return this user's queue."""
+    # Several page/progress requests can arrive together on a fresh deploy.
+    # Serializing the rebuild prevents duplicate projection_meta inserts and
+    # avoids hammering the remote MariaDB connection with parallel full reads.
+    _sync_lock.acquire()
     mirror = SessionLocal()
     try:
         models = __import__('models')
@@ -97,50 +103,83 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
             or meta.banned_signature != banned_signature
             or meta.assignment_signature != assignment_signature
         )
-        articles = []
-        if needs_sync:
-            # Assignment ownership remains persistent in the separate DB;
-            # only changed contests pay the cost of loading the full payload.
-            articles = (source_query
-                        .options(joinedload(models.Article.submitter),
-                                 selectinload(models.Article.reviews).joinedload(models.Review.reviewer))
-                        .all())
-        existing_rows = ({row.article_id: row for row in mirror.query(ArticleProjection)
-                          .filter_by(contest_code=contest.code).all()} if needs_sync else {})
         by_id = {}
-        for article in articles:
-            payload = {
-                "article_id": article.id,
-                "title": article.title,
-                "submitted_by": article.submitter.wiki_username if article.submitter else "",
-                "submitted_at": article.submitted_at.isoformat() if article.submitted_at else None,
-                "status": article.status.value,
-                "validation_error": article.validation_error,
-                "wiki_creator": article.wiki_creator,
-                "wiki_creation_date": article.wiki_creation_date.isoformat() if article.wiki_creation_date else None,
-                "reviews": [
-                    {
-                        "reviewer": review.reviewer.wiki_username,
-                        "decision": review.status.value,
-                        "comment": review.comment,
-                        "reviewed_at": review.timestamp.isoformat() if review.timestamp else None,
+        if needs_sync:
+            # Do not materialize the whole contest as ORM objects and do not
+            # commit once per article.  A fresh Toolforge projection can have
+            # tens of thousands of rows, so mirror it in bounded batches.
+            existing_rows = {row.article_id: row.assigned_to for row in mirror.query(ArticleProjection)
+                             .filter_by(contest_code=contest.code).all()}
+            source_ids = set()
+            batch = []
+
+            def flush_batch(items):
+                if not items:
+                    return
+                inserts = []
+                updates = []
+                now = datetime.utcnow()
+                for article in items:
+                    submitted_by = article.submitter.wiki_username if article.submitter else ""
+                    payload = {
+                        "article_id": article.id,
+                        "title": article.title,
+                        "submitted_by": submitted_by,
+                        "submitted_at": article.submitted_at.isoformat() if article.submitted_at else None,
+                        "status": article.status.value,
+                        "validation_error": article.validation_error,
+                        "wiki_creator": article.wiki_creator,
+                        "wiki_creation_date": article.wiki_creation_date.isoformat() if article.wiki_creation_date else None,
+                        "reviews": [
+                            {
+                                "reviewer": review.reviewer.wiki_username,
+                                "decision": review.status.value,
+                                "comment": review.comment,
+                                "reviewed_at": review.timestamp.isoformat() if review.timestamp else None,
+                            }
+                            for review in sorted(article.reviews, key=lambda item: item.timestamp or datetime.min)
+                            if review.status.value != "skipped"
+                        ],
                     }
-                    for review in sorted(article.reviews, key=lambda item: item.timestamp or datetime.min)
-                    if review.status.value != "skipped"
-                ],
-            }
-            row = existing_rows.get(article.id)
-            if not row:
-                row = ArticleProjection(article_id=article.id, contest_code=contest.code, assigned_to=None)
-                mirror.add(row)
-            row.contest_code = contest.code
-            row.title = article.title
-            row.submitted_by = payload["submitted_by"]
-            row.status = payload["status"]
-            row.submitted_at = article.submitted_at
-            row.payload = json.dumps(payload, ensure_ascii=False)
-            row.updated_at = datetime.utcnow()
-            by_id[article.id] = row
+                    values = {
+                        "article_id": article.id,
+                        "contest_code": contest.code,
+                        "title": article.title,
+                        "submitted_by": submitted_by,
+                        "status": payload["status"],
+                        "submitted_at": article.submitted_at,
+                        "payload": json.dumps(payload, ensure_ascii=False),
+                        "assigned_to": existing_rows.get(article.id),
+                        "updated_at": now,
+                    }
+                    source_ids.add(article.id)
+                    by_id[article.id] = values
+                    (updates if article.id in existing_rows else inserts).append(values)
+                if inserts:
+                    mirror.bulk_insert_mappings(ArticleProjection, inserts)
+                if updates:
+                    mirror.bulk_update_mappings(ArticleProjection, updates)
+                mirror.commit()
+
+            for article in (source_query
+                            .options(joinedload(models.Article.submitter),
+                                     selectinload(models.Article.reviews).joinedload(models.Review.reviewer))
+                            .yield_per(500)):
+                batch.append(article)
+                if len(batch) >= 500:
+                    flush_batch(batch)
+                    batch = []
+            flush_batch(batch)
+
+            # Remove rows deleted from the source contest without a giant
+            # SQLite IN clause (and retain projections for other contests).
+            stale_ids = set(existing_rows) - source_ids
+            for start in range(0, len(stale_ids), 500):
+                mirror.query(ArticleProjection).filter(
+                    ArticleProjection.contest_code == contest.code,
+                    ArticleProjection.article_id.in_(list(stale_ids)[start:start + 500]),
+                ).delete(synchronize_session=False)
+            mirror.commit()
 
         if meta is None:
             meta = ProjectionMeta(contest_code=contest.code)
@@ -153,16 +192,8 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
         meta.banned_signature = banned_signature
         meta.assignment_signature = assignment_signature
         mirror.commit()
-        if needs_sync:
-            # Remove rows deleted from the legacy contest, while retaining the
-            # projection database for other contests.
-            source_ids = set(by_id)
-            for row in existing_rows.values():
-                if row.article_id not in source_ids:
-                    mirror.delete(row)
-            mirror.commit()
         if juries and needs_sync:
-            assignment_rows = list(by_id.values())
+            assignment_rows = mirror.query(ArticleProjection).filter_by(contest_code=contest.code).all()
             submitter_names = {row.submitted_by for row in assignment_rows}
             user_ids = {username: user_id for user_id, username in
                         db.query(models.User.id, models.User.wiki_username)
@@ -198,6 +229,10 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
                 chosen = min(choices, key=lambda jury: (loads[jury], jury))
                 row.assigned_to = chosen
                 loads[chosen] += 1
+            mirror.bulk_update_mappings(
+                ArticleProjection,
+                [{"article_id": row.article_id, "assigned_to": row.assigned_to} for row in assignment_rows],
+            )
             mirror.commit()
 
         query = (mirror.query(ArticleProjection)
@@ -228,3 +263,4 @@ def sync_and_get(db, contest, current_user, view_as=None, offset=0, limit=None, 
         return items
     finally:
         mirror.close()
+        _sync_lock.release()

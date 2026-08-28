@@ -200,6 +200,8 @@ Before schema migrations run, the backend writes a rollback snapshot under `back
 
 ## Change Log
 
+| 2026-08-28 | Optimized the first jury-panel projection rebuild with 500-row batches and serialized concurrent syncs; existing pending articles are now rebalanced across eligible juries during the rebuild, preventing duplicate metadata inserts and overlapping MariaDB reads on fresh Toolforge containers. |
+
 | 2026-08-28 | Fixed Jury Progress loading by moving its initial API request into `onMounted`, so `/jury` no longer reports “No jury assignment data available yet” on first render. |
 | 2026-08-28 | Added bounded jury queue pagination with server-side totals/status counts and bulk review/delete endpoints (up to 500 IDs per request); Review v2 now requests 250-item pages and appends additional server pages on demand. |
 | 2026-08-28 | Added recoverable article deletion snapshots with a five-minute, permission-checked undo token; single and bulk deletion responses now expose restore metadata, and Review v2/Jury Stats show an Undo action. The duplicate Pending Review count was removed from the queue group header because the pending total is already shown in the compact stats strip. |
