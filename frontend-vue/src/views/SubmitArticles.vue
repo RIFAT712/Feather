@@ -150,7 +150,11 @@ const visibleSubmittedArticles = computed(() => filteredSubmittedArticles.value.
 const showMoreAvailable = () => { availableDisplayLimit.value += 200; };
 const showMoreSubmitted = () => { submittedDisplayLimit.value += 100; };
 
-const selectionOptions = ['all', 10, 100, 1000, 2000, 'custom'];
+const selectionOptions = computed(() => [
+  'all',
+  ...[10, 100, 1000, 2000].filter(amount => filteredAvailableArticles.value.length > amount),
+  'custom',
+]);
 const effectiveSelectionLimit = computed(() => !selectionRange.value
   ? 0
   : selectionRange.value === 'all'
@@ -161,6 +165,7 @@ const selectionRangeLabel = computed(() => selectionRange.value === 'all'
   : !selectionRange.value ? '—'
   : selectionRange.value === 'custom' ? effectiveSelectionLimit.value.toLocaleString() : selectionRange.value.toLocaleString());
 const applySelectionRange = () => {
+  if (!selectionRange.value) return;
   selectedArticles.value = effectiveSelectionLimit.value === Infinity
     ? [...filteredAvailableArticles.value]
     : filteredAvailableArticles.value.slice(0, effectiveSelectionLimit.value);
@@ -168,7 +173,8 @@ const applySelectionRange = () => {
 const deselectAll = () => { selectedArticles.value = []; };
 const toggleArticleSelection = (title, event) => {
   if (event.target.checked) {
-    if (selectedArticles.value.length >= effectiveSelectionLimit.value) {
+    const hasPresetLimit = Boolean(selectionRange.value) && effectiveSelectionLimit.value !== Infinity;
+    if (hasPresetLimit && selectedArticles.value.length >= effectiveSelectionLimit.value) {
       event.target.checked = false;
       return;
     }
@@ -271,14 +277,14 @@ const targetDisplayName = computed(() =>
     <div v-else-if="submissionNotOpen" class="submission-window-alert" role="status">
       This contest has not started yet. Submissions are not open.
     </div>
-        <div class="page-header">
+    <div class="page-header">
       <h1 class="page-title">Submit Articles</h1>
       <p class="page-subtitle">
         Your eligible articles are automatically fetched. Select which ones to submit for review.
       </p>
     </div>
 
-        <div v-if="roles.is_jury || roles.is_owner" class="behalf-banner">
+    <div v-if="roles.is_jury || roles.is_owner" class="behalf-banner">
       <div class="behalf-banner__inner">
         <label class="behalf-toggle">
           <input type="checkbox" v-model="isOnBehalf" class="behalf-toggle__input" />
@@ -298,7 +304,7 @@ const targetDisplayName = computed(() =>
       </div>
     </div>
 
-        <div class="card">
+    <div class="card">
       <div class="card__header">
         <div class="card__header-icon">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" /></svg>
@@ -331,7 +337,7 @@ const targetDisplayName = computed(() =>
       <div class="card__body">
         <p v-if="fetchError" class="fetch-error">{{ fetchError }}</p>
 
-                <div v-if="userCreatedArticles.length > 0" class="article-search">
+        <div v-if="userCreatedArticles.length > 0" class="article-search">
           <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
           <input
             v-model="articleSearch"
@@ -345,12 +351,12 @@ const targetDisplayName = computed(() =>
           <p>No articles match your search "<strong>{{ articleSearch }}</strong>".</p>
         </div>
 
-                <div v-if="filteredAvailableArticles.length > 0" class="article-section">
-          <div class="article-section__header" @click="isAvailableOpen = !isAvailableOpen" style="cursor: pointer; user-select: none;">
+        <div v-if="filteredAvailableArticles.length > 0" class="article-section">
+          <div class="article-section__header" @click="isAvailableOpen = !isAvailableOpen">
             <span class="article-section__label">
               <svg :style="{ transform: isAvailableOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="16" height="16" style="margin-right: 4px; vertical-align: -2px;"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" /></svg>
               Articles You Can Submit ({{ filteredAvailableArticles.length }})
-              <span class="selection-counter" style="margin-left: 8px; font-size: 0.8125rem; font-weight: 700; color: #e5e7eb; background: rgba(165, 180, 252, 0.15); padding: 2px 8px; border-radius: 99px;">
+              <span class="selection-counter">
                 {{ selectedArticles.length }} selected
               </span>
             </span>
@@ -359,7 +365,7 @@ const targetDisplayName = computed(() =>
                 <span>Select</span>
                 <select v-model="selectionRange" aria-label="Number of articles to select">
                   <option value="" disabled>—</option>
-                  <option v-for="amount in selectionOptions" :key="amount" :value="amount" :disabled="amount !== 'all' && amount !== 'custom' && filteredAvailableArticles.length < amount">
+                  <option v-for="amount in selectionOptions" :key="amount" :value="amount">
                     {{ amount === 'all' ? 'All' : amount === 'custom' ? 'Custom' : amount.toLocaleString() }}
                   </option>
                 </select>
@@ -394,9 +400,9 @@ const targetDisplayName = computed(() =>
           </button>
         </div>
 
-                <div v-if="filteredSubmittedArticles.length > 0" class="article-section" style="margin-top: 24px;">
-          <div class="article-section__header" @click="isSubmittedOpen = !isSubmittedOpen" style="cursor: pointer; user-select: none;">
-            <span class="article-section__label" style="color: #64748b;">
+        <div v-if="filteredSubmittedArticles.length > 0" class="article-section article-section--submitted">
+          <div class="article-section__header" @click="isSubmittedOpen = !isSubmittedOpen">
+            <span class="article-section__label">
               <svg :style="{ transform: isSubmittedOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="16" height="16" style="margin-right: 4px; vertical-align: -2px;"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" /></svg>
               Already Submitted ({{ filteredSubmittedArticles.length }})
             </span>
@@ -411,8 +417,8 @@ const targetDisplayName = computed(() =>
               <span class="article-item__box">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" /></svg>
               </span>
-              <span class="article-item__title" style="color: #64748b;">{{ title }}</span>
-              <span class="already-submitted-inline-badge" style="font-size: 0.75rem; color: #64748b; background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px; margin-left: 8px;">Already submitted</span>
+              <span class="article-item__title">{{ title }}</span>
+              <span class="already-submitted-inline-badge">Already submitted</span>
             </label>
           </div>
           <button v-if="visibleSubmittedArticles.length < filteredSubmittedArticles.length" type="button" class="load-more-articles" @click="showMoreSubmitted">
@@ -421,7 +427,7 @@ const targetDisplayName = computed(() =>
         </div>
 
                 <div v-if="userCreatedArticles.length === 0 || (userCreatedArticles.length > 0 && availableArticles.length === 0 && submittedArticles.length === 0)" class="empty-state">
-          <span v-if="isFetchingArticles" class="spinner" style="width:24px;height:24px;margin-bottom:12px;color:rgba(255,255,255,0.2);"></span>
+          <span v-if="isFetchingArticles" class="spinner spinner--large"></span>
           <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="40" height="40"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
           
           <template v-if="!isFetchingArticles">

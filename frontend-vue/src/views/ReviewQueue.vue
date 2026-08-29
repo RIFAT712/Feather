@@ -573,9 +573,12 @@ const handleDecision = async (decision) => {
   if (!currentArticle.value || isSubmitting.value) return;
   isSubmitting.value = true;
   reviewError.value = '';
-  const reviewedArticleId = currentArticle.value.article_id;
-  const reviewedArticle = currentArticle.value;
-  const reviewComment = comment.value;
+    const reviewedArticleId = currentArticle.value.article_id;
+    const reviewedArticle = currentArticle.value;
+    const reviewComment = comment.value;
+    const previousQueueIndex = availableNewArticles.value.findIndex(
+      article => article.article_id === reviewedArticleId,
+    );
   try {
     const res = await fetch(`/api/articles/${reviewedArticleId}/review`, {
       method: 'POST',
@@ -600,7 +603,10 @@ const handleDecision = async (decision) => {
     articles.value = articles.value.map(article => article.article_id === reviewedArticleId
       ? { ...article, status: decision, reviews: [...(article.reviews || []), optimisticReview] }
       : article);
-    const nextArticle = availableNewArticles.value[0];
+    const remainingArticles = availableNewArticles.value;
+    const nextArticle = remainingArticles.length
+      ? remainingArticles[Math.min(Math.max(previousQueueIndex, 0), remainingArticles.length - 1)]
+      : null;
     if (nextArticle) {
       selectArticle(nextArticle);
     } else {

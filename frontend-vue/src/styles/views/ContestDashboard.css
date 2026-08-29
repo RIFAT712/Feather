@@ -120,6 +120,7 @@
   text-transform: uppercase;
 }
 .hero-timer {
+  font-variant-numeric: tabular-nums;
   margin: 8px 0 20px;
   color: #20364d;
   font-size: 1.08rem;
