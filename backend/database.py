@@ -5,6 +5,7 @@ import os
 import configparser
 
 from datetime import datetime
+from timeutils import utcnow
 from dotenv import load_dotenv
 load_dotenv()
 import json
@@ -88,7 +89,7 @@ def _pre_migration_backup(db_engine):
         except OSError:
             pass
 
-    stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+    stamp = utcnow().strftime("%Y%m%d_%H%M%S_%f")
     is_mysql = "mysql" in str(db_engine.url)
 
     # The jury panel projection is a second local SQLite database. Preserve
@@ -152,7 +153,7 @@ def _pre_migration_backup(db_engine):
     json_target = backup_root / f"app_{stamp}.json"
     from sqlalchemy import inspect, text
     inspector = inspect(db_engine)
-    snapshot = {"database": str(DB_NAME), "created_at": datetime.utcnow().isoformat(), "tables": {}}
+    snapshot = {"database": str(DB_NAME), "created_at": utcnow().isoformat(), "tables": {}}
     with db_engine.connect() as connection:
         for table in inspector.get_table_names():
             columns = inspector.get_columns(table)
@@ -317,14 +318,14 @@ def run_auto_migrations(db_engine):
                 conn.execute(text(
                     "INSERT INTO contest_timezone_migrations (migration_key, applied_at) "
                     "VALUES (:key, :applied_at)"
-                ), {"key": migration_key, "applied_at": datetime.utcnow()})
+                ), {"key": migration_key, "applied_at": utcnow()})
                 conn.commit()
                 print("[Migration] Shifted existing contest windows from legacy UTC storage to BST-correct UTC.")
             elif not already_applied:
                 conn.execute(text(
                     "INSERT INTO contest_timezone_migrations (migration_key, applied_at) "
                     "VALUES (:key, :applied_at)"
-                ), {"key": migration_key, "applied_at": datetime.utcnow()})
+                ), {"key": migration_key, "applied_at": utcnow()})
                 conn.commit()
                 print("[Migration] Recorded contest timezone migration; no existing contests to shift.")
             else:
@@ -426,6 +427,12 @@ def run_auto_migrations(db_engine):
             # what made a 500-row page take ~2.2s on a live 12k-article
             # contest instead of milliseconds.
             "CREATE INDEX IF NOT EXISTS ix_articles_contest_id_pk ON articles (contest_id, id)",
+            # GET /log?submitted_by=... and /submitters filter/group by
+            # (contest_id, submitter_id) -- the dashboard's per-user
+            # drill-down fetches one submitter's articles on demand instead
+            # of crawling the whole contest and grouping client-side, so this
+            # needs to be an index lookup, not a filtered scan.
+            "CREATE INDEX IF NOT EXISTS ix_articles_contest_submitter ON articles (contest_id, submitter_id)",
         ]
         with db_engine.connect() as conn:
             for statement in index_statements:
@@ -569,4 +576,58 @@ def query_wiki_replica_batch(titles: list) -> dict:
         return results
     except Exception as e:
         print(f"[Replica] Wiki replica query error, falling back to HTTP API: {e}")
+        return None
+
+
+def query_wiki_replica_user_creations(username: str, start: datetime, end: datetime, limit: int = 5000) -> list:
+    """
+    Queries the Wikimedia MariaDB replica for every mainspace page `username`
+    created (first revision, rev_parent_id = 0) between `start` and `end` --
+    the same underlying page/revision/actor tables query_wiki_replica_batch()
+    validates individual titles against, just filtered by author + date range
+    instead of by a title list. Used to auto-populate SubmitArticles.vue's
+    "Articles You Can Submit" list instead of paginating the public
+    usercontribs API from the browser.
+    Returns a list of page titles (spaces, not underscores), or None if the
+    replica engine is unavailable or the query fails (triggering the
+    usercontribs HTTP fallback in main.py).
+    """
+    if not wiki_engine or not username:
+        return None
+
+    # MediaWiki usernames are always capitalized on first letter; actor_name
+    # is stored in that display form (unlike page_title, which uses
+    # underscores for spaces), so this is the one normalization worth doing.
+    clean_username = username.strip().replace("_", " ")
+    if not clean_username:
+        return None
+    clean_username = clean_username[0].upper() + clean_username[1:]
+
+    # rev_timestamp is MediaWiki's fixed-width "YYYYMMDDHHMMSS" format, which
+    # sorts and compares correctly as a plain string.
+    start_ts = start.strftime("%Y%m%d%H%M%S")
+    end_ts = end.strftime("%Y%m%d%H%M%S")
+
+    try:
+        with wiki_engine.connect() as conn:
+            from sqlalchemy import text
+            query = text("""
+                SELECT CONVERT(p.page_title USING utf8mb4) as page_title
+                FROM revision r
+                JOIN actor a ON r.rev_actor = a.actor_id
+                JOIN page p ON p.page_id = r.rev_page
+                WHERE a.actor_name = :username
+                  AND r.rev_parent_id = 0
+                  AND p.page_namespace = 0
+                  AND r.rev_timestamp >= :start_ts
+                  AND r.rev_timestamp <= :end_ts
+                ORDER BY r.rev_timestamp ASC
+                LIMIT :limit
+            """)
+            res = conn.execute(query, {"username": clean_username, "start_ts": start_ts, "end_ts": end_ts, "limit": limit})
+            titles = [row.page_title.replace("_", " ") for row in res]
+        print(f"[Replica] User-creations query for {clean_username!r} ({start_ts}-{end_ts}): {len(titles)} pages")
+        return titles
+    except Exception as e:
+        print(f"[Replica] Wiki replica user-creations query error, falling back to HTTP API: {e}")
         return None

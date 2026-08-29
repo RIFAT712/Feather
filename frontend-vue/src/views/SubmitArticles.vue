@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import { CdxButton, CdxLookup } from '@wikimedia/codex';
 import { useQueryClient } from '@tanstack/vue-query';
 import { invalidateContestData } from '../composables/useContestData';
+import { formatDate, toDate } from '../utils/datetime';
 
 const props = defineProps(['contest']);
 const route = useRoute();
@@ -32,7 +33,7 @@ const articleSearch = ref('');
 const availableDisplayLimit = ref(200);
 const submittedDisplayLimit = ref(100);
 
-const contestDate = (value) => new Date(`${value}${String(value).endsWith('Z') ? '' : 'Z'}`);
+const contestDate = (value) => toDate(value) || new Date(NaN);
 const submissionNotOpen = computed(() => props.contest?.start_date && Date.now() < contestDate(props.contest.start_date).getTime());
 const submissionClosed = computed(() => props.contest?.end_date && Date.now() > contestDate(props.contest.end_date).getTime());
 
@@ -79,9 +80,7 @@ const fetchUserArticles = async () => {
   userCreatedArticles.value = [];
   selectedArticles.value = [];
   const targetUser = (isOnBehalf.value && onBehalfUsername.value) ? onBehalfUsername.value : user.value.wiki_username;
-  const start = new Date(props.contest.start_date + (!props.contest.start_date.endsWith('Z') ? 'Z' : '')).toISOString();
-  const end = new Date(props.contest.end_date + (!props.contest.end_date.endsWith('Z') ? 'Z' : '')).toISOString();
-  
+
   try {
     const contestCode = route.params.code;
     const profileRes = await fetch(`/api/contests/${contestCode}/users/${encodeURIComponent(targetUser)}`);
@@ -96,31 +95,27 @@ const fetchUserArticles = async () => {
   }
 
   try {
-    let allArticles = [];
-    let continueToken = '';
-    while (true) {
-      const continueParam = continueToken ? `&uccontinue=${continueToken}` : '';
-      const url = `https://bn.wiktionary.org/w/api.php?action=query&list=usercontribs&ucuser=${encodeURIComponent(targetUser)}&ucstart=${start}&ucend=${end}&ucdir=newer&ucnamespace=0&ucprop=title|timestamp&ucshow=new&uclimit=max&format=json&origin=*${continueParam}`;
-      const res = await fetch(url);
-      const data = await res.json();
-      if (data.query && data.query.usercontribs) {
-        allArticles.push(...data.query.usercontribs.map(c => c.title));
-      }
-      if (data.continue && data.continue.uccontinue) {
-        continueToken = data.continue.uccontinue;
-      } else {
-        break;
-      }
+    // Backed by the wiki replica DB (same source /submit-bulk validates
+    // against) with a server-side usercontribs fallback -- see
+    // /api/contests/{code}/user-created-articles in main.py. Replaces
+    // paginating the public usercontribs API directly from the browser,
+    // which was slower and relied on the same MediaWiki origin=* CORS
+    // workaround the DB-backed validation elsewhere in this app doesn't need.
+    const res = await fetch(`/api/contests/${route.params.code}/user-created-articles?username=${encodeURIComponent(targetUser)}`);
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody.detail || `HTTP ${res.status}`);
     }
+    const data = await res.json();
     if (mySeq !== fetchSeq) return;
-    userCreatedArticles.value = [...new Set(allArticles)];
-  } catch (err) { 
+    userCreatedArticles.value = [...new Set(data.titles || [])];
+  } catch (err) {
     if (mySeq !== fetchSeq) return;
-    fetchError.value = 'Failed to fetch articles from Wikipedia.'; 
+    fetchError.value = 'Failed to fetch articles from Wikipedia.';
   }
-  finally { 
+  finally {
     if (mySeq !== fetchSeq) return;
-    isFetchingArticles.value = false; 
+    isFetchingArticles.value = false;
   }
 };
 
@@ -315,7 +310,7 @@ const targetDisplayName = computed(() =>
           </h2>
           <p class="card__desc">
             Showing articles created between
-            {{ new Date(contest.start_date).toLocaleDateString() }} – {{ new Date(contest.end_date).toLocaleDateString() }}.
+            {{ formatDate(contest.start_date) }} – {{ formatDate(contest.end_date) }}.
           </p>
         </div>
         <button

@@ -57,6 +57,51 @@
 .submission-heading-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
 .submission-heading-meta span { display: inline-flex; align-items: center; gap: 4px; padding: 5px 9px; border: 1px solid #c7d6e3; border-radius: 999px; background: rgba(255,255,255,.78); color: #52728f; font-size: .72rem; }
 .submission-heading-meta strong { color: #20364d; font-weight: 800; }
+
+/* Title search — light theme tokens (see STYLE_GUIDE core tokens). */
+.submission-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 0 12px;
+  max-width: 460px;
+  background: var(--feather-surface, #fff);
+  border: 1px solid var(--feather-border, #c7d6e3);
+  border-radius: 10px;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.submission-search:focus-within {
+  border-color: var(--feather-accent, #355b80);
+  box-shadow: 0 0 0 3px rgba(53, 91, 128, .12);
+}
+.submission-search-icon { font-size: .8rem; opacity: .6; flex-shrink: 0; }
+.submission-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: .85rem;
+  color: var(--feather-text, #20364d);
+  padding: 9px 0;
+}
+.submission-search-input::placeholder { color: var(--feather-muted, #47637c); opacity: .75; }
+/* Browser-native clear affordance is inconsistent and unstyleable. */
+.submission-search-input::-webkit-search-cancel-button { display: none; }
+.submission-search-clear {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--feather-muted, #47637c);
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.submission-search-clear:hover { color: var(--feather-text, #20364d); background: var(--feather-surface-alt, #f4f8fb); }
 .submission-groups .submission-toolbar { align-items: center; justify-content: flex-end; padding: 6px; border: 1px solid #c7d6e3; border-radius: 11px; background: rgba(255,255,255,.8); box-shadow: 0 4px 12px rgba(32,54,77,.05); }
 .submission-groups .select-all-submissions { padding: 8px 9px; color: #20364d; white-space: nowrap; }
 .submission-groups .bulk-remove-submissions, .submission-groups .refresh-submissions { min-height: 36px; border-radius: 7px !important; padding: 8px 11px !important; font-size: .76rem; box-shadow: none; }

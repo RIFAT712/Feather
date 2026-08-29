@@ -23,6 +23,14 @@ function errorLogKey(code) {
   return ['contest-log-errors', toValue(code)];
 }
 
+function submittersKey(code) {
+  return ['contest-submitters', toValue(code)];
+}
+
+function userLogKey(code, username) {
+  return ['contest-user-log', toValue(code), toValue(username)];
+}
+
 // Shared across Dashboard/ActivityLog/JuryStats: whichever view mounts first
 // pays for the request, the rest reuse it straight from the vue-query cache.
 export function useContestStats(code, options = {}) {
@@ -95,6 +103,80 @@ export function useContestErrorLog(code, options = {}) {
   });
 }
 
+// Cheap per-submitter counts (username + article count) -- backs the
+// dashboard's "Submissions by User" panel's group headers without crawling
+// every article in the contest just to group them client-side (see
+// useUserArticles below for how each group's actual articles get fetched).
+export function useContestSubmitters(code, options = {}) {
+  return useQuery({
+    queryKey: computed(() => submittersKey(code)),
+    queryFn: async ({ queryKey, signal }) => {
+      const res = await fetch(`/api/contests/${queryKey[1]}/submitters`, { signal });
+      if (!res.ok) throw new Error('Could not load submitters.');
+      return (await res.json()).submitters;
+    },
+    ...options,
+  });
+}
+
+// One submitter's articles, filtered server-side (?submitted_by=) rather
+// than pulled from the full contest crawl -- used by the dashboard's
+// per-user drill-down, fetched only once that user's group is expanded
+// (see `enabled` in the caller). Capped at one generous page rather than a
+// full keyset crawl: this is a quick dashboard drill-down, not the audit
+// view the standalone Timeline Log page (useContestLog above) already
+// serves for "everything, for every user."
+export function useUserArticles(code, username, options = {}) {
+  return useQuery({
+    queryKey: computed(() => userLogKey(code, username)),
+    queryFn: async ({ queryKey, signal }) => {
+      const [, contestCode, user] = queryKey;
+      const res = await fetch(`/api/contests/${contestCode}/log?page_size=200&submitted_by=${encodeURIComponent(user)}`, { signal });
+      if (!res.ok) throw new Error('Failed to load articles for this user.');
+      return res.json();
+    },
+    ...options,
+  });
+}
+
+// Minimum term length before a search actually hits the server -- one
+// character matches thousands of titles and is never what someone means.
+export const SEARCH_MIN_LENGTH = 2;
+
+// Server-side title search (?q=), as opposed to filtering an
+// already-crawled list in JavaScript. Finding one article among 11k used to
+// require the full ~56-page crawl to have finished first; this is a single
+// indexed page request that returns only matches, so it works immediately on
+// a cold page load and stays cheap regardless of contest size.
+//
+// Kept deliberately to one page: this answers "find me this article", not
+// "enumerate everything matching" -- `total` tells the caller when a term is
+// too broad to be useful, and refining it is faster than paginating.
+export function useContestArticleSearch(code, term, includeReviews = true, options = {}) {
+  return useQuery({
+    queryKey: computed(() => [
+      'contest-article-search',
+      toValue(code),
+      (toValue(term) || '').trim(),
+      !!toValue(includeReviews),
+    ]),
+    queryFn: async ({ queryKey, signal }) => {
+      const [, contestCode, searchTerm, withReviews] = queryKey;
+      const reviewsParam = withReviews ? '' : '&include_reviews=false';
+      const res = await fetch(
+        `/api/contests/${contestCode}/log?q=${encodeURIComponent(searchTerm)}&page_size=200${reviewsParam}`,
+        { signal },
+      );
+      if (!res.ok) throw new Error('Search failed.');
+      return res.json();
+    },
+    // Results for a given term don't change often enough to justify
+    // re-querying on every keystroke that lands back on a previous term.
+    staleTime: 30_000,
+    ...options,
+  });
+}
+
 // Called after anything that changes a contest's article list outside the
 // normal revalidation flow (a new submission) so the next read anywhere
 // fetches for real instead of reusing what existed before that change.
@@ -105,6 +187,9 @@ export function invalidateContestData(queryClient, code) {
   queryClient.invalidateQueries({ queryKey: ['contest-stats', c] });
   queryClient.invalidateQueries({ queryKey: ['contest-log', c] });
   queryClient.invalidateQueries({ queryKey: errorLogKey(c) });
+  queryClient.invalidateQueries({ queryKey: submittersKey(c) });
+  queryClient.invalidateQueries({ queryKey: ['contest-user-log', c] });
+  queryClient.invalidateQueries({ queryKey: ['contest-article-search', c] });
 }
 
 // Called right after a successful delete so a subsequent cache-first read
@@ -126,4 +211,14 @@ export function removeArticlesFromLogCache(queryClient, code, articleIds) {
     if (!old) return old;
     return old.filter(item => !idSet.has(item.article_id));
   });
+  queryClient.setQueriesData({ queryKey: ['contest-article-search', c] }, (old) => {
+    if (!old) return old;
+    const items = old.items.filter(item => !idSet.has(item.article_id));
+    return { ...old, items, total: Math.max(0, old.total - (old.items.length - items.length)) };
+  });
+  // Which submitter(s) these belonged to isn't known here, so the per-user
+  // drill-down caches and submitter counts are invalidated wholesale rather
+  // than patched -- correctness over optimization for what's a rare action.
+  queryClient.invalidateQueries({ queryKey: submittersKey(c) });
+  queryClient.invalidateQueries({ queryKey: ['contest-user-log', c] });
 }

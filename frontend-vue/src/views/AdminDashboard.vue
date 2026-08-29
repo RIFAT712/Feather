@@ -2,6 +2,7 @@
 import { ref, onMounted, inject, watch, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { CdxButton, CdxTextInput, CdxMessage, CdxCheckbox, CdxLookup } from '@wikimedia/codex';
+import { contestTimeToUtcIso, utcToContestTimeParts, formatDate as fmtDate, windowStatus, windowProgress, formatDateTimeDayFirst, dayjs } from '../utils/datetime';
 
 const user = inject('user');
 const router = useRouter();
@@ -28,14 +29,6 @@ let statusInterval = null;
 const isLoadingContests = ref(false);
 const toastMessage = ref('');
 const toastIsError = ref(false);
-const bangladeshTimeToUtcIso = (date, time) =>
-  new Date(`${date}T${time || '00:00'}:00+06:00`).toISOString();
-const utcToBangladeshParts = (value) => {
-  const utc = new Date(value.endsWith('Z') ? value : `${value}Z`);
-  const bd = new Date(utc.getTime() + 6 * 60 * 60 * 1000);
-  return { date: bd.toISOString().slice(0, 10), time: bd.toISOString().slice(11, 16) };
-};
-
 const showToast = (msg, isError = false) => {
   toastMessage.value = msg;
   toastIsError.value = isError;
@@ -115,23 +108,14 @@ watch(user, (newVal) => {
     statusInterval = null;
   }
 }, { immediate: true });
-const getContestStatus = (c) => {
-  const now = new Date();
-  const start = new Date(c.start_date);
-  const end = new Date(c.end_date);
-  if (now < start) return 'upcoming';
-  if (now > end) return 'ended';
-  return 'active';
-};
+// Both of these used to parse the API's offset-less UTC strings with a bare
+// `new Date(...)`, which JS reads as local time -- so a contest showed as
+// 'active'/'ended' and its progress bar filled up six hours early or late for
+// a viewer in Bangladesh, while formatDate() below (which did append a 'Z')
+// showed the correct dates right next to it.
+const getContestStatus = (c) => windowStatus(c.start_date, c.end_date);
 
-const getContestProgress = (c) => {
-  const now = new Date().getTime();
-  const start = new Date(c.start_date).getTime();
-  const end = new Date(c.end_date).getTime();
-  if (now < start) return 0;
-  if (now > end) return 100;
-  return Math.round(((now - start) / (end - start)) * 100);
-};
+const getContestProgress = (c) => windowProgress(c.start_date, c.end_date);
 const filteredContests = computed(() => {
   return contests.value.filter(c => {
     const matchesSearch = c.name.toLowerCase().includes(searchFilter.value.toLowerCase()) ||
@@ -176,9 +160,12 @@ const createWikitextPreview = computed(() => {
 
 const createDurationLabel = computed(() => {
   if (!startDate.value || !endDate.value) return 'Set contest dates';
-  const start = new Date(`${startDate.value}T${startTime.value || '00:00'}`);
-  const end = new Date(`${endDate.value}T${endTime.value || '23:59'}`);
-  const days = Math.round((end - start) / 86400000);
+  // Interpret the form's date/time inputs in the contest timezone, the same
+  // way handleCreate() does when it submits them -- parsing them in the
+  // viewer's local zone made the preview disagree with what got saved.
+  const start = dayjs(contestTimeToUtcIso(startDate.value, startTime.value || '00:00'));
+  const end = dayjs(contestTimeToUtcIso(endDate.value, endTime.value || '23:59'));
+  const days = Math.round(end.diff(start) / 86400000);
   return days >= 0 ? `${days + 1} day${days === 0 ? '' : 's'} scheduled` : 'Check date order';
 });
 
@@ -198,8 +185,8 @@ const handleCreate = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: name.value,
-        start_date: bangladeshTimeToUtcIso(startDate.value, startTime.value),
-        end_date: bangladeshTimeToUtcIso(endDate.value, endTime.value),
+        start_date: contestTimeToUtcIso(startDate.value, startTime.value),
+        end_date: contestTimeToUtcIso(endDate.value, endTime.value),
         rule_must_be_creator: mustBeCreator.value,
         min_bytes: Number(minBytes.value) || 0,
         min_words: Number(minWords.value) || 0,
@@ -244,10 +231,10 @@ const resetCreateForm = () => {
 };
 const handleCloneContest = (c) => {
   name.value = `Copy of ${c.name}`;
-  const start = utcToBangladeshParts(c.start_date);
+  const start = utcToContestTimeParts(c.start_date);
   startDate.value = start.date;
   startTime.value = start.time;
-  const end = utcToBangladeshParts(c.end_date);
+  const end = utcToContestTimeParts(c.end_date);
   endDate.value = end.date;
   endTime.value = end.time;
   
@@ -339,11 +326,11 @@ const openEditModal = (c) => {
   editingContest.value = c;
   editName.value = c.name;
   
-  const start = utcToBangladeshParts(c.start_date);
+  const start = utcToContestTimeParts(c.start_date);
   editStartDate.value = start.date;
   editStartTime.value = start.time;
   
-  const end = utcToBangladeshParts(c.end_date);
+  const end = utcToContestTimeParts(c.end_date);
   editEndDate.value = end.date;
   editEndTime.value = end.time;
   
@@ -370,8 +357,8 @@ const saveEdit = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: editName.value,
-        start_date: bangladeshTimeToUtcIso(editStartDate.value, editStartTime.value),
-        end_date: bangladeshTimeToUtcIso(editEndDate.value, editEndTime.value),
+        start_date: contestTimeToUtcIso(editStartDate.value, editStartTime.value),
+        end_date: contestTimeToUtcIso(editEndDate.value, editEndTime.value),
         rule_must_be_creator: editMustBeCreator.value,
         min_bytes: Number(editMinBytes.value) || 0,
         min_words: Number(editMinWords.value) || 0,
@@ -514,11 +501,12 @@ const openJuryHubForContest = (code) => {
   activeTab.value = 'jury';
 };
 
-const formatDate = (iso) => {
-  if (!iso) return '—';
-  const isoStr = String(iso);
-  return new Date(isoStr + (!isoStr.endsWith('Z') ? 'Z' : '')).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-};
+const formatDate = (iso) => fmtDate(iso);
+
+// system_logs rows are also naive UTC. The template used to concatenate 'Z'
+// unconditionally, so a timestamp that already carried one produced
+// "…00:00ZZ" -> Invalid Date.
+const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
 </script>
 
 <template>
@@ -1194,7 +1182,7 @@ const formatDate = (iso) => {
                     class="hover:bg-slate-800/30"
                   >
                     <td style="padding:10px 12px; color:#94a3b8; font-size:0.78rem; white-space:nowrap; vertical-align:top">
-                      {{ new Date(log.timestamp + 'Z').toLocaleString('en-GB') }}
+                      {{ formatLogTimestamp(log.timestamp) }}
                     </td>
                     <td style="padding:10px 12px; vertical-align:top">
                       <span
