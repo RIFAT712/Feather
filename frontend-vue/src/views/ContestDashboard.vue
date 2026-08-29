@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ActivityLog from './ActivityLog.vue';
 import { useContestStats } from '../composables/useContestData';
+import { formatDateLong, isWithinWindow, toDate } from '../utils/datetime';
 
 // roles comes from ContestLayout (the shared parent for every contest route),
 // which already fetches /my-role once -- available synchronously here since
@@ -15,10 +16,10 @@ const props = defineProps({
 const route = useRoute();
 const router = useRouter();
 
-const isActive = computed(() => {
-  const now = new Date();
-  return now >= new Date(props.contest.start_date) && now <= new Date(props.contest.end_date);
-});
+// The contest window arrives as naive UTC. Parsing it with a bare `new Date()`
+// read it as local time, so the Active badge and the countdown below flipped
+// six hours off from the dates shown in the same banner.
+const isActive = computed(() => isWithinWindow(props.contest.start_date, props.contest.end_date));
 
 const timerText = ref("");
 let timerInterval;
@@ -41,8 +42,9 @@ const stats = computed(() => {
 
 const updateTimer = () => {
   const now = new Date();
-  const start = new Date(props.contest.start_date);
-  const end = new Date(props.contest.end_date);
+  const start = toDate(props.contest.start_date);
+  const end = toDate(props.contest.end_date);
+  if (!start || !end) return;
 
   if (now < start) {
     const diffDays = Math.ceil((start - now) / (1000 * 60 * 60 * 24));
@@ -81,9 +83,9 @@ onUnmounted(() => {
         </div>
         <h1 class="hero-title">{{ contest.name }}</h1>
         <p class="hero-dates">
-          {{ new Date(contest.start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) }}
+          {{ formatDateLong(contest.start_date) }}
           &nbsp;→&nbsp;
-          {{ new Date(contest.end_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) }}
+          {{ formatDateLong(contest.end_date) }}
         </p>
         <div class="hero-actions">
           <button class="action-btn primary" @click="router.push(`/${contest.code}/submit`)">

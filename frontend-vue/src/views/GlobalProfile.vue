@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { formatDate as fmtDate, formatDateTime as fmtDateTime } from '../utils/datetime';
 
 const route = useRoute();
 const router = useRouter();
@@ -39,19 +40,8 @@ const toggleJudged = (code) => {
 
 const goToContest = (code) => router.push(`/${code}`);
 
-const formatDate = (d) => {
-  if (!d) return 'N/A';
-  const dStr = String(d);
-  return new Date(dStr + (!dStr.endsWith('Z') ? 'Z' : '')).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-};
-const formatDateTime = (d) => {
-  if (!d) return 'N/A';
-  const dStr = String(d);
-  return new Date(dStr + (!dStr.endsWith('Z') ? 'Z' : '')).toLocaleString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric',
-    hour: '2-digit', minute: '2-digit'
-  });
-};
+const formatDate = (d) => fmtDate(d, 'N/A');
+const formatDateTime = (d) => fmtDateTime(d, 'N/A');
 
 const totalSubmissions = computed(() =>
   profile.value ? profile.value.participated_contests.reduce((s, c) => s + c.articles.length, 0) : 0

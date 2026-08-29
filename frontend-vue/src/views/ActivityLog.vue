@@ -1,9 +1,10 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useRoute } from 'vue-router';
 import { CdxIcon } from '@wikimedia/codex';
 import { cdxIconAlert } from '@wikimedia/codex-icons';
-import { useContestStats, useContestLog } from '../composables/useContestData';
+import { useContestStats, useContestLog, useContestSubmitters, useContestArticleSearch, SEARCH_MIN_LENGTH } from '../composables/useContestData';
+import { formatDateTimeDayFirst } from '../utils/datetime';
 
 // roles comes from ContestLayout (the shared parent for every contest route),
 // which already fetches /my-role once -- this view used to independently
@@ -11,47 +12,99 @@ import { useContestStats, useContestLog } from '../composables/useContestData';
 const props = defineProps({
   contest: { type: Object, default: null },
   roles: { type: Object, default: () => ({ is_jury: false, is_owner: false }) },
-  // When set (embedded in the dashboard), renders just the per-user grouped
-  // list (collapsed by default, capped per group -- see visibleGroupCounts)
-  // instead of the full page's stats bar/toggle bar/timeline view. Uses the
-  // exact same shared crawl as the standalone /log page below, so whichever
-  // one loads first, the other reuses its cache instead of re-crawling.
+  // When set (embedded in the dashboard), renders a lightweight per-user
+  // list instead of the full page's stats bar/toggle bar/timeline view:
+  // group headers come from a cheap aggregate query (useContestSubmitters),
+  // and each user's actual articles are fetched on demand only once their
+  // group is expanded (see embeddedUserArticles below) -- never crawling the
+  // whole contest just to show who submitted what, the way this used to.
   embedded: { type: Boolean, default: false },
 });
 const route = useRoute();
 const viewMode = ref('per-user');
 const openGroups = ref({});
-// Per-user article cap for the embedded dashboard view, mirroring JuryStats's
-// "All submitted" tab -- a submitter with thousands of articles shouldn't
-// dump all of them into the DOM the moment their group is expanded.
-const visibleGroupCounts = ref({});
 const isAuthorized = computed(() => props.roles.is_jury || props.roles.is_owner);
 
-// Shared across Dashboard/ActivityLog/JuryStats via vue-query's cache, so
-// navigating between them (or the dashboard's embedded view and this same
-// page) doesn't re-fetch or re-crawl what another view already loaded.
-const statsQuery = useContestStats(() => route.params.code);
-const logQuery = useContestLog(() => route.params.code, true);
+// Embedded mode: just the per-submitter counts, not the full crawl.
+const submittersQuery = useContestSubmitters(() => route.params.code, { enabled: computed(() => props.embedded) });
+const submitters = computed(() => submittersQuery.data.value || []);
+
+// One entry per expanded submitter in embedded mode: { items, isLoading,
+// error, hasMore }. Plain local state (not another vue-query cache) since
+// each entry is only ever read by the one row that fetched it -- nothing
+// else in the app needs to share or invalidate a specific user's drill-down.
+const embeddedUserArticles = ref({});
+
+const loadEmbeddedUserArticles = async (username) => {
+  const existing = embeddedUserArticles.value[username];
+  if (existing && (existing.loaded || existing.isLoading)) return;
+  embeddedUserArticles.value = { ...embeddedUserArticles.value, [username]: { items: [], isLoading: true, error: null, hasMore: false, loaded: false } };
+  try {
+    const res = await fetch(`/api/contests/${route.params.code}/log?page_size=200&submitted_by=${encodeURIComponent(username)}`);
+    if (!res.ok) throw new Error('Failed to load articles for this user.');
+    const data = await res.json();
+    embeddedUserArticles.value = { ...embeddedUserArticles.value, [username]: { items: data.items, isLoading: false, error: null, hasMore: data.has_more, loaded: true } };
+  } catch (e) {
+    embeddedUserArticles.value = { ...embeddedUserArticles.value, [username]: { items: [], isLoading: false, error: e.message, hasMore: false, loaded: true } };
+  }
+};
+
+const toggleEmbeddedUser = (username) => {
+  openGroups.value[username] = !openGroups.value[username];
+  if (openGroups.value[username]) loadEmbeddedUserArticles(username);
+};
+
+// Standalone /log page: full crawl + stats, shared with JuryStats via
+// vue-query's cache. Disabled in embedded mode so the dashboard never
+// triggers the full contest crawl this page needs.
+const statsQuery = useContestStats(() => route.params.code, { enabled: computed(() => !props.embedded) });
+const logQuery = useContestLog(() => route.params.code, true, { enabled: computed(() => !props.embedded) });
+
+// Title search. Runs server-side (?q=) against the whole contest rather than
+// filtering `log` -- `log` is only ever the pages crawled so far, so a
+// client-side filter silently misses matches until the full crawl finishes,
+// and on an 11k-article contest that's ~56 requests the user would be waiting
+// on before search could even be correct.
+const searchInput = ref('');
+const debouncedSearch = ref('');
+let searchDebounce;
+watch(searchInput, (value) => {
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(() => { debouncedSearch.value = value.trim(); }, 250);
+});
+onBeforeUnmount(() => clearTimeout(searchDebounce));
+
+const isSearching = computed(() => debouncedSearch.value.length >= SEARCH_MIN_LENGTH);
+const searchQuery = useContestArticleSearch(() => route.params.code, debouncedSearch, true, {
+  enabled: computed(() => !props.embedded && isSearching.value),
+});
+const searchResults = computed(() => searchQuery.data.value?.items || []);
+const searchTotal = computed(() => searchQuery.data.value?.total ?? 0);
+const searchHasMore = computed(() => !!searchQuery.data.value?.has_more);
+const searchPending = computed(() => searchQuery.isFetching.value && !searchResults.value.length);
+const searchError = computed(() => searchQuery.error.value?.message || null);
+const clearSearch = () => { searchInput.value = ''; debouncedSearch.value = ''; };
 
 const log = computed(() => logQuery.data.value?.items || []);
-const isLoading = computed(() => logQuery.isLoading.value);
+// Both the Per-User and Timeline views render from this, so search narrows
+// whichever one the user is already looking at instead of forcing a mode switch.
+const displayedLog = computed(() => (isSearching.value ? searchResults.value : log.value));
+const isLoading = computed(() => (props.embedded ? submittersQuery.isLoading.value : logQuery.isLoading.value));
 // True only once the initial page is already showing and a crawl (first
 // load's catch-up pages, or a revisit's background revalidation) is still
 // running behind it -- both cases vue-query folds into the same isFetching.
-const isLoadingMore = computed(() => logQuery.isFetching.value && !logQuery.isLoading.value);
-const error = computed(() => logQuery.error.value?.message || statsQuery.error.value?.message || null);
+const isLoadingMore = computed(() => !props.embedded && logQuery.isFetching.value && !logQuery.isLoading.value);
+const error = computed(() => (props.embedded
+  ? submittersQuery.error.value?.message || null
+  : logQuery.error.value?.message || statsQuery.error.value?.message || null));
 // Server-computed totals, independent of how many rows are actually loaded --
 // loading only a page at a time means log.value is never "everything", so
 // these can't be derived by counting log.value client-side.
 const statusCounts = computed(() => statsQuery.data.value?.status_counts || { total: 0, accepted: 0, rejected: 0, pending: 0, validation_failed: 0 });
 
-const fmt = (iso) => {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit'
-  });
-};
+// Timestamps arrive as naive UTC with no trailing 'Z'; `new Date(iso)` read
+// them as local time and shifted every row by the viewer's UTC offset.
+const fmt = (iso) => formatDateTimeDayFirst(iso);
 
 const statusClass = (s) => ({
   accepted: 'badge-accepted',
@@ -71,7 +124,7 @@ const statusLabel = (s) => ({
 
 const groupedByUser = computed(() => {
   const map = {};
-  log.value.forEach((entry, idx) => {
+  displayedLog.value.forEach((entry, idx) => {
     const user = entry.submitted_by;
     if (!map[user]) map[user] = { user, entries: [], isOpen: false };
     map[user].entries.push(entry);
@@ -81,20 +134,6 @@ const groupedByUser = computed(() => {
 
 const toggleUser = (group) => {
   openGroups.value[group.user] = !openGroups.value[group.user];
-  if (props.embedded && visibleGroupCounts.value[group.user] === undefined) {
-    visibleGroupCounts.value = { ...visibleGroupCounts.value, [group.user]: 50 };
-  }
-};
-
-// Embedded-view-only: caps how many of a group's articles are actually
-// rendered once expanded (see the `embedded` prop doc above).
-const visibleGroupArticles = (group) => group.entries.slice(0, visibleGroupCounts.value[group.user] || 50);
-const groupHasMore = (group) => visibleGroupArticles(group).length < group.entries.length;
-const loadMoreGroupArticles = (group) => {
-  visibleGroupCounts.value = {
-    ...visibleGroupCounts.value,
-    [group.user]: Math.min((visibleGroupCounts.value[group.user] || 50) + 50, group.entries.length),
-  };
 };
 
 const reviewComments = (entry) => (entry.reviews || [])
@@ -128,71 +167,75 @@ const reviewComments = (entry) => (entry.reviews || [])
         <h3>Submissions by User</h3>
         <router-link :to="`/${route.params.code}/log`" class="view-full-log-link">View full activity log →</router-link>
       </div>
-      <div v-if="groupedByUser.length === 0" class="state-center">
+      <div v-if="submitters.length === 0" class="state-center">
         <p>No activity recorded yet.</p>
       </div>
-      <div v-for="group in groupedByUser" :key="group.user" class="embedded-user-group">
+      <div v-for="s in submitters" :key="s.username" class="embedded-user-group">
         <button
           type="button"
           class="embedded-user-header"
-          @click="toggleUser(group)"
-          :aria-expanded="!!openGroups[group.user]"
+          @click="toggleEmbeddedUser(s.username)"
+          :aria-expanded="!!openGroups[s.username]"
         >
           <span class="embedded-user-left">
-            <span class="embedded-avatar-circle">{{ group.user.charAt(0).toUpperCase() }}</span>
-            <router-link :to="`/${route.params.code}/user/${encodeURIComponent(group.user)}`" class="profile-link" @click.stop>{{ group.user }}</router-link>
-            <span class="embedded-count-badge">{{ group.entries.length.toLocaleString() }}</span>
+            <span class="embedded-avatar-circle">{{ s.username.charAt(0).toUpperCase() }}</span>
+            <router-link :to="`/${route.params.code}/user/${encodeURIComponent(s.username)}`" class="profile-link" @click.stop>{{ s.username }}</router-link>
+            <span class="embedded-count-badge">{{ s.count.toLocaleString() }}</span>
           </span>
-          <span class="embedded-chevron" :class="{ open: openGroups[group.user] }">›</span>
+          <span class="embedded-chevron" :class="{ open: openGroups[s.username] }">›</span>
         </button>
 
-        <div v-if="openGroups[group.user]" class="embedded-user-table-wrap">
-          <table class="embedded-user-table">
-            <thead>
-              <tr>
-                <th>Article</th>
-                <th>Status</th>
-                <th>Reviewed by</th>
-                <th>Jury Comment</th>
-                <th>Submitted</th>
-                <th>Reviewed</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="(entry, idx) in visibleGroupArticles(group)"
-                :key="entry.article_id"
-                :class="idx % 2 === 0 ? 'row-even' : 'row-odd'"
-              >
-                <td class="td-article">
-                  <a :href="`https://bn.wiktionary.org/wiki/${encodeURIComponent(entry.title)}`" target="_blank" class="article-link">{{ entry.title }}</a>
-                  <div v-if="entry.validation_error" class="error-subtext">
-                    <CdxIcon :icon="cdxIconAlert" class="err-icon" /> {{ entry.validation_error }}
-                  </div>
-                </td>
-                <td><span :class="['badge', statusClass(entry.status)]">{{ statusLabel(entry.status) }}</span></td>
-                <td class="td-reviewer">{{ entry.reviews && entry.reviews.length ? entry.reviews[0].reviewer : '—' }}</td>
-                <td class="td-comment">
-                  <template v-if="reviewComments(entry).length">
-                    <div v-for="(review, reviewIndex) in reviewComments(entry)" :key="`${review.reviewer}-${reviewIndex}`" class="comment-item">
-                      {{ review.comment }}
+        <div v-if="openGroups[s.username]" class="embedded-user-table-wrap">
+          <div v-if="embeddedUserArticles[s.username]?.isLoading" class="embedded-load-more-note">
+            <div class="spinner spinner-small spinner-dark" />
+            <span>Loading {{ s.username }}'s articles…</span>
+          </div>
+          <p v-else-if="embeddedUserArticles[s.username]?.error" class="embedded-more-note">{{ embeddedUserArticles[s.username].error }}</p>
+          <template v-else-if="embeddedUserArticles[s.username]">
+            <table class="embedded-user-table">
+              <thead>
+                <tr>
+                  <th>Article</th>
+                  <th>Status</th>
+                  <th>Reviewed by</th>
+                  <th>Jury Comment</th>
+                  <th>Submitted</th>
+                  <th>Reviewed</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="(entry, idx) in embeddedUserArticles[s.username].items"
+                  :key="entry.article_id"
+                  :class="idx % 2 === 0 ? 'row-even' : 'row-odd'"
+                >
+                  <td class="td-article">
+                    <a :href="`https://bn.wiktionary.org/wiki/${encodeURIComponent(entry.title)}`" target="_blank" class="article-link">{{ entry.title }}</a>
+                    <div v-if="entry.validation_error" class="error-subtext">
+                      <CdxIcon :icon="cdxIconAlert" class="err-icon" /> {{ entry.validation_error }}
                     </div>
-                  </template>
-                  <span v-else>—</span>
-                </td>
-                <td class="td-date">{{ fmt(entry.submitted_at) }}</td>
-                <td class="td-date">{{ entry.reviews && entry.reviews.length ? fmt(entry.reviews[0].reviewed_at) : '—' }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <button v-if="groupHasMore(group)" type="button" class="embedded-load-more" @click="loadMoreGroupArticles(group)">
-            Show 50 more
-          </button>
+                  </td>
+                  <td><span :class="['badge', statusClass(entry.status)]">{{ statusLabel(entry.status) }}</span></td>
+                  <td class="td-reviewer">{{ entry.reviews && entry.reviews.length ? entry.reviews[0].reviewer : '—' }}</td>
+                  <td class="td-comment">
+                    <template v-if="reviewComments(entry).length">
+                      <div v-for="(review, reviewIndex) in reviewComments(entry)" :key="`${review.reviewer}-${reviewIndex}`" class="comment-item">
+                        {{ review.comment }}
+                      </div>
+                    </template>
+                    <span v-else>—</span>
+                  </td>
+                  <td class="td-date">{{ fmt(entry.submitted_at) }}</td>
+                  <td class="td-date">{{ entry.reviews && entry.reviews.length ? fmt(entry.reviews[0].reviewed_at) : '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-if="embeddedUserArticles[s.username].hasMore" class="embedded-more-note">
+              Showing the {{ embeddedUserArticles[s.username].items.length }} most recent —
+              <router-link :to="`/${route.params.code}/user/${encodeURIComponent(s.username)}`">view all on their profile</router-link>.
+            </p>
+          </template>
         </div>
-      </div>
-      <div v-if="isLoadingMore" class="embedded-load-more-note">
-        <div class="spinner spinner-small spinner-dark" />
-        <span>Loading the rest in the background…</span>
       </div>
     </div>
 
@@ -219,7 +262,36 @@ const reviewComments = (entry) => (entry.reviews || [])
           <span class="chip-val">{{ statusCounts.validation_failed }}</span>
         </div>
       </div>
-      <p class="loaded-so-far-note">Showing {{ log.length }} of {{ statusCounts.total }} articles, newest first.</p>
+      <div class="log-search-bar">
+        <span class="log-search-icon" aria-hidden="true">🔍</span>
+        <input
+          v-model="searchInput"
+          type="search"
+          class="log-search-input"
+          placeholder="Search article titles across the whole contest…"
+          aria-label="Search article titles"
+          @keydown.esc="clearSearch"
+        />
+        <button
+          v-if="searchInput"
+          type="button"
+          class="log-search-clear"
+          aria-label="Clear search"
+          @click="clearSearch"
+        >×</button>
+      </div>
+
+      <p v-if="isSearching" class="loaded-so-far-note">
+        <template v-if="searchPending">Searching…</template>
+        <template v-else-if="searchError">{{ searchError }}</template>
+        <template v-else-if="!searchTotal">No articles match “{{ debouncedSearch }}”.</template>
+        <template v-else>
+          {{ searchTotal.toLocaleString() }} article{{ searchTotal === 1 ? '' : 's' }} match “{{ debouncedSearch }}”<template v-if="searchHasMore">, showing the {{ searchResults.length }} most recent — narrow the search to see fewer</template>.
+        </template>
+        <button type="button" class="log-search-reset" @click="clearSearch">Clear</button>
+      </p>
+      <p v-else-if="searchInput.trim()" class="loaded-so-far-note">Type at least {{ SEARCH_MIN_LENGTH }} characters to search.</p>
+      <p v-else class="loaded-so-far-note">Showing {{ log.length }} of {{ statusCounts.total }} articles, newest first.</p>
 
             <div class="toggle-bar">
         <div class="segmented-control">
@@ -304,7 +376,7 @@ const reviewComments = (entry) => (entry.reviews || [])
 
             <div v-if="viewMode === 'timeline'" class="view-section">
         <div
-          v-for="(entry, idx) in log"
+          v-for="(entry, idx) in displayedLog"
           :key="entry.id || idx"
           class="timeline-card"
           :class="`tl-${entry.status}`"

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, inject, computed } from 'vue';
 import { useRouter } from 'vue-router';
+import { formatDate as fmtDate, isWithinWindow } from '../utils/datetime';
 
 const user = inject('user');
 const router = useRouter();
@@ -36,17 +37,9 @@ const accentPalette = [
 
 const getAccent = (i) => accentPalette[i % accentPalette.length];
 
-const isContestActive = (contest) => {
-  const now = new Date();
-  const startStr = String(contest.start_date);
-  const endStr = String(contest.end_date);
-  return now >= new Date(startStr + (!startStr.endsWith('Z') ? 'Z' : '')) && now <= new Date(endStr + (!endStr.endsWith('Z') ? 'Z' : ''));
-};
+const isContestActive = (contest) => isWithinWindow(contest.start_date, contest.end_date);
 
-const formatDate = (iso) => {
-  const isoStr = String(iso);
-  return new Date(isoStr + (!isoStr.endsWith('Z') ? 'Z' : '')).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-};
+const formatDate = (iso) => fmtDate(iso);
 
 const greeting = computed(() => {
   const h = new Date().getHours();

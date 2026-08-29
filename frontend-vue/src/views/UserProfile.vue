@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
+import { formatDateTime as fmtDateTime } from '../utils/datetime';
 
 const route = useRoute();
 const profile = ref(null);
@@ -30,7 +31,7 @@ onMounted(() => {
 const formatDate = (dateStr) => {
   if (!dateStr) return 'N/A';
   const dStr = String(dateStr);
-  return new Date(dStr + (!dStr.endsWith('Z') ? 'Z' : '')).toLocaleString();
+  return fmtDateTime(dStr);
 };
 </script>
 

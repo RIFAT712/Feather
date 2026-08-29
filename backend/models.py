@@ -4,6 +4,8 @@ import enum
 from datetime import datetime
 import secrets
 
+from timeutils import utcnow
+
 Base = declarative_base()
 
 class RoleEnum(str, enum.Enum):
@@ -96,7 +98,7 @@ class Article(Base):
     validation_error = Column(String(500), nullable=True)     # error reason if validation_failed
     wiki_creation_date = Column(DateTime, nullable=True)   # date article was created on Wikipedia
     wiki_creator = Column(String(255), nullable=True)        # who created it on Wikipedia
-    submitted_at = Column(DateTime, default=datetime.utcnow) # date it was submitted to this contest
+    submitted_at = Column(DateTime, default=utcnow) # date it was submitted to this contest
     assigned_to_id = Column(Integer, ForeignKey('users.id'), nullable=True, index=True)  # jury queue ownership
 
     submitter = relationship("User", back_populates="articles", foreign_keys=[submitter_id])
@@ -116,7 +118,7 @@ class Review(Base):
     reviewer_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     status = Column(Enum(ReviewStatus), nullable=False)
     comment = Column(String(1000), nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=utcnow)
     
     article = relationship("Article", back_populates="reviews")
     reviewer = relationship("User", back_populates="reviews")
@@ -129,7 +131,7 @@ class ArticleLock(Base):
     __tablename__ = 'article_locks'
     article_id = Column(Integer, ForeignKey('articles.id'), primary_key=True, nullable=False)
     locked_by  = Column(String(255), nullable=False)   # wiki_username of the reviewer holding the lock
-    locked_at  = Column(DateTime, nullable=False, default=datetime.utcnow)
+    locked_at  = Column(DateTime, nullable=False, default=utcnow)
 
     article = relationship("Article")
 
@@ -143,4 +145,4 @@ class SystemLog(Base):
     url = Column(String(500), nullable=True)
     user_agent = Column(String(500), nullable=True)
     username = Column(String(255), nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=utcnow)

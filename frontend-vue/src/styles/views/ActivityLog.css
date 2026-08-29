@@ -435,6 +435,87 @@
   margin: -8px 0 16px;
 }
 
+/* ── Title search ──
+   Lives on the standalone /log page's dark .log-root surface, so it follows
+   that shell's palette rather than the shared light theme (see STYLE_GUIDE
+   "Review route exception" for why this page keeps its own colors). */
+.log-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 0 12px;
+  margin: 0 0 12px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.log-search-bar:focus-within {
+  border-color: rgba(96, 165, 250, 0.55);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.log-search-icon {
+  font-size: 0.85rem;
+  opacity: 0.55;
+  flex-shrink: 0;
+}
+
+.log-search-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #e2e8f0;
+  font-family: inherit;
+  font-size: 0.9rem;
+  padding: 10px 0;
+}
+
+.log-search-input::placeholder {
+  color: #64748b;
+}
+
+/* The native search-field clear affordance is inconsistent across browsers
+   and unstyleable; this page ships its own button instead. */
+.log-search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.log-search-clear {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.log-search-clear:hover {
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.log-search-reset {
+  background: none;
+  border: none;
+  color: #60a5fa;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 8px;
+  text-decoration: underline;
+}
+
+.log-search-reset:hover {
+  color: #93c5fd;
+}
+
 .load-more-log {
   display: flex;
   align-items: center;
@@ -558,17 +639,6 @@
 .embedded-user-table .td-date { color: #94a3b8; font-size: 0.8rem; white-space: nowrap; }
 .embedded-user-table .article-link { color: #355b80; text-decoration: none; border-bottom: 1px dashed #c7d6e3; }
 .embedded-user-table .article-link:hover { color: #20364d; border-bottom-color: #355b80; }
-.embedded-load-more {
-  margin-top: 4px;
-  background: none;
-  border: none;
-  color: #355b80;
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 4px 0;
-}
-.embedded-load-more:hover { text-decoration: underline; }
 .embedded-load-more-note {
   display: flex;
   align-items: center;
@@ -578,6 +648,13 @@
   color: #64748b;
   font-size: 0.82rem;
 }
+.embedded-more-note {
+  padding: 10px 14px 4px;
+  color: #64748b;
+  font-size: 0.8rem;
+}
+.embedded-more-note a { color: #355b80; text-decoration: none; font-weight: 600; }
+.embedded-more-note a:hover { text-decoration: underline; }
 
 /* Mobile table responsiveness */
 @media (max-width: 640px) {

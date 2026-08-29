@@ -1,11 +1,19 @@
-fastapi
-uvicorn
-sqlalchemy
-httpx
-pydantic
-authlib
-itsdangerous
-python-dotenv
-PyJWT
-pymysql
-psutil
+# Pinned to compatible releases (~= allows patch upgrades, blocks minor/major
+# ones). This file previously listed bare package names, so any Toolforge
+# rebuild resolved whatever was newest on PyPI that day -- a FastAPI/Starlette
+# minor bump that drops a deprecated API is enough to break a deploy that was
+# working an hour earlier, with nothing in the repo having changed.
+# Versions below are the ones the app is verified against locally.
+fastapi~=0.141.1
+starlette~=1.6.0        # pinned explicitly: fastapi's own range is much wider
+uvicorn~=0.52.4
+sqlalchemy~=2.0.52
+httpx~=0.28.1
+tenacity~=9.1.4         # retry/backoff for the MediaWiki API calls
+pydantic~=2.13.4
+authlib~=1.7.2
+itsdangerous~=2.2.0
+python-dotenv~=1.2.3
+PyJWT~=2.13.0
+pymysql~=1.2.0
+psutil~=7.2.2

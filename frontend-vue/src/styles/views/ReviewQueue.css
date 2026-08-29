@@ -591,3 +591,190 @@ button { cursor: pointer; }
   .rq-nav-icon { font-size: 1.2rem; }
   .rq-nav-label { font-size: .62rem; }
 }
+
+/* --- KEYBOARD SHORTCUTS, UNDO --------------------------------------------
+   Built entirely from the --rq-* tokens so the light theme switch
+   (.rq-app.rq-theme-light, which redefines those same tokens) applies without
+   needing a parallel set of overrides here. */
+
+.rq-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border: 1px solid var(--rq-border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--rq-surface-alt);
+  color: var(--rq-text-muted);
+  font-family: var(--rq-font);
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.rq-btn .rq-kbd { opacity: 0.75; }
+
+.rq-btn-help {
+  width: 40px;
+  padding: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+/* --- Undo toast --- */
+.rq-undo-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 10px 12px 10px 16px;
+  border: 1px solid var(--rq-border);
+  border-radius: 10px;
+  background: var(--rq-surface-alt);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  font-size: 0.82rem;
+  color: var(--rq-text);
+  animation: rq-undo-in 160ms var(--ease-out);
+}
+
+@keyframes rq-undo-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rq-undo-toast { animation: none; }
+}
+
+.rq-undo-text {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rq-undo-decision {
+  flex-shrink: 0;
+  text-transform: capitalize;
+  font-weight: 700;
+}
+.rq-undo-accepted { color: var(--rq-success); }
+.rq-undo-rejected { color: var(--rq-danger); }
+.rq-undo-skipped  { color: var(--rq-warning); }
+
+.rq-undo-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--rq-text-muted);
+}
+
+.rq-undo-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--rq-border);
+  border-radius: 7px;
+  background: var(--rq-surface);
+  color: var(--rq-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rq-undo-btn:hover:not(:disabled) { background: var(--rq-accent-bg); color: var(--rq-accent-hover); }
+.rq-undo-btn:disabled { opacity: 0.6; cursor: default; }
+
+.rq-undo-dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--rq-text-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.rq-undo-dismiss:hover { color: var(--rq-text); background: var(--rq-surface-hover); }
+
+/* --- Shortcut help panel --- */
+.rq-help-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.rq-help-panel {
+  width: min(400px, 100%);
+  border: 1px solid var(--rq-border);
+  border-radius: 12px;
+  background: var(--rq-surface);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.rq-help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--rq-border-light);
+}
+.rq-help-header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--rq-text);
+}
+.rq-help-close {
+  background: none;
+  border: none;
+  color: var(--rq-text-muted);
+  font-size: 1.35rem;
+  line-height: 1;
+  padding: 0 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.rq-help-close:hover { color: var(--rq-text); background: var(--rq-surface-hover); }
+
+.rq-help-list { margin: 0; padding: 8px 16px 4px; }
+.rq-help-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 0;
+}
+.rq-help-row dt { flex-shrink: 0; width: 46px; margin: 0; }
+.rq-help-row dd { margin: 0; font-size: 0.82rem; color: var(--rq-text-muted); }
+
+.rq-help-note {
+  margin: 0;
+  padding: 4px 16px 14px;
+  font-size: 0.74rem;
+  color: var(--rq-text-muted);
+  opacity: 0.8;
+}
+
+/* The queue is a full-screen workspace on desktop; on phones there is no
+   hardware keyboard to drive it, so the shortcut affordances stay hidden and
+   only the undo toast (which is touch-usable) remains. */
+@media (max-width: 768px) {
+  .rq-undo-toast { bottom: 76px; }
+}

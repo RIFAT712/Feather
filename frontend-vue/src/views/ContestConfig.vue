@@ -2,6 +2,7 @@
 import { ref, onMounted, inject, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CdxTextInput, CdxCheckbox } from '@wikimedia/codex';
+import { contestTimeToUtcIso, utcToContestTimeParts } from '../utils/datetime';
 
 const route = useRoute();
 const router = useRouter();
@@ -13,13 +14,82 @@ const toastMessage = ref('');
 const toastIsError = ref(false);
 const talkHeaderLabel = '{{আলাপ পাতা}}';
 
-const activeTab = ref('basic'); // 'basic', 'rules', 'talk', 'jury'
-const bangladeshTimeToUtcIso = (date, time) =>
-  new Date(`${date}T${time || '00:00'}:00+06:00`).toISOString();
-const utcToBangladeshParts = (value) => {
-  const utc = new Date(value.endsWith('Z') ? value : `${value}Z`);
-  const bd = new Date(utc.getTime() + 6 * 60 * 60 * 1000);
-  return { date: bd.toISOString().slice(0, 10), time: bd.toISOString().slice(11, 16) };
+const activeTab = ref('basic'); // 'basic', 'rules', 'talk', 'jury', 'integrity'
+
+// ── Contest integrity re-check ─────────────────────────────────────────────
+// Articles are validated once, at submission. A page deleted, moved, turned
+// into a redirect, or blanked afterwards is never noticed, and can still be
+// sitting in the accepted column when results are published. This re-runs
+// those checks against the wiki as it stands now and reports what no longer
+// holds -- it deliberately changes nothing, since a flagged article may have
+// been moved or deleted for reasons that have nothing to do with the contest.
+const integrityScope = ref('accepted');
+const integrityReport = ref(null);
+const integrityError = ref('');
+const isCheckingIntegrity = ref(false);
+
+const ISSUE_LABELS = {
+  missing: 'No longer in mainspace',
+  redirect: 'Now a redirect',
+  below_min_bytes: 'Below the size rule',
+  creator_changed: 'Different creator',
+};
+const issueLabel = (issue) => ISSUE_LABELS[issue] || issue;
+
+const integrityFlagged = computed(() => {
+  const report = integrityReport.value;
+  if (!report) return 0;
+  return report.checked - report.summary.ok;
+});
+
+const integrityBreakdown = computed(() => {
+  const report = integrityReport.value;
+  if (!report) return [];
+  return Object.keys(ISSUE_LABELS)
+    .map(key => ({ key, label: issueLabel(key), count: report.summary[key] || 0 }))
+    .filter(row => row.count > 0);
+});
+
+const runIntegrityCheck = async () => {
+  if (isCheckingIntegrity.value) return;
+  isCheckingIntegrity.value = true;
+  integrityError.value = '';
+  try {
+    const res = await fetch(
+      `/api/admin/contests/${contest.value.code}/integrity-check?scope=${integrityScope.value}`,
+      { method: 'POST' },
+    );
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.detail || `Check failed (${res.status})`);
+    integrityReport.value = body;
+  } catch (e) {
+    integrityReport.value = null;
+    integrityError.value = e.message || 'Integrity check failed.';
+  } finally {
+    isCheckingIntegrity.value = false;
+  }
+};
+
+// Downloaded rather than shown in full: a contest with thousands of flagged
+// articles is something you work through in a spreadsheet, not a web table.
+const downloadIntegrityReport = () => {
+  const report = integrityReport.value;
+  if (!report) return;
+  const rows = [['Article ID', 'Title', 'Submitted by', 'Status', 'Issue', 'Detail']];
+  for (const issue of report.issues) {
+    rows.push([issue.article_id, issue.title, issue.submitted_by || '', issue.status, issueLabel(issue.issue), issue.detail || '']);
+  }
+  const csv = rows
+    .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  // BOM so Excel opens the Bengali/Devanagari titles as UTF-8.
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${report.contest.code}-integrity-${report.scope}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
 };
 const editName = ref('');
 const editStartDate = ref('');
@@ -101,10 +171,10 @@ const fetchContest = async () => {
       bannedUsers.value = (c.banned_users || []).map((username, index) => ({ id: `legacy-${index}`, username }));
       
       editName.value = c.name;
-      const start = utcToBangladeshParts(c.start_date);
+      const start = utcToContestTimeParts(c.start_date);
       editStartDate.value = start.date;
       editStartTime.value = start.time;
-      const end = utcToBangladeshParts(c.end_date);
+      const end = utcToContestTimeParts(c.end_date);
       editEndDate.value = end.date;
       editEndTime.value = end.time;
       
@@ -142,8 +212,8 @@ const saveSettings = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: editName.value,
-        start_date: bangladeshTimeToUtcIso(editStartDate.value, editStartTime.value),
-        end_date: bangladeshTimeToUtcIso(editEndDate.value, editEndTime.value),
+        start_date: contestTimeToUtcIso(editStartDate.value, editStartTime.value),
+        end_date: contestTimeToUtcIso(editEndDate.value, editEndTime.value),
         rule_must_be_creator: editMustBeCreator.value,
         min_bytes: Number(editMinBytes.value) || 0,
         min_words: Number(editMinWords.value) || 0,
@@ -332,9 +402,10 @@ const enabledRuleCount = computed(() => [
         <button :class="{'active': activeTab === 'rules'}" @click="activeTab = 'rules'">Rules</button>
         <button :class="{'active': activeTab === 'talk'}" @click="activeTab = 'talk'">Talk Page</button>
         <button :class="{'active': activeTab === 'jury'}" @click="activeTab = 'jury'">Jury Management</button>
+        <button :class="{'active': activeTab === 'integrity'}" @click="activeTab = 'integrity'">Integrity</button>
       </div>
 
-      <div v-if="activeTab !== 'jury'" class="settings-form">
+      <div v-if="activeTab !== 'jury' && activeTab !== 'integrity'" class="settings-form">
         <div v-if="activeTab === 'basic'" class="form-section">
           <div class="form-group">
             <label>Contest Name</label>
@@ -392,6 +463,102 @@ const enabledRuleCount = computed(() => [
 
         <div class="actions">
           <button class="save-btn" @click="saveSettings">Save Settings</button>
+        </div>
+      </div>
+
+      <div v-if="activeTab === 'integrity'" class="integrity-section">
+        <div class="integrity-card">
+          <div class="integrity-intro">
+            <h3>Contest integrity re-check</h3>
+            <p>
+              Articles are checked against the contest rules once, when they're submitted. This re-checks them
+              against the wiki as it is now, and flags any that were deleted, moved out of mainspace, turned into
+              a redirect, or blanked below the size rule since.
+            </p>
+            <p class="integrity-note">
+              Nothing is changed automatically — this only produces a report for you to act on.
+            </p>
+          </div>
+
+          <div class="integrity-controls">
+            <label class="integrity-scope">
+              <span>Check</span>
+              <select v-model="integrityScope" :disabled="isCheckingIntegrity">
+                <option value="accepted">Accepted articles only</option>
+                <option value="all">All articles (except validation failures)</option>
+              </select>
+            </label>
+            <button class="save-btn" :disabled="isCheckingIntegrity" @click="runIntegrityCheck">
+              {{ isCheckingIntegrity ? 'Checking…' : 'Run re-check' }}
+            </button>
+          </div>
+
+          <p v-if="isCheckingIntegrity" class="integrity-progress">
+            Querying the wiki replica for every article in scope. On a large contest this can take a moment.
+          </p>
+          <p v-if="integrityError" class="integrity-error">{{ integrityError }}</p>
+
+          <div v-if="integrityReport && !isCheckingIntegrity" class="integrity-results">
+            <div class="integrity-summary">
+              <div class="integrity-stat">
+                <strong>{{ integrityReport.checked.toLocaleString() }}</strong>
+                <span>articles checked</span>
+              </div>
+              <div class="integrity-stat" :class="integrityFlagged ? 'is-flagged' : 'is-clean'">
+                <strong>{{ integrityFlagged.toLocaleString() }}</strong>
+                <span>need attention</span>
+              </div>
+              <div class="integrity-stat is-clean">
+                <strong>{{ integrityReport.summary.ok.toLocaleString() }}</strong>
+                <span>still valid</span>
+              </div>
+            </div>
+
+            <p v-if="!integrityFlagged" class="integrity-clean-note">
+              Every article in scope still exists and still satisfies the contest rules.
+            </p>
+
+            <template v-else>
+              <ul class="integrity-breakdown">
+                <li v-for="row in integrityBreakdown" :key="row.key">
+                  <span class="integrity-badge" :class="`integrity-badge-${row.key}`">{{ row.label }}</span>
+                  <strong>{{ row.count.toLocaleString() }}</strong>
+                </li>
+              </ul>
+
+              <div class="integrity-table-wrap">
+                <table class="integrity-table">
+                  <thead>
+                    <tr>
+                      <th>Article</th>
+                      <th>Submitted by</th>
+                      <th>Issue</th>
+                      <th>Detail</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="issue in integrityReport.issues" :key="issue.article_id">
+                      <td>
+                        <a :href="`https://bn.wiktionary.org/wiki/${encodeURIComponent(issue.title)}`" target="_blank" rel="noopener">{{ issue.title }}</a>
+                      </td>
+                      <td>{{ issue.submitted_by || '—' }}</td>
+                      <td><span class="integrity-badge" :class="`integrity-badge-${issue.issue}`">{{ issueLabel(issue.issue) }}</span></td>
+                      <td class="integrity-detail">{{ issue.detail }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <p v-if="integrityReport.truncated" class="integrity-note">
+                Showing the first {{ integrityReport.issues.length.toLocaleString() }} of
+                {{ integrityFlagged.toLocaleString() }} flagged articles.
+              </p>
+
+              <div class="actions">
+                <button class="save-btn" @click="downloadIntegrityReport">Download report (CSV)</button>
+              </div>
+            </template>
+          </div>
         </div>
       </div>
 

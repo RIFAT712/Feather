@@ -1,10 +1,10 @@
 <script setup>
-import { ref, computed, inject, onMounted } from 'vue';
+import { ref, computed, inject, onMounted, watch, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CdxIcon } from '@wikimedia/codex';
 import { cdxIconArticleCheck, cdxIconTrash } from '@wikimedia/codex-icons';
 import { useQueryClient } from '@tanstack/vue-query';
-import { useContestStats, useContestLog, useContestErrorLog, removeArticlesFromLogCache } from '../composables/useContestData';
+import { useContestStats, useContestLog, useContestErrorLog, removeArticlesFromLogCache, useContestArticleSearch, SEARCH_MIN_LENGTH } from '../composables/useContestData';
 import { Doughnut, Bar } from 'vue-chartjs';
 import {
   Chart as ChartJS,
@@ -127,9 +127,36 @@ const statusLabel = (status) => ({
 const erroredArticles = computed(() => errorArticles.value);
 const displayedSubmissions = computed(() => activeTab.value === 'errors' ? erroredArticles.value : articles.value);
 const allErrorsSelected = computed(() => erroredArticles.value.length > 0 && selectedErrorIds.value.length === erroredArticles.value.length);
+// Title search over the whole contest, server-side (?q=). Filtering
+// `articles` client-side would only ever search the pages crawled so far --
+// this tab loads progressively, so early in a crawl a client-side filter
+// silently reports "no matches" for articles it simply hasn't fetched yet.
+const submissionSearch = ref('');
+const debouncedSubmissionSearch = ref('');
+let submissionSearchDebounce;
+watch(submissionSearch, (value) => {
+  clearTimeout(submissionSearchDebounce);
+  submissionSearchDebounce = setTimeout(() => { debouncedSubmissionSearch.value = value.trim(); }, 250);
+});
+onBeforeUnmount(() => clearTimeout(submissionSearchDebounce));
+
+const isSearchingSubmissions = computed(() => debouncedSubmissionSearch.value.length >= SEARCH_MIN_LENGTH);
+const submissionSearchQuery = useContestArticleSearch(() => route.params.code, debouncedSubmissionSearch, false, {
+  enabled: computed(() => isAuthorized.value && activeTab.value === 'submissions' && isSearchingSubmissions.value),
+});
+const submissionSearchResults = computed(() => submissionSearchQuery.data.value?.items || []);
+const submissionSearchTotal = computed(() => submissionSearchQuery.data.value?.total ?? 0);
+const submissionSearchHasMore = computed(() => !!submissionSearchQuery.data.value?.has_more);
+const submissionSearchPending = computed(() => submissionSearchQuery.isFetching.value && !submissionSearchResults.value.length);
+const submissionSearchError = computed(() => submissionSearchQuery.error.value?.message || null);
+const clearSubmissionSearch = () => { submissionSearch.value = ''; debouncedSubmissionSearch.value = ''; };
+// Grouping (and therefore select-all / bulk delete) operates on whatever is
+// on screen, so a bulk action during a search only ever touches matches.
+const submissionSource = computed(() => (isSearchingSubmissions.value ? submissionSearchResults.value : articles.value));
+
 const groupedSubmissions = computed(() => {
   const groups = new Map();
-  for (const article of articles.value) {
+  for (const article of submissionSource.value) {
     const username = article.submitted_by || 'Unknown user';
     if (!groups.has(username)) groups.set(username, []);
     groups.get(username).push(article);
@@ -683,9 +710,34 @@ const handleExportWikitable = () => {
             <h2>All Submitted Articles</h2>
             <p>Submissions are grouped by user. Expand a user to select individual articles or manage the whole group.</p>
             <div class="submission-heading-meta" aria-label="Submission summary">
-              <span>Showing <strong>{{ articles.length.toLocaleString() }}</strong> of <strong>{{ (stats.status_counts.total || 0).toLocaleString() }}</strong> articles</span>
+              <template v-if="isSearchingSubmissions">
+                <span v-if="submissionSearchPending">Searching…</span>
+                <span v-else-if="submissionSearchError">{{ submissionSearchError }}</span>
+                <span v-else><strong>{{ submissionSearchTotal.toLocaleString() }}</strong> match “{{ debouncedSubmissionSearch }}”<template v-if="submissionSearchHasMore">, showing the {{ submissionSearchResults.length }} most recent</template></span>
+              </template>
+              <template v-else>
+                <span>Showing <strong>{{ articles.length.toLocaleString() }}</strong> of <strong>{{ (stats.status_counts.total || 0).toLocaleString() }}</strong> articles</span>
+              </template>
               <span><strong>{{ groupedSubmissions.length.toLocaleString() }}</strong> users loaded</span>
               <span v-if="selectedSubmissionIds.length"><strong>{{ selectedSubmissionIds.length.toLocaleString() }}</strong> selected</span>
+            </div>
+            <div class="submission-search">
+              <span class="submission-search-icon" aria-hidden="true">🔍</span>
+              <input
+                v-model="submissionSearch"
+                type="search"
+                class="submission-search-input"
+                placeholder="Search article titles across the whole contest…"
+                aria-label="Search submitted article titles"
+                @keydown.esc="clearSubmissionSearch"
+              />
+              <button
+                v-if="submissionSearch"
+                type="button"
+                class="submission-search-clear"
+                aria-label="Clear search"
+                @click="clearSubmissionSearch"
+              >×</button>
             </div>
           </div>
           <div class="submission-toolbar">
@@ -700,7 +752,9 @@ const handleExportWikitable = () => {
           </div>
         </div>
         <p v-if="removalError" class="removal-error">{{ removalError }}</p>
-        <div v-if="isLoadingArticles && !groupedSubmissions.length" class="empty-state group-empty">Loading submissions…</div>
+        <div v-if="isSearchingSubmissions && submissionSearchPending" class="empty-state group-empty">Searching…</div>
+        <div v-else-if="isSearchingSubmissions && !groupedSubmissions.length" class="empty-state group-empty">No articles match “{{ debouncedSubmissionSearch }}”.</div>
+        <div v-else-if="!isSearchingSubmissions && isLoadingArticles && !groupedSubmissions.length" class="empty-state group-empty">Loading submissions…</div>
         <div v-else-if="!groupedSubmissions.length" class="empty-state group-empty">No articles have been submitted yet.</div>
         <div v-else class="submitter-groups">
           <article v-for="group in groupedSubmissions" :key="group.username" class="submitter-group">

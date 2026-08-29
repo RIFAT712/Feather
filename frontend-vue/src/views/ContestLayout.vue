@@ -3,6 +3,7 @@ import { ref, onMounted, inject, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CdxIcon } from '@wikimedia/codex';
 import { cdxIconHome, cdxIconArrowPrevious } from '@wikimedia/codex-icons';
+import { formatDate } from '../utils/datetime';
 
 const user = inject('user');
 const route = useRoute();
@@ -51,7 +52,7 @@ onMounted(async () => {
           <div class="contest-title-info">
             <span class="contest-name">{{ contest.name }}</span>
             <span class="contest-dates-chip">
-              {{ new Date(contest.start_date).toLocaleDateString() }} – {{ new Date(contest.end_date).toLocaleDateString() }}
+              {{ formatDate(contest.start_date) }} – {{ formatDate(contest.end_date) }}
             </span>
           </div>
         </router-link>

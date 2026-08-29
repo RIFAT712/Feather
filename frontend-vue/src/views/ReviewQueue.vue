@@ -20,6 +20,7 @@ import {
   cdxIconTrash,
   cdxIconUpTriangle,
 } from '@wikimedia/codex-icons';
+import { formatDateDayFirst } from '../utils/datetime';
 import { fetchAllContestLogPages } from '../utils/contestLog';
 
 const props = defineProps(['contest', 'assignedQueue']);
@@ -573,6 +574,7 @@ const handleDecision = async (decision) => {
   isSubmitting.value = true;
   reviewError.value = '';
   const reviewedArticleId = currentArticle.value.article_id;
+  const reviewedArticle = currentArticle.value;
   const reviewComment = comment.value;
   try {
     const res = await fetch(`/api/articles/${reviewedArticleId}/review`, {
@@ -585,6 +587,7 @@ const handleDecision = async (decision) => {
       throw new Error(errorBody.detail || `Review failed (${res.status})`);
     }
     if (decision === 'accepted' || decision === 'rejected') permanentlyLockedArticleIds.add(reviewedArticleId);
+    rememberDecision(reviewedArticle, decision, reviewComment);
     comment.value = '';
 
     // Update the local queue immediately so reviewing feels instantaneous.
@@ -614,6 +617,139 @@ const handleDecision = async (decision) => {
     isSubmitting.value = false;
   }
 };
+
+// ── Undo ───────────────────────────────────────────────────────────────────
+// Set after every successful decision so the toast (and the U key) can take
+// it back. Cleared on a timer, on undo, and whenever a new decision replaces
+// it -- only ever the single most recent decision, which is what "undo" means
+// here; anything older is edited by re-opening the article as before.
+const lastDecision = ref(null);
+const isUndoing = ref(false);
+let undoExpiryTimer;
+
+const UNDO_WINDOW_MS = 12000;
+
+const rememberDecision = (article, decision, commentText) => {
+  clearTimeout(undoExpiryTimer);
+  lastDecision.value = {
+    articleId: article.article_id,
+    title: article.title,
+    decision,
+    comment: commentText,
+  };
+  undoExpiryTimer = setTimeout(() => { lastDecision.value = null; }, UNDO_WINDOW_MS);
+};
+
+const dismissUndo = () => {
+  clearTimeout(undoExpiryTimer);
+  lastDecision.value = null;
+};
+
+const undoLastDecision = async () => {
+  const pending = lastDecision.value;
+  if (!pending || isUndoing.value) return;
+  isUndoing.value = true;
+  reviewError.value = '';
+  try {
+    const res = await fetch(`/api/articles/${pending.articleId}/review/undo`, { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || `Undo failed (${res.status})`);
+    }
+    const result = await res.json();
+    permanentlyLockedArticleIds.delete(pending.articleId);
+    // Put the article back the way it was locally so the queue doesn't have to
+    // round-trip before the user can act on it again.
+    articles.value = articles.value.map(article => article.article_id === pending.articleId
+      ? {
+          ...article,
+          status: result.restored_status,
+          reviews: (article.reviews || []).filter(r => r.reviewer !== myUsername.value),
+        }
+      : article);
+    dismissUndo();
+    const restored = articles.value.find(a => a.article_id === pending.articleId);
+    if (restored) {
+      selectArticle(restored);
+      comment.value = pending.comment || '';
+    }
+    fetchArticles(false).catch(error => console.warn('Background queue refresh failed', error));
+  } catch (error) {
+    reviewError.value = error.message || 'Undo failed';
+  } finally {
+    isUndoing.value = false;
+  }
+};
+
+// ── Keyboard shortcuts ─────────────────────────────────────────────────────
+// The review queue is the highest-volume screen in the app (thousands of
+// articles, a handful of juries) and was entirely mouse-driven.
+const showShortcutHelp = ref(false);
+
+const isTypingTarget = (target) => {
+  if (!target) return false;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+};
+
+const handleShortcut = (event) => {
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+  // Escape always works, including from the comment box -- it's the way out.
+  if (event.key === 'Escape') {
+    if (showShortcutHelp.value) {
+      showShortcutHelp.value = false;
+      event.preventDefault();
+    } else if (isTypingTarget(event.target)) {
+      event.target.blur();
+    }
+    return;
+  }
+
+  // Never steal keys from the comment textarea or any search/filter input.
+  if (isTypingTarget(event.target)) return;
+
+  if (event.key === '?') {
+    showShortcutHelp.value = !showShortcutHelp.value;
+    event.preventDefault();
+    return;
+  }
+  if (showShortcutHelp.value) return;
+  if (!currentArticle.value || isSubmitting.value) return;
+
+  switch (event.key.toLowerCase()) {
+    case 'a':
+      event.preventDefault();
+      handleDecision('accepted');
+      break;
+    case 'r':
+      event.preventDefault();
+      handleDecision('rejected');
+      break;
+    case 's':
+      event.preventDefault();
+      skipArticle();
+      break;
+    case 'c':
+      event.preventDefault();
+      commentBox.value?.focus();
+      break;
+    case 'u':
+      event.preventDefault();
+      undoLastDecision();
+      break;
+    default:
+      break;
+  }
+};
+
+const commentBox = ref(null);
+
+onMounted(() => window.addEventListener('keydown', handleShortcut));
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleShortcut);
+  clearTimeout(undoExpiryTimer);
+});
 
 const handleRemoveArticle = async (article) => {
   if (!article || isSubmitting.value) return;
@@ -977,7 +1113,7 @@ const copyTalkSnippet = () => {
                 <div class="rq-tags">
                   <span class="rq-tag">by {{ currentArticle.submitted_by }}</span>
                   <span v-if="currentArticle.wiki_creation_date" class="rq-tag rq-tag-date">
-                    {{ new Date(currentArticle.wiki_creation_date).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) }}
+                    {{ formatDateDayFirst(currentArticle.wiki_creation_date) }}
                   </span>
                   <span v-if="currentArticle.locked_by && currentArticle.locked_by !== myUsername" class="rq-tag rq-tag-locked">
                     <CdxIcon :icon="cdxIconLock" /> {{ currentArticle.locked_by }} reviewing
@@ -1015,29 +1151,37 @@ const copyTalkSnippet = () => {
               
               <div class="rq-decision-form">
                 <textarea
+                  ref="commentBox"
                   class="rq-input rq-textarea"
                   v-model="comment"
-                  placeholder="Leave a note for the submitter (optional)…"
+                  placeholder="Leave a note for the submitter (optional)… (C)"
                   rows="2"
                 ></textarea>
-                
+
                 <div class="rq-actions-wrapper">
                   <div class="rq-primary-actions">
-                    <button type="button" class="rq-btn rq-btn-accept" :disabled="isSubmitting" @click.prevent="handleDecision('accepted')">
-                      <CdxIcon :icon="cdxIconCheck" /> <span>Accept</span>
+                    <button type="button" class="rq-btn rq-btn-accept" :disabled="isSubmitting" @click.prevent="handleDecision('accepted')" title="Accept (A)">
+                      <CdxIcon :icon="cdxIconCheck" /> <span>Accept</span> <kbd class="rq-kbd rq-desktop-only">A</kbd>
                     </button>
-                    <button type="button" class="rq-btn rq-btn-reject" :disabled="isSubmitting" @click.prevent="handleDecision('rejected')">
-                      <CdxIcon :icon="cdxIconClear" /> <span>Reject</span>
+                    <button type="button" class="rq-btn rq-btn-reject" :disabled="isSubmitting" @click.prevent="handleDecision('rejected')" title="Reject (R)">
+                      <CdxIcon :icon="cdxIconClear" /> <span>Reject</span> <kbd class="rq-kbd rq-desktop-only">R</kbd>
                     </button>
                   </div>
-                  
+
                   <div class="rq-secondary-actions">
-                    <button class="rq-btn-ghost rq-btn-skip" :disabled="isSubmitting" @click="skipArticle">
+                    <button class="rq-btn-ghost rq-btn-skip" :disabled="isSubmitting" @click="skipArticle" title="Skip (S)">
                       <CdxIcon :icon="cdxIconNext" /> <span class="rq-desktop-only">Skip</span>
                     </button>
-                    <button class="rq-btn-ghost rq-btn-remove" :disabled="isSubmitting" @click="handleRemove">
+                    <button class="rq-btn-ghost rq-btn-remove" :disabled="isSubmitting" @click="handleRemove" title="Delete article">
                       <CdxIcon :icon="cdxIconTrash" /> <span class="rq-desktop-only">Delete</span>
                     </button>
+                    <button
+                      type="button"
+                      class="rq-btn-ghost rq-btn-help rq-desktop-only"
+                      title="Keyboard shortcuts (?)"
+                      aria-label="Keyboard shortcuts"
+                      @click="showShortcutHelp = true"
+                    >?</button>
                   </div>
                 </div>
               </div>
@@ -1059,6 +1203,38 @@ const copyTalkSnippet = () => {
         <span class="rq-nav-label">Review</span>
       </button>
     </nav>
+
+    <!-- Undo toast: the affordance for taking back the decision just made. -->
+    <div v-if="lastDecision" class="rq-undo-toast" role="status">
+      <span class="rq-undo-text">
+        <strong class="rq-undo-decision" :class="`rq-undo-${lastDecision.decision}`">{{ lastDecision.decision }}</strong>
+        <span class="rq-undo-title">{{ lastDecision.title }}</span>
+      </span>
+      <button type="button" class="rq-undo-btn" :disabled="isUndoing" @click="undoLastDecision">
+        {{ isUndoing ? 'Undoing…' : 'Undo' }} <kbd class="rq-kbd">U</kbd>
+      </button>
+      <button type="button" class="rq-undo-dismiss" aria-label="Dismiss" @click="dismissUndo">×</button>
+    </div>
+
+    <!-- Keyboard shortcut reference -->
+    <div v-if="showShortcutHelp" class="rq-help-backdrop" @click="showShortcutHelp = false">
+      <div class="rq-help-panel" role="dialog" aria-label="Keyboard shortcuts" @click.stop>
+        <div class="rq-help-header">
+          <h3>Keyboard shortcuts</h3>
+          <button type="button" class="rq-help-close" aria-label="Close" @click="showShortcutHelp = false">×</button>
+        </div>
+        <dl class="rq-help-list">
+          <div class="rq-help-row"><dt><kbd class="rq-kbd">A</kbd></dt><dd>Accept the current article</dd></div>
+          <div class="rq-help-row"><dt><kbd class="rq-kbd">R</kbd></dt><dd>Reject the current article</dd></div>
+          <div class="rq-help-row"><dt><kbd class="rq-kbd">S</kbd></dt><dd>Skip to the next article without deciding</dd></div>
+          <div class="rq-help-row"><dt><kbd class="rq-kbd">C</kbd></dt><dd>Focus the comment box</dd></div>
+          <div class="rq-help-row"><dt><kbd class="rq-kbd">U</kbd></dt><dd>Undo the last decision</dd></div>
+          <div class="rq-help-row"><dt><kbd class="rq-kbd">Esc</kbd></dt><dd>Leave the comment box / close this panel</dd></div>
+          <div class="rq-help-row"><dt><kbd class="rq-kbd">?</kbd></dt><dd>Show or hide this panel</dd></div>
+        </dl>
+        <p class="rq-help-note">Shortcuts are ignored while you're typing in a text field.</p>
+      </div>
+    </div>
   </div>
 </template>
 

@@ -5,21 +5,30 @@ import uuid
 import csv
 import io
 import re
+import unicodedata
 import psutil
 import threading
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 from urllib.parse import quote
 
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, BackgroundTasks, Query
-from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse, FileResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from authlib.integrations.starlette_client import OAuth
 from pydantic import BaseModel
 import httpx
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 from dotenv import load_dotenv
 
 # Load local replica credentials before importing database.py, because the
@@ -28,13 +37,41 @@ load_dotenv()
 
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import case, exists, func, or_, text
-from database import get_db, engine, query_wiki_replica_batch, _pre_migration_backup
+from database import get_db, engine, query_wiki_replica_batch, query_wiki_replica_user_creations, _pre_migration_backup
+from timeutils import utcnow
 import models
 
 models.Base.metadata.create_all(bind=engine)
 
 is_prod = os.getenv("OAUTH_CALLBACK_URL", "").startswith("https://")
-app = FastAPI()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Replaces the deprecated @app.on_event("shutdown") hook, which FastAPI
+    has scheduled for removal -- once it goes, the handler would silently stop
+    running and the shared httpx client (and its connection pool) would leak
+    on every restart."""
+    yield
+    global _http_client
+    if _http_client is not None:
+        await _http_client.aclose()
+        _http_client = None
+
+
+app = FastAPI(lifespan=lifespan)
+
+# Nothing was compressing responses -- not the app, and Toolforge's ingress
+# can't be relied on for it either. Measured against the real 11k-article dev
+# contest: /log?page_size=500 is 130 KB raw / 9.8 KB gzipped (13.2x), and the
+# dashboard's full activity-log crawl moves ~2.7 MB uncompressed vs ~0.2 MB
+# gzipped. A user profile drops from 898 KB to 82 KB. JSON of repeated keys
+# compresses extremely well, and the app's users are mostly on Bangladeshi
+# mobile connections, so this is the single largest latency win available.
+# minimum_size skips the many tiny JSON replies where framing would cost more
+# than it saves.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 app.add_middleware(
     SessionMiddleware,
     secret_key=os.getenv("SESSION_SECRET", "super-secret"),
@@ -71,6 +108,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     tb_str = traceback.format_exc()
     from database import SessionLocal
     db = SessionLocal()
+    log_id = None
     try:
         username = None
         token = request.cookies.get("auth_token")
@@ -88,20 +126,27 @@ async def global_exception_handler(request: Request, exc: Exception):
             url=str(request.url)[:500],
             user_agent=request.headers.get("user-agent", "")[:500],
             username=username,
-            timestamp=datetime.utcnow()
+            timestamp=utcnow()
         )
         db.add(log_entry)
         db.commit()
+        log_id = log_entry.id
     except Exception as e:
         print(f"[ErrorLog] Failed saving exception log: {e}")
     finally:
         db.close()
-        
-    return Response(
-        content=f'{{"detail": "Internal Server Error: {str(exc)}"}}',
-        status_code=500,
-        media_type="application/json"
-    )
+
+    # The body used to be assembled with an f-string, which produced invalid
+    # JSON the moment an exception message contained a quote, backslash, or
+    # newline -- exactly what SQLAlchemy and httpx errors are full of, so the
+    # client saw a JSON parse failure instead of the error. It also echoed the
+    # raw exception text (DSNs, credentials, internal paths) straight to the
+    # browser. JSONResponse encodes properly; the full message and traceback
+    # stay in system_logs, reachable by id via /api/logs.
+    detail = "Internal Server Error"
+    if log_id is not None:
+        detail = f"{detail} (log #{log_id})"
+    return JSONResponse(status_code=500, content={"detail": detail, "log_id": log_id})
 
 WIKI_DB_USER = os.getenv("WIKI_DB_USER", "")
 WIKI_DB_PASSWORD = os.getenv("WIKI_DB_PASSWORD", "")
@@ -119,8 +164,10 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
             "Authorization": f"Bearer {access_token}",
             "User-Agent": "QuoteContestArticleTool/1.0 (https://github.com/RIFAT712/Feather)"
         }
-        res3 = await client.get(
+        res3 = await wiki_api_request(
+            "GET",
             "https://bn.wiktionary.org/w/api.php",
+            client=client,
             params={"action": "query", "meta": "tokens", "type": "csrf", "format": "json"},
             headers=headers
         )
@@ -138,7 +185,7 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
                     level="error", 
                     source="talk_template", 
                     message=msg,
-                    timestamp=datetime.utcnow()
+                    timestamp=utcnow()
                 ))
                 db.commit()
                 db.close()
@@ -190,7 +237,7 @@ async def add_talk_pages(titles: list[str], template_name: str, include_header: 
                 level="info" if not failures else "warning", 
                 source="talk_template", 
                 message=msg,
-                timestamp=datetime.utcnow()
+                timestamp=utcnow()
             ))
             db.commit()
             db.close()
@@ -231,11 +278,56 @@ def get_http_client():
         )
     return _http_client
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    global _http_client
-    if _http_client is not None:
-        await _http_client.aclose()
+
+# MediaWiki's API sheds load with 429s and the Wikimedia edge returns 502/503
+# during deploys, and a bulk submission of a few hundred titles reliably hits
+# at least one of those. Without a retry, that single blip was recorded as a
+# permanent per-article "API Error" validation failure in the database -- a
+# transient network condition turned into what looked to the submitter like a
+# rejected article. tenacity handles the backoff/jitter/attempt bookkeeping
+# instead of a hand-rolled loop.
+def _normalize_wiki_name(name: str) -> str:
+    """Normalize a wiki username for comparison.
+
+    MediaWiki treats underscores and spaces as equivalent in names, and the
+    same Bengali/Devanagari string can arrive in different Unicode
+    normalization forms depending on whether it came from the replica, the API,
+    or a browser -- so a raw == would report a false author mismatch. This was
+    duplicated inline in both branches of process_articles_batch; the integrity
+    check needs the same comparison.
+    """
+    return unicodedata.normalize("NFC", name or "").replace("_", " ").strip()
+
+
+RETRYABLE_WIKI_STATUS = frozenset({429, 500, 502, 503, 504})
+
+
+class RetryableWikiStatus(Exception):
+    """A MediaWiki response worth retrying (rate limit / transient 5xx)."""
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=0.5, max=4),
+    retry=retry_if_exception_type((httpx.TransportError, RetryableWikiStatus)),
+    reraise=True,
+)
+async def wiki_api_request(method: str, url: str, *, client: httpx.AsyncClient = None, **kwargs) -> httpx.Response:
+    """Issue a MediaWiki API request, retrying transport errors and transient
+    HTTP statuses with exponential backoff.
+
+    Only safe for idempotent reads (and the CSRF-token fetch). Do NOT route
+    page edits through this: the talk-page edits use `appendtext`, so a retry
+    after an edit that actually succeeded but whose response was lost would
+    append the template twice.
+    """
+    http = client or get_http_client()
+    response = await http.request(method, url, **kwargs)
+    if response.status_code in RETRYABLE_WIKI_STATUS:
+        raise RetryableWikiStatus(f"{response.status_code} from {url}")
+    return response
+
+
 class ContestCreate(BaseModel):
     name: str
     start_date: datetime
@@ -574,7 +666,7 @@ async def auth_callback(request: Request, response: Response, db: Session = Depe
             user.oauth_access_token = token.get('access_token')
             db.commit()
                 
-        expire = datetime.utcnow() + timedelta(days=7)
+        expire = utcnow() + timedelta(days=7)
         jwt_payload = {"sub": user.wiki_username, "role": user.role.value, "exp": expire}
         auth_token = jwt.encode(jwt_payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
         
@@ -619,7 +711,7 @@ def _write_backup_files(dest_dir: str, label: str):
     Also writes a SystemLog entry so the event appears in /api/logs.
     """
     os.makedirs(dest_dir, exist_ok=True)
-    timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+    timestamp = utcnow().strftime('%Y%m%d_%H%M%S')
     db = next(get_db())
     try:
         def translate_status(s):
@@ -686,7 +778,7 @@ def _write_backup_files(dest_dir: str, label: str):
             level="info",
             source="backup",
             message=msg,
-            timestamp=datetime.utcnow(),
+            timestamp=utcnow(),
         ))
         db.commit()
     except Exception as e:
@@ -697,7 +789,7 @@ def _write_backup_files(dest_dir: str, label: str):
                 level="error",
                 source="backup",
                 message=err_msg[:2000],
-                timestamp=datetime.utcnow(),
+                timestamp=utcnow(),
             ))
             db.commit()
         except Exception:
@@ -892,7 +984,7 @@ def get_contest(code: str, db: Session = Depends(get_db)):
 @app.get("/api/admin/stats")
 def get_admin_stats(_: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
     total_contests = db.query(models.Contest).count()
-    now = datetime.utcnow()
+    now = utcnow()
     active_contests = db.query(models.Contest).filter(
         models.Contest.start_date <= now,
         models.Contest.end_date >= now
@@ -1179,10 +1271,7 @@ async def process_articles_batch(
                 if min_b > 0 and page_len < min_b:
                     results.append(ValidationResult(title=t, is_valid=False, error=f"Article size too small ({page_len} B < min {min_b} B)"))
                     continue
-                import unicodedata
-                creator_norm = unicodedata.normalize('NFC', creator or "").replace('_', ' ').strip()
-                sub_norm = unicodedata.normalize('NFC', submitter_username or "").replace('_', ' ').strip()
-                if contest.rule_must_be_creator and creator_norm != sub_norm:
+                if contest.rule_must_be_creator and _normalize_wiki_name(creator) != _normalize_wiki_name(submitter_username):
                     results.append(ValidationResult(title=t, is_valid=False, error=f"Author Mismatch: Creator is '{creator}'"))
                     continue
                 if wiki_date:
@@ -1219,7 +1308,9 @@ async def process_articles_batch(
         }
         async with sem:
             try:
-                response = await client.post(MEDIAWIKI_API_URL, data=params, headers=headers)
+                response = await wiki_api_request(
+                    "POST", MEDIAWIKI_API_URL, client=client, data=params, headers=headers
+                )
                 response.raise_for_status()
                 data = response.json()
                 pages = data.get("query", {}).get("pages", {})
@@ -1260,10 +1351,7 @@ async def process_articles_batch(
                         min_r = getattr(contest, 'min_refs', 0)
                         if min_r > 0 and ref_count < min_r:
                             return ValidationResult(title=t, is_valid=False, error=f"Insufficient references ({ref_count} < min {min_r} refs)")
-                        import unicodedata
-                        creator_norm = unicodedata.normalize('NFC', creator or "").replace('_', ' ').strip()
-                        sub_norm = unicodedata.normalize('NFC', submitter_username or "").replace('_', ' ').strip()
-                        if contest.rule_must_be_creator and creator_norm != sub_norm:
+                        if contest.rule_must_be_creator and _normalize_wiki_name(creator) != _normalize_wiki_name(submitter_username):
                             return ValidationResult(title=t, is_valid=False, error=f"Author Mismatch: Creator is '{creator}'")
                             
                         creation_time = datetime.strptime(timestamp_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=None)
@@ -1301,7 +1389,7 @@ async def submit_bulk(
     contest = db.query(models.Contest).filter_by(code=request.contest_code).first()
     if not contest:
         raise HTTPException(status_code=404, detail="Contest not found")
-    now = datetime.utcnow()
+    now = utcnow()
     start_date = contest.start_date.replace(tzinfo=None) if contest.start_date else None
     end_date = contest.end_date.replace(tzinfo=None) if contest.end_date else None
     if start_date and now < start_date:
@@ -1369,7 +1457,7 @@ async def submit_bulk(
                 existing_art.submitter_id = effective_user.id
                 existing_art.wiki_creator = res.wiki_creator
                 existing_art.wiki_creation_date = wiki_date
-                existing_art.submitted_at = datetime.utcnow()
+                existing_art.submitted_at = utcnow()
             else:
                 article = models.Article(
                     title=res.title,
@@ -1379,7 +1467,7 @@ async def submit_bulk(
                     validation_error=None,
                     wiki_creation_date=wiki_date,
                     wiki_creator=res.wiki_creator,
-                    submitted_at=datetime.utcnow()
+                    submitted_at=utcnow()
                 )
                 db.add(article)
         else:
@@ -1392,7 +1480,7 @@ async def submit_bulk(
                 existing_art.submitter_id = effective_user.id
                 existing_art.wiki_creator = res.wiki_creator
                 existing_art.wiki_creation_date = wiki_date
-                existing_art.submitted_at = datetime.utcnow()
+                existing_art.submitted_at = utcnow()
             else:
                 article = models.Article(
                     title=res.title,
@@ -1402,7 +1490,7 @@ async def submit_bulk(
                     validation_error=res.error,
                     wiki_creation_date=wiki_date,
                     wiki_creator=res.wiki_creator,
-                    submitted_at=datetime.utcnow()
+                    submitted_at=utcnow()
                 )
                 db.add(article)
             
@@ -1439,7 +1527,7 @@ def get_next_pending(contest_code: str, current_user: models.User = Depends(get_
     
     if not (is_owner or is_jury):
         raise HTTPException(status_code=403, detail="Not authorized to review this contest")
-    lock_cutoff = datetime.utcnow() - timedelta(minutes=15)
+    lock_cutoff = utcnow() - timedelta(minutes=15)
     locked_by_others = db.query(models.ArticleLock.article_id).filter(
         models.ArticleLock.locked_at >= lock_cutoff,
         models.ArticleLock.locked_by != current_user.wiki_username
@@ -1578,6 +1666,8 @@ def get_contest_log(
     page_size: int = Query(default=200, ge=1, le=500),
     include_reviews: bool = Query(default=True),
     status: Optional[str] = Query(default=None),
+    submitted_by: Optional[str] = Query(default=None),
+    q: Optional[str] = Query(default=None, max_length=255),
     db: Session = Depends(get_db),
 ):
     """Paginated activity log, newest first. Uses keyset pagination (before_id,
@@ -1607,22 +1697,54 @@ def get_contest_log(
     status filters to one status (e.g. validation_failed) so a consumer that
     only cares about a small subset doesn't have to crawl the whole contest
     looking for it — errored articles are typically a handful out of
-    thousands, and could otherwise sit anywhere in the id order."""
+    thousands, and could otherwise sit anywhere in the id order.
+
+    submitted_by filters to one submitter, resolved to their user id up front
+    so the actual article query filters on the indexed submitter_id column
+    directly (ix_articles_contest_submitter) rather than joining through
+    users by name -- lets the dashboard's per-user drill-down fetch just that
+    user's articles on demand instead of crawling the whole contest log and
+    grouping client-side.
+
+    q is a substring title search, applied server-side. Finding one article in
+    a 11k-article contest previously meant crawling every page of this endpoint
+    and scanning in JavaScript; this filters in SQL and returns only matches,
+    so the client fetches one small page instead of the whole contest. It
+    combines with status/submitted_by, and `total` reflects the filtered count
+    so the caller's pagination stays correct."""
     contest = db.query(models.Contest).filter_by(code=code).first()
     if not contest:
         raise HTTPException(status_code=404, detail="Contest not found")
 
-    count_query = db.query(func.count(models.Article.id)).filter_by(contest_id=contest.id)
-    if status:
-        count_query = count_query.filter(models.Article.status == status)
+    submitter_id = None
+    if submitted_by:
+        submitter_id = db.query(models.User.id).filter_by(wiki_username=submitted_by).scalar()
+        if submitter_id is None:
+            return {"items": [], "total": 0, "page_size": page_size, "has_more": False, "next_before_id": None}
+
+    search_term = (q or "").strip()
+
+    def apply_filters(query):
+        if status:
+            query = query.filter(models.Article.status == status)
+        if submitter_id is not None:
+            query = query.filter(models.Article.submitter_id == submitter_id)
+        if search_term:
+            # escape LIKE wildcards so a title containing % or _ searches
+            # literally instead of matching everything.
+            escaped = search_term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            query = query.filter(models.Article.title.like(f"%{escaped}%", escape="\\"))
+        return query
+
+    count_query = apply_filters(
+        db.query(func.count(models.Article.id)).filter_by(contest_id=contest.id)
+    )
     total = count_query.scalar()
 
     query = db.query(models.Article).options(joinedload(models.Article.submitter))
     if include_reviews:
         query = query.options(selectinload(models.Article.reviews).joinedload(models.Review.reviewer))
-    query = query.filter_by(contest_id=contest.id)
-    if status:
-        query = query.filter(models.Article.status == status)
+    query = apply_filters(query.filter_by(contest_id=contest.id))
     if before_id is not None:
         query = query.filter(models.Article.id < before_id)
     query = query.order_by(models.Article.id.desc())
@@ -1633,7 +1755,7 @@ def get_contest_log(
     log = []
     active_locks = {}
     if include_reviews:
-        now = datetime.utcnow()
+        now = utcnow()
         lock_cutoff = now - timedelta(minutes=15)
         article_ids = [a.id for a in articles]
         if article_ids:
@@ -1674,6 +1796,25 @@ def get_contest_log(
         "next_before_id": articles[-1].id if articles else None,
         "has_more": len(articles) == page_size,
     }
+
+@app.get("/api/contests/{code}/submitters")
+def get_contest_submitters(code: str, db: Session = Depends(get_db)):
+    """Cheap per-submitter counts (username + article count), sorted by count
+    descending -- backs the dashboard's "Submissions by User" panel's group
+    headers without crawling every article in the contest just to group them
+    client-side. Each group's actual articles are then fetched on demand,
+    filtered by submitter, via GET .../log?submitted_by=<username>."""
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+
+    rows = db.query(models.User.wiki_username, func.count(models.Article.id)) \
+        .join(models.Article, models.Article.submitter_id == models.User.id) \
+        .filter(models.Article.contest_id == contest.id) \
+        .group_by(models.User.wiki_username) \
+        .order_by(func.count(models.Article.id).desc()).all()
+
+    return {"submitters": [{"username": username, "count": int(count)} for username, count in rows]}
 
 def _jury_panel_authorize(contest, current_user, db, view_as=None):
     is_owner = current_user.role == models.RoleEnum.owner
@@ -1846,7 +1987,7 @@ def log_client_error(
         url=payload.url[:500] if payload.url else None,
         user_agent=(payload.user_agent or request.headers.get("user-agent", ""))[:500],
         username=username,
-        timestamp=datetime.utcnow()
+        timestamp=utcnow()
     )
     db.add(log_entry)
     db.commit()
@@ -1985,6 +2126,69 @@ def get_contest_user_profile(code: str, username: str, db: Session = Depends(get
         ]
     }
 
+@app.get("/api/contests/{code}/user-created-articles")
+async def get_user_created_articles(code: str, username: str, db: Session = Depends(get_db)):
+    """
+    Lists every mainspace article `username` created within the contest's
+    date range -- backs SubmitArticles.vue's "Fetch Articles" button. Tries
+    the wiki replica DB first (the same source /submit-bulk validates
+    against), falling back to the public usercontribs API only if the
+    replica is unavailable, instead of the frontend paginating usercontribs
+    directly from the browser.
+    """
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    if not contest.start_date or not contest.end_date:
+        raise HTTPException(status_code=400, detail="Contest has no date range configured")
+
+    titles = query_wiki_replica_user_creations(username, contest.start_date, contest.end_date)
+    if titles is not None:
+        return {"titles": titles, "source": "db"}
+
+    unique_id = uuid.uuid4().hex[:8]
+    contact_email = os.getenv("CONTACT_EMAIL", "contact@example.com")
+    user_agent_username = quote(str(username or ""), safe="")
+    headers = {
+        "User-Agent": f"WikiArticleContestTool/1.0 (User:{user_agent_username}; ContestCode:{contest.code}; {contact_email}; RequestID:{unique_id})",
+        "Accept-Encoding": "gzip",
+    }
+    client = get_http_client()
+    start_ts = contest.start_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_ts = contest.end_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+    all_titles = []
+    uccontinue = None
+    try:
+        while True:
+            params = {
+                "action": "query",
+                "list": "usercontribs",
+                "ucuser": username,
+                "ucstart": start_ts,
+                "ucend": end_ts,
+                "ucdir": "newer",
+                "ucnamespace": 0,
+                "ucprop": "title",
+                "ucshow": "new",
+                "uclimit": "max",
+                "format": "json",
+            }
+            if uccontinue:
+                params["uccontinue"] = uccontinue
+            response = await wiki_api_request(
+                "GET", MEDIAWIKI_API_URL, client=client, params=params, headers=headers
+            )
+            response.raise_for_status()
+            data = response.json()
+            all_titles.extend(c["title"] for c in data.get("query", {}).get("usercontribs", []))
+            uccontinue = data.get("continue", {}).get("uccontinue")
+            if not uccontinue:
+                break
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch articles from Wikipedia: {e}")
+
+    return {"titles": list(dict.fromkeys(all_titles)), "source": "api"}
+
 @app.get("/api/users/{username}/profile")
 def get_user_profile(username: str, db: Session = Depends(get_db)):
     user = db.query(models.User).filter_by(wiki_username=username).first()
@@ -2014,30 +2218,23 @@ def get_user_profile(username: str, db: Session = Depends(get_db)):
             "wiki_creation_date": a.wiki_creation_date.isoformat() if a.wiki_creation_date else None
         })
 
-    judged = []
-    judged_contest_ids = set()
-    jury_assignments = db.query(models.ContestJury)\
-        .options(joinedload(models.ContestJury.contest))\
-        .filter_by(user_id=user.id).all()
-    for ja in jury_assignments:
-        c = ja.contest
-        judged_contest_ids.add(c.id)
+    def build_judged_entry(contest, role):
         reviews = db.query(models.Review).join(models.Article)\
             .options(joinedload(models.Review.article))\
             .filter(
-                models.Article.contest_id == c.id,
+                models.Article.contest_id == contest.id,
                 models.Review.reviewer_id == user.id
             ).order_by(models.Review.timestamp.desc()).all()
-        total = len(reviews)
-        accepted = sum(1 for r in reviews if r.status.value == "accepted")
-        rejected = sum(1 for r in reviews if r.status.value == "rejected")
-        skipped = sum(1 for r in reviews if r.status.value == "skipped")
-        judged.append({
-            "code": c.code,
-            "name": c.name,
-            "start_date": c.start_date.isoformat() if c.start_date else None,
-            "end_date": c.end_date.isoformat() if c.end_date else None,
-            "role_in_contest": "jury",
+        counts = {"accepted": 0, "rejected": 0, "skipped": 0}
+        for r in reviews:
+            if r.status.value in counts:
+                counts[r.status.value] += 1
+        return {
+            "code": contest.code,
+            "name": contest.name,
+            "start_date": contest.start_date.isoformat() if contest.start_date else None,
+            "end_date": contest.end_date.isoformat() if contest.end_date else None,
+            "role_in_contest": role,
             "reviews": [
                 {
                     "article_title": r.article.title,
@@ -2046,59 +2243,42 @@ def get_user_profile(username: str, db: Session = Depends(get_db)):
                     "reviewed_at": r.timestamp.isoformat() if r.timestamp else None
                 } for r in reviews
             ],
-            "stats": {
-                "total": total,
-                "accepted": accepted,
-                "rejected": rejected,
-                "skipped": skipped
-            }
-        })
+            "stats": {"total": len(reviews), **counts},
+        }
+
+    judged = []
+    # Keyed by contest id so the owner pass below can relabel an existing entry
+    # with a dict lookup. It used to scan `judged` and run a fresh
+    # `Contest.filter_by(id=...).first().code` query for every candidate row --
+    # a query per (contest x entry) pair, which also raised AttributeError and
+    # returned a 500 whenever that contest row had since been deleted.
+    judged_by_contest_id = {}
+    jury_assignments = db.query(models.ContestJury)\
+        .options(joinedload(models.ContestJury.contest))\
+        .filter_by(user_id=user.id).all()
+    for ja in jury_assignments:
+        entry = build_judged_entry(ja.contest, "jury")
+        judged.append(entry)
+        judged_by_contest_id[ja.contest.id] = entry
+
     if user.role == models.RoleEnum.owner:
-        owner_reviews = db.query(models.Review)\
-            .options(joinedload(models.Review.article))\
-            .filter_by(reviewer_id=user.id).all()
-        owner_contest_ids = {r.article.contest_id for r in owner_reviews}
-        for contest_id in owner_contest_ids:
-            if contest_id in judged_contest_ids:
-                for entry in judged:
-                    if entry["code"] == db.query(models.Contest).filter_by(id=contest_id).first().code:
-                        entry["role_in_contest"] = "owner"
-                continue
-            c = db.query(models.Contest).filter_by(id=contest_id).first()
-            if not c:
-                continue
-            judged_contest_ids.add(c.id)
-            reviews = db.query(models.Review).join(models.Article)\
-                .options(joinedload(models.Review.article))\
-                .filter(
-                    models.Article.contest_id == c.id,
-                    models.Review.reviewer_id == user.id
-                ).order_by(models.Review.timestamp.desc()).all()
-            total = len(reviews)
-            accepted = sum(1 for r in reviews if r.status.value == "accepted")
-            rejected = sum(1 for r in reviews if r.status.value == "rejected")
-            skipped = sum(1 for r in reviews if r.status.value == "skipped")
-            judged.append({
-                "code": c.code,
-                "name": c.name,
-                "start_date": c.start_date.isoformat() if c.start_date else None,
-                "end_date": c.end_date.isoformat() if c.end_date else None,
-                "role_in_contest": "owner",
-                "reviews": [
-                    {
-                        "article_title": r.article.title,
-                        "decision": r.status.value,
-                        "comment": r.comment,
-                        "reviewed_at": r.timestamp.isoformat() if r.timestamp else None
-                    } for r in reviews
-                ],
-                "stats": {
-                    "total": total,
-                    "accepted": accepted,
-                    "rejected": rejected,
-                    "skipped": skipped
-                }
-            })
+        # One DISTINCT query for the contest ids, instead of loading every
+        # review the owner has ever written just to read contest_id off each.
+        owner_contest_ids = {
+            cid for (cid,) in db.query(models.Article.contest_id)
+            .join(models.Review, models.Review.article_id == models.Article.id)
+            .filter(models.Review.reviewer_id == user.id)
+            .distinct()
+        }
+        new_ids = owner_contest_ids - judged_by_contest_id.keys()
+        for contest_id in owner_contest_ids & judged_by_contest_id.keys():
+            judged_by_contest_id[contest_id]["role_in_contest"] = "owner"
+        if new_ids:
+            # Batch-fetch the remaining contests rather than one query each.
+            for c in db.query(models.Contest).filter(models.Contest.id.in_(new_ids)).all():
+                entry = build_judged_entry(c, "owner")
+                judged.append(entry)
+                judged_by_contest_id[c.id] = entry
 
     return {
         "username": user.wiki_username,
@@ -2159,7 +2339,7 @@ def lock_article(article_id: int, current_user: models.User = Depends(get_curren
     if not (is_owner or is_jury):
         raise HTTPException(status_code=403, detail="Not authorized to lock articles in this contest")
     existing_lock = db.query(models.ArticleLock).filter_by(article_id=article_id).first()
-    if existing_lock and existing_lock.locked_at >= datetime.utcnow() - timedelta(minutes=15) \
+    if existing_lock and existing_lock.locked_at >= utcnow() - timedelta(minutes=15) \
             and existing_lock.locked_by != current_user.wiki_username:
         raise HTTPException(status_code=409, detail=f"Article is locked by {existing_lock.locked_by}.")
     if existing_lock:
@@ -2167,10 +2347,10 @@ def lock_article(article_id: int, current_user: models.User = Depends(get_curren
     db.add(models.ArticleLock(
         article_id=article_id,
         locked_by=current_user.wiki_username,
-        locked_at=datetime.utcnow()
+        locked_at=utcnow()
     ))
     db.query(models.ArticleLock).filter(
-        models.ArticleLock.locked_at < datetime.utcnow() - timedelta(minutes=15)
+        models.ArticleLock.locked_at < utcnow() - timedelta(minutes=15)
     ).delete()
     db.commit()
     return {"success": True, "locked_by": current_user.wiki_username}
@@ -2203,7 +2383,12 @@ async def proxy_article(title: str):
         "User-Agent": f"QuoteContestArticleTool/1.0 (contact@example.com; RequestID:{unique_id})"
     }
     client = get_http_client()
-    res = await client.get(f"https://bn.wiktionary.org/api/rest_v1/page/mobile-html/{title}", headers=headers)
+    res = await wiki_api_request(
+        "GET",
+        f"https://bn.wiktionary.org/api/rest_v1/page/mobile-html/{title}",
+        client=client,
+        headers=headers,
+    )
     html = res.text
     html = html.replace("<head>", f'<head><base href="https://bn.wiktionary.org/wiki/">')
     return HTMLResponse(content=html, status_code=res.status_code)
@@ -2290,7 +2475,7 @@ def review_article(
         raise HTTPException(status_code=409, detail="Article has already been permanently reviewed.")
 
     active_lock = db.query(models.ArticleLock).filter_by(article_id=article_id).first()
-    if active_lock and active_lock.locked_at < datetime.utcnow() - timedelta(minutes=15):
+    if active_lock and active_lock.locked_at < utcnow() - timedelta(minutes=15):
         db.delete(active_lock)
         db.commit()
         active_lock = None
@@ -2310,7 +2495,7 @@ def review_article(
     if own_review:
         own_review.status = models.ReviewStatus[data.decision]
         own_review.comment = data.comment
-        own_review.timestamp = datetime.utcnow()
+        own_review.timestamp = utcnow()
     else:
         db.add(models.Review(
             article_id=article.id,
@@ -2322,6 +2507,209 @@ def review_article(
         db.delete(active_lock)
     db.commit()
     return {"status": "success", "decision": data.decision}
+
+@app.post("/api/articles/{article_id}/review/undo")
+def undo_review(
+    article_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Withdraw the caller's own review of an article, restoring the status it
+    would have had without it.
+
+    This grants no authority a reviewer didn't already have -- review_article()
+    already lets them overwrite their own decision with any other value at any
+    time -- it just expresses "remove it" instead of "change it", which the UI
+    previously had no way to say. A misclicked Accept could only be corrected
+    by navigating back and re-reviewing.
+
+    `assigned_to_id` is deliberately left alone, matching what a 'skipped'
+    decision already does: the article returns to this jury's own queue for
+    them to decide again, rather than being thrown back into the pool for
+    rebalancing.
+    """
+    article = db.query(models.Article).filter_by(id=article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    contest = article.contest
+    is_owner = current_user.role == models.RoleEnum.owner
+    is_jury = db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=current_user.id).first() is not None
+    if not (is_owner or is_jury):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    own_review = db.query(models.Review).filter_by(
+        article_id=article_id, reviewer_id=current_user.id
+    ).order_by(models.Review.timestamp.desc()).first()
+    if not own_review:
+        raise HTTPException(status_code=404, detail="You have no review of this article to undo.")
+
+    # A validation_failed article never legitimately carries a decision, so
+    # never resurrect one into the pending queue by undoing something else.
+    if article.status == models.ArticleStatus.validation_failed:
+        raise HTTPException(status_code=409, detail="This article failed validation and cannot be reopened here.")
+
+    # Read before deleting: after the commit below this instance is gone and
+    # its attributes can no longer be loaded.
+    undone_decision = own_review.status.value
+    db.delete(own_review)
+    db.flush()
+
+    # Another jury (or the owner) may also have judged this article. Fall back
+    # to whatever the most recent remaining decision was, and only return the
+    # article to pending when nothing is left.
+    remaining = db.query(models.Review).filter(
+        models.Review.article_id == article_id,
+        models.Review.status != models.ReviewStatus.skipped,
+    ).order_by(models.Review.timestamp.desc(), models.Review.id.desc()).first()
+    article.status = models.ArticleStatus[remaining.status.value] if remaining else models.ArticleStatus.pending
+
+    db.commit()
+    return {
+        "status": "success",
+        "undone_decision": undone_decision,
+        "restored_status": article.status.value,
+    }
+
+INTEGRITY_ISSUE_LIMIT = 2000
+
+
+@app.post("/api/admin/contests/{code}/integrity-check")
+def contest_integrity_check(
+    code: str,
+    scope: str = Query(default="accepted", pattern="^(accepted|all)$"),
+    _: models.User = Depends(get_owner_user),
+    db: Session = Depends(get_db),
+):
+    """Re-check submitted articles against the wiki as it stands today.
+
+    Articles are validated once, at submission, and never revisited. If a page
+    is later deleted, moved out of mainspace, turned into a redirect, or
+    blanked below the contest's size rule, nothing notices -- an article that
+    no longer exists can still be sitting in the accepted column when results
+    are published. This re-runs the existence/shape checks over a contest's
+    articles and reports what no longer holds.
+
+    Reporting only: no article status is changed. Deciding what to do about a
+    flagged article is a judgement call (a page may have been legitimately
+    moved, or deleted for reasons unrelated to the contest), so this hands the
+    owner a list rather than silently rejecting anyone's work.
+
+    Uses the wiki replica exclusively. The public API fallback that
+    /submit-bulk falls back to fetches one title per request, which is fine for
+    a submission of a few dozen titles and hopeless for a sweep over thousands
+    -- so when the replica is unavailable this reports that plainly instead of
+    grinding through an HTTP crawl or, worse, reporting every article as
+    missing.
+    """
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+
+    query = db.query(models.Article).options(joinedload(models.Article.submitter)) \
+        .filter(models.Article.contest_id == contest.id)
+    if scope == "accepted":
+        query = query.filter(models.Article.status == models.ArticleStatus.accepted)
+    else:
+        # validation_failed articles never passed the rules in the first place,
+        # so re-reporting them here would just be noise.
+        query = query.filter(models.Article.status != models.ArticleStatus.validation_failed)
+    articles = query.order_by(models.Article.id).all()
+
+    if not articles:
+        return {
+            "contest": {"code": contest.code, "name": contest.name},
+            "scope": scope,
+            "checked": 0,
+            "checked_at": utcnow().isoformat(),
+            "rules": {"min_bytes": getattr(contest, "min_bytes", 0) or 0},
+            "summary": {"ok": 0, "missing": 0, "redirect": 0, "below_min_bytes": 0, "creator_changed": 0},
+            "issues": [],
+            "truncated": False,
+        }
+
+    min_bytes = getattr(contest, "min_bytes", 0) or 0
+    summary = {"ok": 0, "missing": 0, "redirect": 0, "below_min_bytes": 0, "creator_changed": 0}
+    issues = []
+
+    # query_wiki_replica_batch already chunks internally, but feeding it every
+    # title in one call would hold the whole contest's page rows in memory at
+    # once; this keeps the working set bounded on a 10k+ contest.
+    BATCH = 500
+    for start in range(0, len(articles), BATCH):
+        batch = articles[start:start + BATCH]
+        found = query_wiki_replica_batch([a.title for a in batch])
+        if found is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Wiki replica is unavailable, so the integrity check cannot run right now. Try again shortly.",
+            )
+
+        for article in batch:
+            info = found.get(article.title.lower())
+            issue = None
+            detail = None
+
+            if not info:
+                # The replica lookup is scoped to namespace 0, so a page that
+                # was moved out of mainspace is indistinguishable here from one
+                # that was deleted -- say so rather than asserting "deleted".
+                issue, detail = "missing", "No mainspace page with this title (deleted, moved, or renamed)"
+            elif info.get("page_is_redirect"):
+                issue, detail = "redirect", "Page is now a redirect"
+            elif min_bytes and info.get("page_len", 0) < min_bytes:
+                issue = "below_min_bytes"
+                detail = f"Now {info.get('page_len', 0)} B, contest requires at least {min_bytes} B"
+            elif article.wiki_creator and info.get("wiki_creator") and \
+                    _normalize_wiki_name(info["wiki_creator"]) != _normalize_wiki_name(article.wiki_creator):
+                issue = "creator_changed"
+                detail = f"First revision is now by '{info['wiki_creator']}', was '{article.wiki_creator}'"
+
+            if issue is None:
+                summary["ok"] += 1
+                continue
+
+            summary[issue] += 1
+            if len(issues) < INTEGRITY_ISSUE_LIMIT:
+                issues.append({
+                    "article_id": article.id,
+                    "title": article.title,
+                    "submitted_by": article.submitter.wiki_username if article.submitter else None,
+                    "status": article.status.value,
+                    "issue": issue,
+                    "detail": detail,
+                })
+
+    flagged = len(articles) - summary["ok"]
+    message = (
+        f"Integrity check on contest {contest.code} ({scope}): {len(articles)} articles checked, "
+        f"{flagged} flagged (missing={summary['missing']}, redirect={summary['redirect']}, "
+        f"below_min_bytes={summary['below_min_bytes']}, creator_changed={summary['creator_changed']})"
+    )
+    print(f"[IntegrityCheck] {message}")
+    try:
+        db.add(models.SystemLog(
+            level="warning" if flagged else "info",
+            source="integrity_check",
+            message=message[:2000],
+            timestamp=utcnow(),
+        ))
+        db.commit()
+    except Exception as error:
+        db.rollback()
+        print(f"[IntegrityCheck] Failed writing SystemLog: {error}")
+
+    return {
+        "contest": {"code": contest.code, "name": contest.name},
+        "scope": scope,
+        "checked": len(articles),
+        "checked_at": utcnow().isoformat(),
+        "rules": {"min_bytes": min_bytes},
+        "summary": summary,
+        "issues": issues,
+        "truncated": flagged > len(issues),
+    }
+
 
 @app.get("/api/admin/contests/{code}/export/csv")
 def export_contest_csv(code: str, mode: str = "summary", _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
@@ -2422,7 +2810,7 @@ def export_contest_json(code: str, mode: str = "summary", _: models.User = Depen
         return {
             "contest_name": contest.name,
             "contest_code": contest.code,
-            "exported_at": datetime.utcnow().isoformat(),
+            "exported_at": utcnow().isoformat(),
             "articles": [
                 {
                     "id": a.id, "title": a.title, "submitter": a.submitter.wiki_username if a.submitter else None,
@@ -2465,7 +2853,7 @@ def export_contest_json(code: str, mode: str = "summary", _: models.User = Depen
         return {
             "contest_name": contest.name,
             "contest_code": contest.code,
-            "exported_at": datetime.utcnow().isoformat(),
+            "exported_at": utcnow().isoformat(),
             "submitter_stats": [
                 {"username": u, **stats} for u, stats in submitters.items()
             ],
@@ -2562,20 +2950,78 @@ def export_contest_wikitable(code: str, mode: str = "summary", _: models.User = 
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-dist_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend-vue", "dist")
-assets_dir = os.path.join(dist_dir, "assets")
-if os.path.exists(assets_dir):
-    app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+DIST_DIR = Path(__file__).resolve().parent.parent / "frontend-vue" / "dist"
+dist_dir = str(DIST_DIR)
+assets_dir = DIST_DIR / "assets"
+
+# Vite content-hashes every filename under assets/ (index-DKPP1s0_.js), so a
+# given URL's bytes are immutable by construction and the browser never needs
+# to revalidate. Without this the app only sent ETag/Last-Modified, costing a
+# conditional request per asset on every single page load.
+IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
+# Files served from dist/ root (favicon, robots.txt, ...) aren't hashed, so
+# they get a short TTL instead of an immutable one.
+UNHASHED_CACHE_CONTROL = "public, max-age=3600"
+
+
+class HashedStaticFiles(StaticFiles):
+    """StaticFiles that marks its content-hashed responses immutable."""
+
+    def file_response(self, *args, **kwargs) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = IMMUTABLE_CACHE_CONTROL
+        return response
+
+
+def _static_cache_headers(path: Path) -> dict:
+    if path.parent == assets_dir:
+        return {"Cache-Control": IMMUTABLE_CACHE_CONTROL}
+    return {"Cache-Control": UNHASHED_CACHE_CONTROL}
+
+
+if assets_dir.is_dir():
+    # Starlette's StaticFiles already refuses to escape its own directory, so
+    # /assets/* is safe on its own; the catch-all below is the one that needed
+    # a containment check.
+    app.mount("/assets", HashedStaticFiles(directory=str(assets_dir)), name="assets")
+
+
+def _safe_dist_file(path_name: str):
+    """Resolve `path_name` inside the built SPA directory, or None if it escapes.
+
+    `{path_name:path}` receives the URL path *after* percent-decoding, so a
+    request for "/..%2f..%2fbackend%2f.env" arrived here as the literal
+    "../../backend/.env" and os.path.join() happily walked out of dist/ and
+    served backend/.env -- OAuth client secret, SESSION_SECRET (which JWT_SECRET
+    is derived from) and the replica DB credentials, to any unauthenticated
+    caller. Resolving the candidate and requiring it to stay under DIST_DIR
+    closes that; symlinks are resolved first so a link inside dist/ can't be
+    used to hop out either.
+    """
+    if not path_name:
+        return None
+    try:
+        candidate = (DIST_DIR / path_name).resolve()
+        candidate.relative_to(DIST_DIR)
+    except (ValueError, OSError):
+        return None
+    return candidate if candidate.is_file() else None
+
+
 @app.get("/{path_name:path}")
 async def serve_spa(path_name: str):
     if path_name.startswith("api") or path_name.startswith("auth"):
         raise HTTPException(status_code=404, detail="Not found")
-    if path_name:
-        file_path = os.path.join(dist_dir, path_name)
-        if os.path.isfile(file_path):
-            return FileResponse(file_path)
-    index_path = os.path.join(dist_dir, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
+
+    static_file = _safe_dist_file(path_name)
+    if static_file is not None:
+        return FileResponse(static_file, headers=_static_cache_headers(static_file))
+
+    index_path = DIST_DIR / "index.html"
+    if index_path.is_file():
+        # index.html names the content-hashed bundles, so it must never be
+        # cached -- otherwise a deploy leaves browsers asking for asset files
+        # that no longer exist.
+        return FileResponse(index_path, headers={"Cache-Control": "no-cache, must-revalidate"})
 
     return HTMLResponse("<h1>Frontend not built. Run: cd frontend-vue && npm run build</h1>", status_code=503)
