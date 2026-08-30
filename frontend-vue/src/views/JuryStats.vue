@@ -6,6 +6,7 @@ import { cdxIconArticleCheck, cdxIconTrash } from '@wikimedia/codex-icons';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useContestStats, useContestLog, useContestErrorLog, removeArticlesFromLogCache, useContestArticleSearch, SEARCH_MIN_LENGTH } from '../composables/useContestData';
 import { Doughnut, Bar } from 'vue-chartjs';
+import GlobalLoader from '../components/ui/GlobalLoader.vue';
 import {
   Chart as ChartJS,
   ArcElement,
@@ -95,11 +96,6 @@ const overallStats = computed(() => {
   return { total, accepted, rejected, pending: total - accepted - rejected };
 });
 
-const acceptRate = computed(() => {
-  if (!overallStats.value.total) return 0;
-  return Math.round((overallStats.value.accepted / overallStats.value.total) * 100);
-});
-
 const juryStats = computed(() => {
   const rows = stats.value.jury_stats || [];
   if (props.roles.is_owner) return rows;
@@ -126,7 +122,7 @@ const statusLabel = (status) => ({
 
 const erroredArticles = computed(() => errorArticles.value);
 const displayedSubmissions = computed(() => activeTab.value === 'errors' ? erroredArticles.value : articles.value);
-const allErrorsSelected = computed(() => erroredArticles.value.length > 0 && selectedErrorIds.value.length === erroredArticles.value.length);
+const allErrorsSelected = computed(() => erroredArticles.value.length > 0 && erroredArticles.value.every(article => selectedErrorIds.value.includes(article.article_id)));
 // Title search over the whole contest, server-side (?q=). Filtering
 // `articles` client-side would only ever search the pages crawled so far --
 // this tab loads progressively, so early in a crawl a client-side filter
@@ -299,10 +295,11 @@ const doughnutData = computed(() => ({
   labels: ['Accepted', 'Rejected', 'Pending'],
   datasets: [{
     data: [overallStats.value.accepted, overallStats.value.rejected, overallStats.value.pending],
-    backgroundColor: ['#22c55e', '#ef4444', '#f59e0b'],
-    hoverBackgroundColor: ['#16a34a', '#dc2626', '#d97706'],
-    borderWidth: 0,
-    hoverOffset: 8,
+    backgroundColor: ['#355b80', '#6f95b2', '#a9c3d5'],
+    hoverBackgroundColor: ['#274866', '#527d9f', '#8eafc5'],
+    borderWidth: 3,
+    borderColor: '#ffffff',
+    hoverOffset: 4,
   }],
 }));
 
@@ -312,14 +309,7 @@ const doughnutOptions = {
   cutout: '72%',
   plugins: {
     legend: {
-      position: 'bottom',
-      labels: {
-        padding: 20,
-        font: { size: 13, family: 'Inter, sans-serif' },
-        color: '#47637c',
-        usePointStyle: true,
-        pointStyleWidth: 10,
-      },
+      display: false,
     },
     tooltip: {
       callbacks: {
@@ -335,14 +325,14 @@ const barData = computed(() => ({
     {
       label: 'Accepted',
       data: juryStats.value.map(j => j.accepted),
-      backgroundColor: '#22c55e',
-      borderRadius: 4,
+      backgroundColor: '#4f7fa3',
+      borderRadius: 5,
     },
     {
       label: 'Rejected',
       data: juryStats.value.map(j => j.rejected),
-      backgroundColor: '#ef4444',
-      borderRadius: 4,
+      backgroundColor: '#a9c3d5',
+      borderRadius: 5,
     },
   ],
 }));
@@ -353,12 +343,7 @@ const barOptions = {
   maintainAspectRatio: false,
   plugins: {
     legend: {
-      position: 'top',
-      labels: {
-        font: { size: 12, family: 'Inter, sans-serif' },
-        color: '#47637c',
-        usePointStyle: true,
-      },
+      display: false,
     },
     tooltip: {
       callbacks: {
@@ -369,14 +354,14 @@ const barOptions = {
   scales: {
     x: {
       stacked: true,
-      grid: { color: 'rgba(255,255,255,0.05)' },
-      ticks: { font: { size: 12 }, color: '#47637c', stepSize: 1 },
+      grid: { color: '#e4edf3', drawBorder: false },
+      ticks: { font: { size: 11 }, color: '#6c899c', stepSize: 1 },
       border: { display: false },
     },
     y: {
       stacked: true,
       grid: { display: false },
-      ticks: { font: { size: 13 }, color: '#47637c' },
+      ticks: { font: { size: 11, weight: '600' }, color: '#47637c' },
       border: { display: false },
     },
   },
@@ -431,10 +416,7 @@ const handleExportWikitable = () => {
       </div>
     </div>
 
-    <div v-else-if="isLoading" class="loading-state">
-      <div class="spinner"></div>
-      <p>Crunching the numbers...</p>
-    </div>
+    <GlobalLoader v-else-if="isLoading" label="Crunching the numbers…" />
 
     <div v-else class="stats-layout">
       <nav class="jury-tabs" aria-label="Jury sections">
@@ -491,50 +473,29 @@ const handleExportWikitable = () => {
         </div>
       </div>
 
-            <div class="kpi-grid">
+      <div class="kpi-grid">
         <div class="kpi-card kpi-blue">
           <div class="kpi-inner">
             <div class="kpi-value">{{ overallStats.total }}</div>
             <div class="kpi-label">Total Submitted</div>
           </div>
-          <div class="kpi-bar-bg">
-            <div class="kpi-bar-fill" style="width:100%; background:#2563eb;"></div>
-          </div>
         </div>
         <div class="kpi-card kpi-green">
           <div class="kpi-inner">
             <div class="kpi-value">{{ overallStats.accepted }}</div>
-            <div class="kpi-label">গৃহীত (Accepted)</div>
-          </div>
-          <div class="kpi-bar-bg">
-            <div class="kpi-bar-fill" :style="{ width: overallStats.total ? `${(overallStats.accepted/overallStats.total)*100}%` : '0%', background: '#22c55e' }"></div>
+            <div class="kpi-label">Accepted</div>
           </div>
         </div>
         <div class="kpi-card kpi-red">
           <div class="kpi-inner">
             <div class="kpi-value">{{ overallStats.rejected }}</div>
-            <div class="kpi-label">প্রত্যাখ্যাত (Rejected)</div>
-          </div>
-          <div class="kpi-bar-bg">
-            <div class="kpi-bar-fill" :style="{ width: overallStats.total ? `${(overallStats.rejected/overallStats.total)*100}%` : '0%', background: '#ef4444' }"></div>
+            <div class="kpi-label">Rejected</div>
           </div>
         </div>
         <div class="kpi-card kpi-amber">
           <div class="kpi-inner">
             <div class="kpi-value">{{ overallStats.pending }}</div>
-            <div class="kpi-label">অপেক্ষমাণ (Pending Review)</div>
-          </div>
-          <div class="kpi-bar-bg">
-            <div class="kpi-bar-fill" :style="{ width: overallStats.total ? `${(overallStats.pending/overallStats.total)*100}%` : '0%', background: '#f59e0b' }"></div>
-          </div>
-        </div>
-        <div class="kpi-card kpi-purple">
-          <div class="kpi-inner">
-            <div class="kpi-value">{{ acceptRate }}<span class="kpi-unit">%</span></div>
-            <div class="kpi-label">Acceptance Rate</div>
-          </div>
-          <div class="kpi-bar-bg">
-            <div class="kpi-bar-fill" :style="{ width: `${acceptRate}%`, background: '#818cf8' }"></div>
+            <div class="kpi-label">Pending Review</div>
           </div>
         </div>
       </div>
@@ -552,9 +513,14 @@ const handleExportWikitable = () => {
               <div class="dcl-sub">articles</div>
             </div>
           </div>
+          <div class="chart-key" aria-label="Submission status totals">
+            <span class="chart-key-item"><i class="chart-key-dot chart-key-accepted"></i><span>Accepted</span><strong>{{ overallStats.accepted }}</strong></span>
+            <span class="chart-key-item"><i class="chart-key-dot chart-key-rejected"></i><span>Rejected</span><strong>{{ overallStats.rejected }}</strong></span>
+            <span class="chart-key-item"><i class="chart-key-dot chart-key-pending"></i><span>Pending</span><strong>{{ overallStats.pending }}</strong></span>
+          </div>
         </div>
 
-                <div class="chart-card chart-card-wide">
+        <div class="chart-card chart-card-wide">
           <div class="chart-card-header">
             <span class="chart-title">Jury Activity</span>
           <span class="chart-subtitle">Articles judged per member</span>
@@ -563,7 +529,12 @@ const handleExportWikitable = () => {
             <Bar v-if="juryStats.length" :data="barData" :options="barOptions" />
             <div v-else class="empty-chart">No jury reviews recorded yet.</div>
           </div>
+          <div class="chart-key chart-key-inline" aria-label="Jury activity statuses">
+            <span class="chart-key-item"><i class="chart-key-dot chart-key-accepted"></i><span>Accepted</span></span>
+            <span class="chart-key-item"><i class="chart-key-dot chart-key-rejected"></i><span>Rejected</span></span>
+          </div>
         </div>
+
       </div>
 
             <div class="jury-section">
@@ -644,66 +615,26 @@ const handleExportWikitable = () => {
       </div>
       </template>
 
-      <section v-else-if="activeTab === 'errors'" class="submissions-panel">
-        <div class="submissions-header">
-          <div>
-            <h2>{{ activeTab === 'errors' ? 'Errored Articles' : 'All Submitted Articles' }}</h2>
-            <p>{{ activeTab === 'errors' ? 'Validation-failed submissions that can be removed in bulk.' : 'Review every submission, including validation failures, and remove entries when needed.' }}</p>
-          </div>
-          <div class="submission-toolbar">
-            <button v-if="activeTab === 'errors' && erroredArticles.length" type="button" class="bulk-remove-submissions" :disabled="!selectedErrorIds.length || isBulkRemoving" @click="removeSelectedErrors">
-              {{ isBulkRemoving ? 'Removing…' : `Delete selected (${selectedErrorIds.length})` }}
-            </button>
-            <button type="button" class="refresh-submissions" @click="fetchErrorArticles(); fetchStats()">Refresh</button>
-          </div>
+      <section v-else-if="activeTab === 'errors'" class="errors-workspace">
+        <header class="errors-hero">
+          <div><span class="errors-eyebrow">Validation queue</span><h1>Errored articles</h1><p>These submissions did not pass the contest rules. Remove them individually or clean up the queue in one action.</p></div>
+          <div class="errors-count-card"><strong>{{ erroredArticles.length.toLocaleString() }}</strong><span>validation failures</span></div>
+        </header>
+        <div class="errors-toolbar">
+          <label class="errors-select-all"><input type="checkbox" :checked="allErrorsSelected" @change="toggleAllErrors" aria-label="Select all errored articles" /><span>Select all</span><small v-if="selectedErrorIds.length">{{ selectedErrorIds.length }} selected</small></label>
+          <div class="errors-toolbar-actions"><button v-if="erroredArticles.length" type="button" class="bulk-remove-submissions errors-delete-button" :disabled="!selectedErrorIds.length || isBulkRemoving" @click="removeSelectedErrors"><CdxIcon :icon="cdxIconTrash" />{{ isBulkRemoving ? 'Removing…' : `Delete selected${selectedErrorIds.length ? ` (${selectedErrorIds.length})` : ''}` }}</button><button type="button" class="refresh-submissions errors-refresh-button" @click="fetchErrorArticles(); fetchStats()">Refresh list</button></div>
         </div>
-
         <p v-if="removalError" class="removal-error">{{ removalError }}</p>
-
-        <div class="submissions-table-wrap">
-          <table class="submissions-table">
-            <thead>
-              <tr>
-                <th class="selection-column"><input type="checkbox" :checked="allErrorsSelected" @change="toggleAllErrors" aria-label="Select all errored articles" /></th>
-                <th>Article</th>
-                <th>Submitted by</th>
-                <th>Status</th>
-                <th>Details</th>
-                <th><span class="visually-hidden">Actions</span></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="article in displayedSubmissions" :key="article.article_id">
-                <td class="selection-column"><input type="checkbox" :checked="selectedErrorIds.includes(article.article_id)" @change="toggleErrorSelection(article.article_id)" :aria-label="`Select ${article.title}`" /></td>
-                <td class="submission-title">{{ article.title }}</td>
-                <td>
-                  <router-link :to="`/${route.params.code}/user/${encodeURIComponent(article.submitted_by)}`" class="jury-name-link">
-                    {{ article.submitted_by }}
-                  </router-link>
-                </td>
-                <td><span class="submission-status" :class="`status-${article.status}`">{{ statusLabel(article.status) }}</span></td>
-                <td class="submission-details">{{ article.validation_error || '—' }}</td>
-                <td class="submission-action">
-                  <button
-                    type="button"
-                    class="remove-submission"
-                    :disabled="removingArticleId === article.article_id"
-                    title="Remove article from contest"
-                    @click="removeArticle(article)"
-                  ><CdxIcon :icon="cdxIconTrash" /></button>
-                </td>
-              </tr>
-              <tr v-if="isLoadingErrorArticles && !errorArticles.length">
-                <td colspan="6" class="empty-state">Loading errored articles…</td>
-              </tr>
-              <tr v-else-if="!errorArticles.length">
-                <td colspan="6" class="empty-state">No errored articles.</td>
-              </tr>
-            </tbody>
-          </table>
+        <div v-if="isLoadingErrorArticles && !errorArticles.length" class="errors-empty-state"><span class="errors-empty-icon">…</span><strong>Loading validation failures</strong><span>Checking the latest submissions.</span></div>
+        <div v-else-if="!errorArticles.length" class="errors-empty-state errors-empty-success"><span class="errors-empty-icon">✓</span><strong>All clear</strong><span>There are no validation-failed submissions in this contest.</span></div>
+        <div v-else class="error-article-list">
+          <article v-for="article in displayedSubmissions" :key="article.article_id" class="error-article-card" :class="{ selected: selectedErrorIds.includes(article.article_id) }">
+            <label class="error-card-check"><input type="checkbox" :checked="selectedErrorIds.includes(article.article_id)" @change="toggleErrorSelection(article.article_id)" :aria-label="`Select ${article.title}`" /></label>
+            <div class="error-card-main"><div class="error-card-heading"><h2>{{ article.title }}</h2><span class="submission-status status-validation_failed">Validation failed</span></div><div class="error-card-meta">Submitted by <router-link :to="`/${route.params.code}/user/${encodeURIComponent(article.submitted_by)}`" class="jury-name-link">{{ article.submitted_by }}</router-link></div><div class="error-reason"><span class="error-reason-label">Why it failed</span><span>{{ article.validation_error || 'No validation details were recorded.' }}</span></div></div>
+            <button type="button" class="remove-submission error-card-delete" :disabled="removingArticleId === article.article_id" title="Remove article from contest" @click="removeArticle(article)"><CdxIcon :icon="cdxIconTrash" /><span>Remove</span></button>
+          </article>
         </div>
-      </section>
-      <section v-else class="submissions-panel submission-groups">
+      </section>      <section v-else class="submissions-panel submission-groups">
         <div class="submissions-header">
           <div class="submission-heading-copy">
             <span class="submission-eyebrow">Contest submissions</span>

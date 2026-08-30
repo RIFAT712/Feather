@@ -117,7 +117,7 @@ D:\Quote Contest\article-tool\
 | GET    | `/api/contests/{code}/stats`            | Grouped-count status/jury summary + cheap change signature; no per-article rows | None |
 | GET    | `/api/contests/{code}/log`              | Keyset-paginated activity log, newest first (`before_id`, `page_size` default 200/max 500, `include_reviews` default true, `status` optional filter, `submitted_by` optional filter resolved to the submitter's user id up front so it filters on the indexed `submitter_id` column, `q` optional server-side substring title search with LIKE wildcards escaped, combining with the other filters and reflected in `total`). `offset` is an explicit opt-in to plain offset pagination instead, for concurrent background-catch-up fetching after a keyset first page — returns `{items, total, page_size, next_before_id, has_more}` | None |
 | GET    | `/api/contests/{code}/submitters`       | Per-submitter counts (`{submitters: [{username, count}]}`), sorted by count desc — cheap aggregate backing the dashboard's "Submissions by User" panel headers without crawling the full log | None |
-| GET    | `/api/contests/{code}/users/{username}` | User profile in contest context    | None      |
+| GET    | `/api/contests/{code}/users/{username}` | User profile in contest context; each submission includes its jury decisions and judgment comments | None      |
 | GET    | `/api/contests/{code}/user-created-articles?username=` | Every mainspace article `username` created within the contest's date range, from the wiki replica DB (falls back to the public `usercontribs` API server-side if the replica is unavailable) — backs SubmitArticles.vue's "Fetch Articles" button | None |
 
 ### Admin (Owner Only)
@@ -213,6 +213,92 @@ Before schema migrations run, the backend writes a rollback snapshot under `back
 ---
 
 ## Change Log
+
+| 2026-08-30 | **Redesigned the Errored Articles jury workspace.** Replaced the dense validation-failure table with a focused light-theme queue featuring a count hero, clearer selection and bulk-delete controls, readable per-article failure reasons, responsive cards, and an explicit empty/clear state while preserving existing refresh and removal behavior. |
+
+| 2026-08-30 | **Clarified chart legends.** Replaced Chart.js' clickable legend controls with explicit, non-interactive status keys and totals, so the chart colors and counts are self-explanatory and cannot be mistaken for enable/disable buttons. Refined chart panel spacing and surfaces. |
+
+| 2026-08-30 | **Simplified Jury summary metrics.** Removed the KPI cards' decorative top and bottom bars, reduced them to a compact four-card status summary, and removed the duplicate acceptance-rate KPI and secondary charts so overview metrics are not repeated across cards, charts, and tables. |
+
+| 2026-08-30 | **Equalized Jury chart widths.** Submission Breakdown and Jury Activity now occupy equal-width columns for a more balanced overview layout. |
+
+| 2026-08-30 | **Redesigned Jury KPI cards.** Refined the total, accepted, rejected, pending, and rate metrics with stronger hierarchy, theme-aligned accents, balanced spacing, and softer progress bars. |
+
+| 2026-08-30 | **Normalized Jury chart card sizes.** Main and secondary chart cards now stretch to matching row heights with aligned chart regions for a more consistent dashboard grid. |
+
+| 2026-08-30 | **Simplified Jury chart palette.** Replaced mixed semantic chart colors with a coordinated monochrome Feather-blue scale so Submission Breakdown and Jury Activity match the application theme. |
+
+| 2026-08-30 | **Aligned Jury chart colors with the light theme.** Submission Breakdown now uses the shared Feather blue and semantic status colors, while Jury Activity uses coordinated blue and soft rejection tones. |
+
+| 2026-08-30 | **Expanded Jury dashboard analytics.** Added live Review Completion and Acceptance Rate charts by juror, with a consistent softer dashboard palette across all Chart.js visualizations. |
+
+| 2026-08-30 | **Refined Jury overview charts.** Kept Submission Breakdown and Jury Activity while refreshing their cards, spacing, typography, borders, palette, legend, and Chart.js grid/bar styling for the light dashboard. |
+
+| 2026-08-30 | **Removed the extra Jury review-completion chart.** Restored the Jury Statistics overview to its original status breakdown and Jury Activity charts after the additional completion chart made the overview too busy. |
+
+| 2026-08-30 | **Removed the duplicate Jury-page loader.** Jury Statistics now uses the shared `GlobalLoader` instead of rendering a second page-specific spinner while statistics load. |
+
+| 2026-08-30 | **Removed profile table header hover shading.** Sortable header buttons now keep the white header background on hover and focus while retaining text color and keyboard focus outlines. |
+
+| 2026-08-30 | **Neutralized profile table cell hover styling.** Added explicit cell-level overrides for Codex and global table rules so submission and review rows remain white and stable on hover. |
+
+| 2026-08-30 | **Removed user-profile table row hover effects.** Submission and review rows no longer change background color when the pointer moves over them. |
+
+| 2026-08-30 | **Showed all fetched submit articles.** Removed the available/already-submitted article display limits and “Load more” controls; the submit page now renders the complete fetched dataset and keeps search filtering. |
+
+| 2026-08-30 | **Increased back-to-top button size.** Enlarged the icon-only control to a 48px circular touch target with a larger arrow for easier use. |
+
+| 2026-08-30 | **Made the back-to-top control icon-only.** The floating profile control now uses a compact arrow button while retaining its accessible label and title. |
+
+| 2026-08-30 | **Added a profile back-to-top button.** The user profile now shows an accessible floating button after scrolling down, returning smoothly to the top of the page. |
+
+| 2026-08-30 | **Centered user-profile table contents.** The submissions and reviews table body cells now use centered horizontal and vertical alignment, matching their centered headers. |
+
+| 2026-08-30 | **Isolated profile metric styling.** Replaced generic stat-card classes with dedicated profile metric classes so global card rules cannot distort the compact profile-header statistics. |
+
+| 2026-08-30 | **Simplified profile metrics.** Replaced the oversized statistic cards with a compact inline metric strip beside the participant identity, using subtle separators for the position and article counts. |
+
+| 2026-08-30 | **Refined profile metric cards.** Rebalanced the position and article-status cards into a compact 2×2 block beside the participant identity, preventing cramped labels and uneven card proportions. |
+
+| 2026-08-30 | **Compact user-profile statistics.** Moved the position and article-status cards into the profile header beside the participant identity, reducing the vertical space used by the summary. |
+
+| 2026-08-30 | **Added competition position to user profiles.** The profile summary now shows the participant’s leaderboard position, calculated with the Results page’s accepted-then-total ranking order. |
+
+| 2026-08-30 | **Prevented contest loading layout shift.** Reserved the contest-header height while contest data loads and centered the loader in the remaining content area, so the header does not jump when the contest view appears. |
+
+| 2026-08-30 | **Added article status cards to user profiles.** The contest-scoped user card now shows total, accepted, and rejected article counts derived from the user’s submissions, replacing the Reviews card. |
+
+| 2026-08-30 | **Centered the shared loader.** Non-fullscreen loading states now center in the visible viewport area below the global navbar instead of using a short fixed-height block near the top. |
+
+| 2026-08-30 | **Removed the duplicate profile-table heading.** Kept the required Codex submissions caption for accessibility but hid its visual rendering because the surrounding section already displays the “Submissions” heading. |
+
+| 2026-08-30 | **Centered user-profile table headers.** Forced the Codex submissions table labels and sort controls to center alignment with a clean white header surface, and applied the same header treatment to the Reviews table. |
+
+| 2026-08-30 | **Corrected contest page scrolling and sticky layers.** Restored the document as the single vertical scroll container, removed the nested contest-content scrollbar, and made both the global navbar and contest header sticky in stacked layers using the actual global navbar height (64px desktop, 58px mobile); the header row itself no longer becomes a scroll container. |
+
+| 2026-08-29 | **Stopped header wheel scroll bubbling.** Scrolling while hovering the contest title/navigation no longer moves the page content beneath the header; the header also has an explicit stacking layer. |
+
+| 2026-08-29 | **Removed contest-header secondary horizontal scrolling.** Constrained the contest header flex row, title link, navigation, and content column to the viewport so only intentionally wide content such as tables scrolls horizontally. |
+
+| 2026-08-29 | **Centered and recolored profile table headers.** The Codex table header labels and sort arrows are now centered, using the shared blue table-header shade instead of gray. |
+
+| 2026-08-29 | **Contained page-wide horizontal overflow.** Prevented the app shell from creating a second global scrollbar while preserving intentional horizontal scrolling inside wide tables. |
+
+| 2026-08-29 | **Fixed profile placeholder encoding.** Replaced the mojibake UTF-8 em-dash fallback in the judgment-comment cells with an HTML entity; Bengali API comment text remains rendered as Unicode data. |
+
+| 2026-08-29 | **Added a universal loader.** Introduced the shared `GlobalLoader` component and used it for app startup plus contest, profile, results, settings, home, and activity-log loading states, with one responsive animation and reduced-motion support. |
+
+| 2026-08-29 | **Polished the profile Codex table UI.** Styled the submissions table's Codex surface with integrated profile colors, stronger header hierarchy, improved cell spacing, hover/focus states, responsive horizontal scrolling, and cleaner review rows. |
+
+| 2026-08-29 | **Profile table uses Codex sorting.** Replaced the custom sortable submissions markup with Wikimedia Codex `CdxTable`, using its built-in per-column arrows and three-state cycle: default → ascending → descending → default. |
+
+| 2026-08-29 | **Changed profile sorting to per-column arrows.** Replaced the submissions sort dropdown with clickable Article, Status, Jury, Judgment comment, and Submitted At headers that toggle ascending/descending order. |
+
+| 2026-08-29 | **Added submission sorting.** The contest user profile submissions table now has a local sort control in its header area for newest first, oldest first, article title, or status. |
+
+| 2026-08-29 | **Redesigned the login panel.** Replaced the dark compact login card with a responsive light authentication surface, added Wikimedia/workspace context, improved hierarchy and error styling, and made the login action full width. |
+
+| 2026-08-29 | **Redesigned contest user profiles.** The `/code/user/:username` profile is now full-width with a lighter responsive surface, clearer profile and statistics hierarchy, and a wider submissions table. Submission rows now include every jury member's decision and judgment comment; the API returns those review details per submitted article. |
 
 | 2026-08-29 | **Review queue position preserved after decisions.** Accepting or rejecting an article now selects the article that takes over the same queue position instead of jumping to the first item; reviewing the last item selects the new last item. |
 
