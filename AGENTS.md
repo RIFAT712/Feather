@@ -248,6 +248,8 @@ Before schema migrations run, the backend writes a rollback snapshot under `back
 ---
 
 ## Change Log
+| 2026-08-30 | **Redesigned the jury queue sidebar cards.** Each article is now presented as a separate rounded surface with a complete status-colored border and spacing between cards, while retaining the divider-free layout and clearer title-to-submitter hierarchy on desktop and mobile. |
+
 
 | 2026-08-30 | **Loaded the complete jury queue across reloads.** Assigned queues now walk all keyset-paginated server pages during loading, so articles added through pagination remain present after a reload and no longer depend on the manual next-page button. Successful judgments still append a replacement when newer articles arrive. |
 
