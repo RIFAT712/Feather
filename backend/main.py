@@ -40,7 +40,19 @@ from sqlalchemy import case, exists, func, or_, text
 from database import get_db, engine, query_wiki_replica_batch, query_wiki_replica_user_creations, _pre_migration_backup
 from timeutils import utcnow
 import models
-import talk_queue_worker
+
+try:
+    import talk_queue_worker
+except ImportError as e:
+    # The worker needs APScheduler, which arrived with the talk-page queue.
+    # A Toolforge deploy that restarts the webservice without rebuilding the
+    # image has the new code but not the new dependency -- and since this is
+    # a module-level import in the file that *is* the application, that would
+    # take the whole tool down (SPA included) over a background job. Degrade
+    # to "no queue draining" instead: submissions still record their jobs,
+    # and they drain as soon as the image is rebuilt.
+    talk_queue_worker = None
+    print(f"[talk-queue] Worker unavailable, queue will not drain: {e}")
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -57,15 +69,17 @@ async def lifespan(app: FastAPI):
     It also owns the talk-page queue worker: registering it here means the
     drain starts with the app and is torn down with it, instead of being a
     loose asyncio task nobody cancels."""
-    try:
-        talk_queue_worker.requeue_stale_processing_jobs()
-        talk_queue_worker.start_talk_queue_worker()
-    except Exception as e:
-        # A queue that fails to start must not take the whole app down with
-        # it -- submissions still work, the edits just wait.
-        print(f"[talk-queue] Failed to start worker: {e}")
+    if talk_queue_worker is not None:
+        try:
+            talk_queue_worker.requeue_stale_processing_jobs()
+            talk_queue_worker.start_talk_queue_worker()
+        except Exception as e:
+            # A queue that fails to start must not take the whole app down
+            # with it -- submissions still work, the edits just wait.
+            print(f"[talk-queue] Failed to start worker: {e}")
     yield
-    talk_queue_worker.shutdown_talk_queue_worker()
+    if talk_queue_worker is not None:
+        talk_queue_worker.shutdown_talk_queue_worker()
     global _http_client
     if _http_client is not None:
         await _http_client.aclose()
@@ -1659,6 +1673,7 @@ async def _talk_pages_already_templated(client: httpx.AsyncClient, titles: list,
 async def backfill_talk_queue(
     code: str,
     limit: int = Query(default=BACKFILL_DEFAULT_LIMIT, ge=1, le=20000),
+    dry_run: bool = Query(default=False),
     current_user: models.User = Depends(get_owner_user),
     db: Session = Depends(get_db)
 ):
@@ -1667,6 +1682,12 @@ async def backfill_talk_queue(
     Only enqueues -- the reads below check what the wiki already has; every
     actual edit still goes through the worker at the global pace. Call it
     again while `remaining` is above zero to work through a large contest.
+
+    `dry_run=true` runs exactly the same checks and reports the same counts
+    without writing a single job row. How many articles a real contest still
+    needs is not something you can predict from another database, and the
+    button otherwise commits thousands of edits before telling you how many
+    it was -- so the preview exists to be run first.
     """
     contest = db.query(models.Contest).filter_by(code=code).first()
     if not contest:
@@ -1769,6 +1790,9 @@ async def backfill_talk_queue(
         if not access_token:
             skipped_no_token.append(article.title)
             continue
+        enqueued += 1
+        if dry_run:
+            continue
         db.add(models.TalkPageJob(
             article_id=article.id,
             contest_id=contest.id,
@@ -1779,11 +1803,17 @@ async def backfill_talk_queue(
             submitted_by=submitter.wiki_username if submitter else "unknown",
             created_at=utcnow(),
         ))
-        enqueued += 1
-    db.commit()
+    if dry_run:
+        # Nothing was added, but the session still read rows -- roll back so
+        # a preview can never leave anything behind.
+        db.rollback()
+    else:
+        db.commit()
 
     return {
-        "enqueued": enqueued,
+        "dry_run": dry_run,
+        "enqueued": 0 if dry_run else enqueued,
+        "would_enqueue": enqueued,
         "already_done": already_done,
         "skipped_no_token": skipped_no_token,
         "considered": len(articles),

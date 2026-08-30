@@ -170,13 +170,17 @@ const loadQueue = async ({ quiet = false } = {}) => {
   }
 };
 
-const runBackfill = async () => {
+// dryRun runs the identical check and reports the identical counts without
+// writing a job row, so the real numbers for a contest can be seen before
+// committing to the edits.
+const runBackfill = async (dryRun = false) => {
   if (isBackfilling.value || !contest.value) return;
   confirmingBackfill.value = false;
   isBackfilling.value = true;
   queueError.value = '';
   try {
-    const res = await fetch(`/api/admin/contests/${contest.value.code}/talk-queue/backfill`, { method: 'POST' });
+    const query = dryRun ? '?dry_run=true' : '';
+    const res = await fetch(`/api/admin/contests/${contest.value.code}/talk-queue/backfill${query}`, { method: 'POST' });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.detail || `Backfill failed (${res.status})`);
     backfillResult.value = body;
@@ -599,6 +603,14 @@ const enabledRuleCount = computed(() => [
             </button>
             <button
               v-if="contest.talk_template_name"
+              class="tq-secondary-btn"
+              :disabled="isBackfilling"
+              @click="runBackfill(true)"
+            >
+              {{ isBackfilling ? 'Checking…' : 'Check what is missing' }}
+            </button>
+            <button
+              v-if="contest.talk_template_name"
               class="save-btn"
               :disabled="isBackfilling"
               @click="confirmingBackfill = true"
@@ -635,7 +647,19 @@ const enabledRuleCount = computed(() => [
           <p v-if="queueError" class="integrity-error">{{ queueError }}</p>
 
           <div v-if="backfillResult" class="tq-backfill-result">
-            <p>
+            <p v-if="backfillResult.dry_run">
+              Nothing was queued — this was a check.
+              <strong>{{ backfillResult.would_enqueue.toLocaleString() }}</strong> article(s) still need the
+              template.
+              <template v-if="backfillResult.already_done">
+                {{ backfillResult.already_done.toLocaleString() }} already have it.
+              </template>
+              <template v-if="backfillResult.used_owner_token">
+                {{ backfillResult.used_owner_token.toLocaleString() }} would be edited by your account, since
+                their submitter has no stored token.
+              </template>
+            </p>
+            <p v-else>
               Queued <strong>{{ backfillResult.enqueued.toLocaleString() }}</strong> new edit(s).
               <template v-if="backfillResult.already_done">
                 {{ backfillResult.already_done.toLocaleString() }} already had the template.
@@ -647,7 +671,7 @@ const enabledRuleCount = computed(() => [
             </p>
             <p v-if="backfillResult.remaining" class="integrity-note">
               {{ backfillResult.remaining.toLocaleString() }} article(s) were not examined in this pass — run
-              the backfill again to continue.
+              it again to continue.
             </p>
             <p v-if="backfillResult.skipped_no_token.length" class="integrity-note">
               Skipped {{ backfillResult.skipped_no_token.length.toLocaleString() }} with no usable token.
