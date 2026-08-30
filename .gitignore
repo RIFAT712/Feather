@@ -4,5 +4,6 @@ backend/app.db-shm
 backend/app.db-wal
 backup/
 backend/.env
+backend/.env.example
 services/jury-panel/.env
 backend/alembic/**/__pycache__/
