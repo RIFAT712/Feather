@@ -5,6 +5,7 @@ import { CdxIcon } from '@wikimedia/codex';
 import { cdxIconAlert } from '@wikimedia/codex-icons';
 import { useContestStats, useContestLog, useContestSubmitters, useContestArticleSearch, SEARCH_MIN_LENGTH } from '../composables/useContestData';
 import { formatDateTimeDayFirst } from '../utils/datetime';
+import GlobalLoader from '../components/ui/GlobalLoader.vue';
 
 // roles comes from ContestLayout (the shared parent for every contest route),
 // which already fetches /my-role once -- this view used to independently
@@ -152,10 +153,7 @@ const reviewComments = (entry) => (entry.reviews || [])
       </div>
     </div>
 
-        <div v-else-if="isLoading" class="state-center">
-      <div class="spinner" :class="{ 'spinner-dark': embedded }" />
-      <p>Loading activity log…</p>
-    </div>
+        <GlobalLoader v-else-if="isLoading" label="Loading activity log…" />
 
         <div v-else-if="error" class="state-center error-box">
       <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:8px; display:block;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>

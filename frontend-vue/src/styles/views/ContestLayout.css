@@ -1,12 +1,28 @@
 .loading-wrap { padding: 32px; color: #4b5563; font-size: 0.9rem; }
 .error-state { color: #ffffff; font-weight: bold; padding: 32px; }
 
+.contest-loading {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - var(--app-header-height, 64px));
+}
+.contest-loading-header {
+  flex: 0 0 48px;
+  background: var(--feather-surface, #ffffff);
+  border-bottom: 1px solid var(--feather-border, #c7d6e3);
+}
+.contest-loading .global-loader {
+  flex: 1;
+  min-height: 0;
+}
+
 .contest-layout {
   display: flex;
   flex-direction: column;
-  /* On normal pages, subtract the 54px app header */
-  height: calc(100dvh - 54px);
-  overflow: hidden;
+  width: 100%;
+  min-width: 0;
+  min-height: calc(100dvh - var(--app-header-height, 64px));
+  overflow: visible;
   background: #0a0a0a;
 }
 /* On /jury/review the app-header is hidden, so use full viewport */
@@ -98,6 +114,10 @@
 
 .contest-header {
   flex-shrink: 0;
+  /* Second sticky layer: remain directly below the global navbar. */
+  position: sticky;
+  top: var(--app-header-height, 64px);
+  z-index: 90;
   background: #0f0f0f;
   border-bottom: 1px solid rgba(255,255,255,0.06);
 }
@@ -105,16 +125,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 0 20px;
   min-height: 48px;
   gap: 12px;
   flex-wrap: wrap;
+  overflow: clip;
 }
 
 .contest-title-link {
   display: flex; align-items: center; gap: 8px;
   text-decoration: none; color: inherit; transition: opacity 0.15s;
   min-width: 0;
+  max-width: 100%;
 }
 .contest-title-link:hover { opacity: 0.7; }
 .home-icon { color: #4b5563; flex-shrink: 0; }
@@ -128,7 +154,7 @@
   white-space: nowrap;
 }
 
-.contest-nav { display: flex; align-items: center; gap: 2px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.contest-nav { display: flex; align-items: center; gap: 2px; min-width: 0; max-width: 100%; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
 .nav-link {
   padding: 5px 12px; border-radius: 5px;
   font-size: 0.84rem; font-weight: 500;
@@ -140,24 +166,24 @@
 .nav-link--active { background: rgba(255,255,255,0.07); color: #f9fafb; font-weight: 600; }
 
 .contest-content {
-  flex: 1; display: flex; flex-direction: column;
-  overflow-y: auto; min-height: 0;
-  /* Ensure touch scroll works smoothly on iOS */
-  -webkit-overflow-scrolling: touch;
+  flex: 1; min-width: 0; display: flex; flex-direction: column;
+  min-height: 0;
+}
+
+.review-layout .contest-content {
+  overflow: hidden;
+  height: 100%;
 }
 
 @media (max-width: 640px) {
   /* dvh handles browser chrome correctly; fallback to vh for older browsers */
   .contest-layout {
-    height: calc(100dvh - 54px);
     min-height: 0;
   }
   /* Non-review pages (Submit, Dashboard, Results): allow natural scrolling */
-  .contest-content {
-    min-height: 0;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-  }
+  .contest-header { top: var(--app-header-height, 58px); }
+  .contest-loading-header { flex-basis: 72px; }
+  .contest-content { min-height: 0; }
   /* Review page manages its own scroll inside the panels; lock the shell */
   .review-layout .contest-content {
     overflow: hidden;

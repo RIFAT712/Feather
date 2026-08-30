@@ -2,6 +2,7 @@
 import { ref, onMounted, provide, computed } from 'vue';
 import { CdxButton } from '@wikimedia/codex';
 import { useRoute } from 'vue-router';
+import GlobalLoader from './components/ui/GlobalLoader.vue';
 
 const user = ref(null);
 const route = useRoute();
@@ -59,21 +60,25 @@ const declineCookies = () => {
 </script>
 
 <template>
-  <div v-if="isLoading" class="loading-state">
-    <div class="spinner"></div>
-  </div>
+  <GlobalLoader v-if="isLoading" fullscreen label="Loading Feather…" />
 
   <div v-else-if="!user" class="login-state">
     <div class="login-card">
-      <div class="login-logo">
+      <div class="login-card-topline">
+        <span class="login-context">bn.wiktionary</span>
+        <span class="login-context-dot"></span>
+        <span class="login-context">contest workspace</span>
+      </div>
+      <div class="login-logo" aria-hidden="true">
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/></svg>
       </div>
       <h1>Feather</h1>
-      <p>Sign in with your Wikimedia account to participate in writing contests, submit articles, and track your contributions.</p>
+      <p class="login-intro">Sign in with your Wikimedia account to participate in writing contests, submit articles, and track your contributions.</p>
       <div v-if="loginError" class="login-error" role="alert">{{ loginError }}</div>
-      <cdx-button action="progressive" weight="primary" @click="handleLogin">
+      <cdx-button class="login-button" action="progressive" weight="primary" @click="handleLogin">
         Log in with Wikimedia
       </cdx-button>
+      <p class="login-note">You’ll be redirected to Wikimedia to authorise Feather securely.</p>
     </div>
   </div>
 

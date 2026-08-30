@@ -2096,6 +2096,19 @@ def get_contest_user_profile(code: str, username: str, db: Session = Depends(get
         raise HTTPException(status_code=404, detail="User not found")
         
     submissions = db.query(models.Article).filter_by(contest_id=contest.id, submitter_id=user.id).order_by(models.Article.submitted_at.desc()).all()
+
+    submission_reviews = db.query(models.Review).join(models.Article)\
+        .options(joinedload(models.Review.reviewer))\
+        .filter(models.Article.contest_id == contest.id, models.Article.submitter_id == user.id)\
+        .order_by(models.Review.timestamp.desc()).all()
+    reviews_by_article = {}
+    for review in submission_reviews:
+        reviews_by_article.setdefault(review.article_id, []).append({
+            "jury": review.reviewer.wiki_username if review.reviewer else "Unknown",
+            "decision": review.status.value,
+            "comment": review.comment,
+            "reviewed_at": review.timestamp.isoformat() if review.timestamp else None
+        })
     
     reviews = db.query(models.Review).join(models.Article)\
         .options(joinedload(models.Review.article))\
@@ -2113,7 +2126,8 @@ def get_contest_user_profile(code: str, username: str, db: Session = Depends(get
                 "title": s.title,
                 "status": s.status.value,
                 "validation_error": s.validation_error,
-                "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None
+                "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
+                "reviews": reviews_by_article.get(s.id, [])
             } for s in submissions
         ],
         "reviews": [

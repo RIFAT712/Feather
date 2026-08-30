@@ -30,8 +30,6 @@ const isFetchingArticles = ref(false);
 const fetchError = ref(null);
 const alreadySubmittedTitles = ref([]);
 const articleSearch = ref('');
-const availableDisplayLimit = ref(200);
-const submittedDisplayLimit = ref(100);
 
 const contestDate = (value) => toDate(value) || new Date(NaN);
 const submissionNotOpen = computed(() => props.contest?.start_date && Date.now() < contestDate(props.contest.start_date).getTime());
@@ -59,11 +57,6 @@ watch([isOnBehalf, onBehalfUsername], () => {
   fetchError.value = null;
   articleSearch.value = '';
 });
-watch(articleSearch, () => {
-  availableDisplayLimit.value = 200;
-  submittedDisplayLimit.value = 100;
-});
-
 let fetchSeq = 0;
 
 const fetchUserArticles = async () => {
@@ -145,10 +138,8 @@ const filteredSubmittedArticles = computed(() => {
   return submittedArticles.value.filter(title => title.toLowerCase().includes(query));
 });
 
-const visibleAvailableArticles = computed(() => filteredAvailableArticles.value.slice(0, availableDisplayLimit.value));
-const visibleSubmittedArticles = computed(() => filteredSubmittedArticles.value.slice(0, submittedDisplayLimit.value));
-const showMoreAvailable = () => { availableDisplayLimit.value += 200; };
-const showMoreSubmitted = () => { submittedDisplayLimit.value += 100; };
+const visibleAvailableArticles = computed(() => filteredAvailableArticles.value);
+const visibleSubmittedArticles = computed(() => filteredSubmittedArticles.value);
 
 const selectionOptions = computed(() => [
   'all',
@@ -395,9 +386,6 @@ const targetDisplayName = computed(() =>
               <span class="article-item__title">{{ title }}</span>
             </label>
           </div>
-          <button v-if="visibleAvailableArticles.length < filteredAvailableArticles.length" type="button" class="load-more-articles" @click="showMoreAvailable">
-            Load more
-          </button>
         </div>
 
         <div v-if="filteredSubmittedArticles.length > 0" class="article-section article-section--submitted">
@@ -421,9 +409,6 @@ const targetDisplayName = computed(() =>
               <span class="already-submitted-inline-badge">Already submitted</span>
             </label>
           </div>
-          <button v-if="visibleSubmittedArticles.length < filteredSubmittedArticles.length" type="button" class="load-more-articles" @click="showMoreSubmitted">
-            Load more
-          </button>
         </div>
 
                 <div v-if="userCreatedArticles.length === 0 || (userCreatedArticles.length > 0 && availableArticles.length === 0 && submittedArticles.length === 0)" class="empty-state">

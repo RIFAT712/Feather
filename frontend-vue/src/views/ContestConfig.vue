@@ -3,6 +3,7 @@ import { ref, onMounted, inject, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CdxTextInput, CdxCheckbox } from '@wikimedia/codex';
 import { contestTimeToUtcIso, utcToContestTimeParts } from '../utils/datetime';
+import GlobalLoader from '../components/ui/GlobalLoader.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -366,10 +367,7 @@ const enabledRuleCount = computed(() => [
       </div>
     </transition>
 
-    <div v-if="isLoading" class="loading-state">
-      <div class="spinner"></div>
-      <p>Loading...</p>
-    </div>
+    <GlobalLoader v-if="isLoading" label="Loading contest settings…" />
 
     <div v-else-if="!user || user.role !== 'owner'" class="unauthorized-banner">
       <div class="unauthorized-content">

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
+import GlobalLoader from '../components/ui/GlobalLoader.vue';
 
 const route = useRoute();
 const results = ref(null);
@@ -61,7 +62,8 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div v-if="isLoading" class="loading-state">
+    <GlobalLoader v-if="isLoading" label="Loading results…" />
+    <div v-if="false" class="loading-state">
       <div class="spinner"></div>
       <p>Loading results...</p>
     </div>

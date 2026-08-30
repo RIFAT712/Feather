@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { CdxIcon } from '@wikimedia/codex';
 import { cdxIconHome, cdxIconArrowPrevious } from '@wikimedia/codex-icons';
 import { formatDate } from '../utils/datetime';
+import GlobalLoader from '../components/ui/GlobalLoader.vue';
 
 const user = inject('user');
 const route = useRoute();
@@ -32,7 +33,10 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div v-if="isLoading" class="loading-wrap">Loading contest...</div>
+  <div v-if="isLoading" class="contest-loading">
+    <div class="contest-loading-header" aria-hidden="true"></div>
+    <GlobalLoader label="Loading contest…" />
+  </div>
   <div v-else-if="error" class="error-state">{{ error }}</div>
   <div v-else class="contest-layout" :class="{ 'review-layout': isReviewPage }">
     <!-- Back button shown only on /jury/review, replaces both nav bars -->
@@ -46,7 +50,7 @@ onMounted(async () => {
 
     <!-- Full contest header shown on all other pages -->
     <div v-else class="contest-header">
-      <div class="contest-header-inner">
+      <div class="contest-header-inner" @wheel.stop>
         <router-link :to="`/${contest.code}`" class="contest-title-link">
           <cdx-icon :icon="cdxIconHome" class="home-icon" />
           <div class="contest-title-info">

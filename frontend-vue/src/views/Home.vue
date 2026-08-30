@@ -2,6 +2,7 @@
 import { ref, onMounted, inject, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { formatDate as fmtDate, isWithinWindow } from '../utils/datetime';
+import GlobalLoader from '../components/ui/GlobalLoader.vue';
 
 const user = inject('user');
 const router = useRouter();
@@ -101,11 +102,7 @@ const greeting = computed(() => {
           </div>
         </div>
 
-                <div v-if="isLoading" class="empty-state">
-          <div class="empty-icon"><div class="spinner"></div></div>
-          <h2 class="empty-title">Loading contests…</h2>
-          <p class="empty-msg">Fetching the latest contest list.</p>
-        </div>
+                <GlobalLoader v-if="isLoading" label="Loading contests…" />
                 <div v-else-if="loadError" class="empty-state">
           <div class="empty-icon">!</div>
           <h2 class="empty-title">Unable to load contests</h2>

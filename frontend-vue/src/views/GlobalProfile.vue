@@ -2,6 +2,7 @@
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { formatDate as fmtDate, formatDateTime as fmtDateTime } from '../utils/datetime';
+import GlobalLoader from '../components/ui/GlobalLoader.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -76,7 +77,8 @@ const pctAccepted = (contest) => {
 <template>
   <div class="gp-page">
 
-        <div v-if="isLoading" class="state-center">
+        <GlobalLoader v-if="isLoading" label="Loading profile…" />
+        <div v-if="false" class="state-center">
       <div class="spinner-wrap">
         <div class="spinner-ring"></div>
         <span class="spinner-label">Loading profile…</span>
