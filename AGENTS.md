@@ -249,6 +249,8 @@ Before schema migrations run, the backend writes a rollback snapshot under `back
 
 ## Change Log
 
+| 2026-08-30 | **Removed a stray literal newline from My Judged.** The judged-article list no longer displays the escaped `\n` text between the search field and its rows. |
+
 | 2026-08-30 | **Improved the My Judged queue.** Added a sticky Codex search field for quickly finding submissions to re-review; judged rows retain neutral surfaces. |
 
 
