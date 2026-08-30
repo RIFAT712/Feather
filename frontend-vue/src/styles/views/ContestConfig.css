@@ -298,3 +298,65 @@
   .integrity-scope select { min-width: 0; width: 100%; }
   .integrity-controls { align-items: stretch; }
 }
+
+/* ── Talk page template queue ──────────────────────────────────────────────
+   Reuses the integrity panel's card, stat, and table rules (same view, same
+   visual language, per STYLE_GUIDE's rule against copying panel styles); only
+   the parts with no equivalent there are defined below. */
+.tq-section .integrity-controls { flex-wrap: wrap; }
+
+/* Not `.save-btn`: light-theme.css forces every `button.save-btn` to the
+   accent fill with !important, which is what makes it read as the primary
+   action. Secondary actions use their own class so they inherit the shared
+   layer's plain-button treatment instead of fighting it. */
+.tq-secondary-btn {
+  background: var(--feather-surface, #fff);
+  border: 1px solid var(--feather-border, #c7d6e3);
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.tq-secondary-btn:hover { background: var(--feather-surface-alt, #f4f8fb); }
+.tq-secondary-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.tq-confirm {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid #e8c98a;
+  background: #fdf6e7;
+  border-radius: 10px;
+}
+.tq-confirm p {
+  margin: 0 0 12px;
+  font-size: .82rem;
+  line-height: 1.55;
+  color: #6b4a12;
+  max-width: 68ch;
+}
+.tq-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tq-backfill-result {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--feather-border, #c7d6e3);
+  background: var(--feather-surface-alt, #f4f8fb);
+  border-radius: 10px;
+}
+.tq-backfill-result p {
+  margin: 0;
+  font-size: .82rem;
+  line-height: 1.55;
+  color: var(--feather-text, #20364d);
+}
+.tq-backfill-result p + p { margin-top: 6px; }
+
+@media (max-width: 640px) {
+  .tq-confirm-actions .save-btn,
+  .tq-confirm-actions .tq-secondary-btn { flex: 1 1 auto; }
+}

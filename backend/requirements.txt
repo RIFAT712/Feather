@@ -17,3 +17,5 @@ python-dotenv~=1.2.3
 PyJWT~=2.13.0
 pymysql~=1.2.0
 psutil~=7.2.2
+APScheduler~=3.11.3    # interval scheduler for the talk-page queue worker
+alembic~=1.19.1        # schema migrations (backend/alembic)

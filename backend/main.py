@@ -40,6 +40,7 @@ from sqlalchemy import case, exists, func, or_, text
 from database import get_db, engine, query_wiki_replica_batch, query_wiki_replica_user_creations, _pre_migration_backup
 from timeutils import utcnow
 import models
+import talk_queue_worker
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -51,8 +52,20 @@ async def lifespan(app: FastAPI):
     """Replaces the deprecated @app.on_event("shutdown") hook, which FastAPI
     has scheduled for removal -- once it goes, the handler would silently stop
     running and the shared httpx client (and its connection pool) would leak
-    on every restart."""
+    on every restart.
+
+    It also owns the talk-page queue worker: registering it here means the
+    drain starts with the app and is torn down with it, instead of being a
+    loose asyncio task nobody cancels."""
+    try:
+        talk_queue_worker.requeue_stale_processing_jobs()
+        talk_queue_worker.start_talk_queue_worker()
+    except Exception as e:
+        # A queue that fails to start must not take the whole app down with
+        # it -- submissions still work, the edits just wait.
+        print(f"[talk-queue] Failed to start worker: {e}")
     yield
+    talk_queue_worker.shutdown_talk_queue_worker()
     global _http_client
     if _http_client is not None:
         await _http_client.aclose()
@@ -150,99 +163,282 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 WIKI_DB_USER = os.getenv("WIKI_DB_USER", "")
 WIKI_DB_PASSWORD = os.getenv("WIKI_DB_PASSWORD", "")
-async def add_talk_pages(titles: list[str], template_name: str, include_header: bool, access_token: str = None, submitter: str = None):
-    if not access_token:
-        print(f"[add_talk_pages] Skipped — no OAuth access token stored for user. They need to log out and back in.")
-        return
-            
-    template_text = template_name.strip()
+# ---------------------------------------------------------------------------
+# Talk-page template editing
+#
+# The per-title edit used to live inline in add_talk_pages. It is split out
+# here because talk_queue_worker.py performs the same edit one job at a time,
+# and two copies of the MediaWiki edit request would drift apart.
+# ---------------------------------------------------------------------------
+
+WIKI_USER_AGENT = "QuoteContestArticleTool/1.0 (https://github.com/RIFAT712/Feather)"
+TALK_HEADER_TEMPLATE = "{{আলাপ পাতা}}"
+TALK_TEMPLATE_EDIT_SUMMARY = "প্রতিযোগিতার টেমপ্লেট যোগ করা হচ্ছে"
+
+# MediaWiki bot best practice: refuse the edit when the replicas are lagging
+# more than this many seconds instead of adding to the pile. A maxlag refusal
+# is a "come back later", not a failed edit -- callers treat it as transient.
+WIKI_MAXLAG_SECONDS = 5
+
+# What MediaWiki returns instead of a real CSRF token when the request is not
+# authenticated -- an edit sent with it would be rejected.
+ANONYMOUS_CSRF_TOKEN = "+\\"
+
+# API error codes that mean "this would have worked at a different moment".
+TRANSIENT_WIKI_ERROR_CODES = frozenset({
+    "maxlag", "readonly", "ratelimited", "editconflict", "badtoken",
+})
+
+
+def wiki_auth_headers(access_token: str) -> dict:
+    return {
+        "Authorization": f"Bearer {access_token}",
+        "User-Agent": WIKI_USER_AGENT,
+    }
+
+
+def build_talk_template_text(template_name: str) -> str:
+    """`Foo` -> `{{Foo}}`; an already-braced name is left alone."""
+    template_text = (template_name or "").strip()
     if not template_text.startswith('{{'):
         template_text = f"{{{{{template_text}}}}}"
-        
-    async with httpx.AsyncClient() as client:
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "User-Agent": "QuoteContestArticleTool/1.0 (https://github.com/RIFAT712/Feather)"
-        }
-        res3 = await wiki_api_request(
-            "GET",
-            "https://bn.wiktionary.org/w/api.php",
-            client=client,
-            params={"action": "query", "meta": "tokens", "type": "csrf", "format": "json"},
-            headers=headers
-        )
-        token_data = res3.json()
-        csrf_token = token_data.get("query", {}).get("tokens", {}).get("csrftoken")
-        print(f"[add_talk_pages] CSRF token response: {token_data}")
-        if not csrf_token or csrf_token == "+\\":
-            msg = f"Failed to get CSRF token (got: {csrf_token!r}). OAuth may have insufficient scope or token is invalid. Full response: {token_data}"
-            print(f"[add_talk_pages] {msg}")
-            try:
-                from database import SessionLocal
-                import models
-                db = SessionLocal()
-                db.add(models.SystemLog(
-                    level="error", 
-                    source="talk_template", 
-                    message=msg,
-                    timestamp=utcnow()
-                ))
-                db.commit()
-                db.close()
-            except Exception:
-                pass
-            return
-        successes = []
-        failures = []
-        for title in titles:
-            talk_title = f"Talk:{title}" if not title.startswith("Talk:") else title
-            if include_header:
-                append_text = f"{{{{আলাপ পাতা}}}}\n{template_text}"
-            else:
-                append_text = template_text
-                
-            edit_data = {
-                "action": "edit",
-                "title": talk_title,
-                "appendtext": append_text,
-                "token": csrf_token,
-                "format": "json",
-                "summary": "প্রতিযোগিতার টেমপ্লেট যোগ করা হচ্ছে"
-            }
-                
-            edit_res = await client.post(
-                "https://bn.wiktionary.org/w/api.php",
-                data=edit_data,
-                headers=headers
-            )
-            res_json = {}
-            try:
-                res_json = edit_res.json()
-            except Exception:
-                pass
-            print(f"[add_talk_pages] Edit result for '{talk_title}': status={edit_res.status_code} body={edit_res.text[:500]}")
-            if edit_res.status_code == 200 and "edit" in res_json and res_json["edit"].get("result") == "Success":
-                successes.append(title)
-            else:
-                err_info = res_json.get("error", {}).get("info", edit_res.text[:300])
-                failures.append(f"{title}: {err_info}")
+    return template_text
+
+
+def build_talk_append_text(template_name: str, include_header: bool) -> str:
+    template_text = build_talk_template_text(template_name)
+    if include_header:
+        return f"{TALK_HEADER_TEMPLATE}\n{template_text}"
+    return template_text
+
+
+def talk_page_title(title: str) -> str:
+    return title if title.startswith("Talk:") else f"Talk:{title}"
+
+
+async def fetch_csrf_token(client: httpx.AsyncClient, headers: dict):
+    """Return (token, raw response body). Token is None when OAuth is not
+    usable -- MediaWiki hands out the anonymous edit token in that case."""
+    res = await wiki_api_request(
+        "GET",
+        MEDIAWIKI_API_URL,
+        client=client,
+        params={"action": "query", "meta": "tokens", "type": "csrf", "format": "json"},
+        headers=headers
+    )
+    token_data = res.json()
+    csrf_token = token_data.get("query", {}).get("tokens", {}).get("csrftoken")
+    if not csrf_token or csrf_token == ANONYMOUS_CSRF_TOKEN:
+        return None, token_data
+    return csrf_token, token_data
+
+
+async def edit_talk_page(
+    client: httpx.AsyncClient,
+    headers: dict,
+    csrf_token: str,
+    title: str,
+    append_text: str,
+    template_text: str,
+):
+    """Append the contest template to one article's talk page.
+
+    Returns (outcome, detail) where outcome is one of:
+      "done"      -- the edit was saved
+      "skipped"   -- the template is already on the page, nothing to do
+      "transient" -- lag/rate-limit/conflict; worth retrying later
+      "failed"    -- the wiki rejected it for a reason retrying won't fix
+
+    The edit reads the current wikitext and re-posts it with the template
+    appended, rather than using `appendtext`. That costs one extra read but
+    makes the write safe to retry: `wiki_api_request` retries transient
+    statuses, and a retried `appendtext` whose first response was merely lost
+    would have added the template a second time. `basetimestamp` makes the
+    wiki reject a write racing another edit, and the already-present check
+    turns a re-queued job into a no-op instead of a duplicate.
+    """
+    page_title = talk_page_title(title)
+    read_res = await wiki_api_request(
+        "GET",
+        MEDIAWIKI_API_URL,
+        client=client,
+        params={
+            "action": "query",
+            "prop": "revisions",
+            "titles": page_title,
+            "rvprop": "content|timestamp",
+            "rvslots": "main",
+            "rvlimit": 1,
+            "curtimestamp": 1,
+            "format": "json",
+            "formatversion": 2,
+        },
+        headers=headers,
+    )
+    read_data = read_res.json()
+    if "error" in read_data:
+        code = read_data["error"].get("code", "")
+        detail = read_data["error"].get("info", code)
+        return ("transient" if code in TRANSIENT_WIKI_ERROR_CODES else "failed"), detail
+
+    pages = read_data.get("query", {}).get("pages", [])
+    page = pages[0] if pages else {}
+    existing_text = ""
+    base_timestamp = None
+    if not page.get("missing"):
+        revisions = page.get("revisions", [])
+        if revisions:
+            existing_text = revisions[0].get("slots", {}).get("main", {}).get("content", "") or ""
+            base_timestamp = revisions[0].get("timestamp")
+    if template_text and template_text in existing_text:
+        return "skipped", "template already present"
+
+    edit_data = {
+        "action": "edit",
+        "title": page_title,
+        "text": existing_text + append_text,
+        "token": csrf_token,
+        "format": "json",
+        "summary": TALK_TEMPLATE_EDIT_SUMMARY,
+        "maxlag": WIKI_MAXLAG_SECONDS,
+    }
+    start_timestamp = read_data.get("curtimestamp")
+    if base_timestamp:
+        edit_data["basetimestamp"] = base_timestamp
+    if start_timestamp:
+        edit_data["starttimestamp"] = start_timestamp
+
+    edit_res = await wiki_api_request("POST", MEDIAWIKI_API_URL, client=client, data=edit_data, headers=headers)
+    try:
+        res_json = edit_res.json()
+    except Exception:
+        res_json = {}
+    print(f"[talk-template] Edit result for '{page_title}': status={edit_res.status_code} body={edit_res.text[:500]}")
+    if edit_res.status_code == 200 and res_json.get("edit", {}).get("result") == "Success":
+        return "done", None
+
+    error = res_json.get("error", {})
+    code = error.get("code", "")
+    detail = error.get("info", edit_res.text[:300])
+    if code in TRANSIENT_WIKI_ERROR_CODES or edit_res.status_code in RETRYABLE_WIKI_STATUS:
+        return "transient", detail
+    return "failed", detail
+
+
+def log_talk_template_event(level: str, message: str):
+    """Talk-page work happens outside a request, so it opens its own session
+    rather than depending on a request-scoped one."""
+    try:
+        from database import SessionLocal
+        db = SessionLocal()
         try:
-            from database import SessionLocal
-            import models
-            db = SessionLocal()
-            msg = f"Talk page template added for {len(successes)} articles."
-            if failures:
-                msg += f" Failures ({len(failures)}): " + ", ".join(failures)[:1500]
             db.add(models.SystemLog(
-                level="info" if not failures else "warning", 
-                source="talk_template", 
-                message=msg,
+                level=level,
+                source="talk_template",
+                message=message[:2000],
                 timestamp=utcnow()
             ))
             db.commit()
+        finally:
             db.close()
-        except Exception as e:
-            print(f"[add_talk_pages] Error writing to SystemLog: {e}")
+    except Exception as e:
+        print(f"[talk-template] Error writing to SystemLog: {e}")
+
+
+async def add_talk_pages(titles: list[str], template_name: str, include_header: bool, access_token: str = None, submitter: str = None):
+    """Edit a whole batch of talk pages in one pass.
+
+    Superseded by the talk_page_jobs queue for live submissions (see
+    enqueue_talk_page_jobs) -- kept as the direct, unqueued path.
+    """
+    if not access_token:
+        print(f"[add_talk_pages] Skipped — no OAuth access token stored for user. They need to log out and back in.")
+        return
+
+    template_text = build_talk_template_text(template_name)
+    append_text = build_talk_append_text(template_name, include_header)
+
+    async with httpx.AsyncClient() as client:
+        headers = wiki_auth_headers(access_token)
+        csrf_token, token_data = await fetch_csrf_token(client, headers)
+        print(f"[add_talk_pages] CSRF token response: {token_data}")
+        if not csrf_token:
+            msg = ("Failed to get CSRF token. OAuth may have insufficient scope or the token is "
+                   f"invalid. Full response: {token_data}")
+            print(f"[add_talk_pages] {msg}")
+            log_talk_template_event("error", msg)
+            return
+
+        successes = []
+        failures = []
+        for title in titles:
+            try:
+                outcome, detail = await edit_talk_page(client, headers, csrf_token, title, append_text, template_text)
+            except Exception as e:
+                outcome, detail = "failed", str(e)
+            if outcome in ("done", "skipped"):
+                successes.append(title)
+            else:
+                failures.append(f"{title}: {detail}")
+
+        msg = f"Talk page template added for {len(successes)} articles."
+        if failures:
+            msg += f" Failures ({len(failures)}): " + ", ".join(failures)[:1500]
+        log_talk_template_event("info" if not failures else "warning", msg)
+
+
+def enqueue_talk_page_jobs(db: Session, contest, titles: list[str], access_token: str, submitted_by: str) -> int:
+    """Queue one talk-page edit per title for talk_queue_worker to drain.
+
+    Nothing is sent to MediaWiki here: the caller is inside a user request,
+    and the whole point of the queue is that the edits outlive it.
+    """
+    if not titles:
+        return 0
+    if not access_token:
+        msg = (f"Talk page templates skipped for {len(titles)} article(s) submitted by "
+               f"{submitted_by}: no OAuth access token stored. They need to log out and back in.")
+        print(f"[talk-queue] {msg}")
+        log_talk_template_event("warning", msg)
+        return 0
+
+    articles = db.query(models.Article).filter(
+        models.Article.contest_id == contest.id,
+        models.Article.title.in_(titles)
+    ).all()
+    # Keyed case-insensitively for the same reason submit_bulk's own
+    # existing-article map is: the stored title is the wiki's canonical form,
+    # which may differ in case from what was typed into the submission box.
+    articles_by_title = {a.title.lower(): a for a in articles}
+
+    # A title re-submitted while its first job is still waiting must not get
+    # the template twice.
+    pending_article_ids = {
+        row[0] for row in db.query(models.TalkPageJob.article_id).filter(
+            models.TalkPageJob.contest_id == contest.id,
+            models.TalkPageJob.status.in_(("queued", "processing")),
+        ).all()
+    }
+
+    queued = 0
+    for title in titles:
+        article = articles_by_title.get(title.lower())
+        if not article or article.id in pending_article_ids:
+            continue
+        db.add(models.TalkPageJob(
+            article_id=article.id,
+            contest_id=contest.id,
+            title=article.title,
+            status="queued",
+            attempts=0,
+            access_token=access_token,
+            submitted_by=submitted_by,
+            created_at=utcnow(),
+        ))
+        pending_article_ids.add(article.id)
+        queued += 1
+    db.commit()
+    return queued
 
 
 oauth = OAuth()
@@ -316,10 +512,13 @@ async def wiki_api_request(method: str, url: str, *, client: httpx.AsyncClient =
     """Issue a MediaWiki API request, retrying transport errors and transient
     HTTP statuses with exponential backoff.
 
-    Only safe for idempotent reads (and the CSRF-token fetch). Do NOT route
-    page edits through this: the talk-page edits use `appendtext`, so a retry
-    after an edit that actually succeeded but whose response was lost would
-    append the template twice.
+    Safe for idempotent requests only. That used to rule out page edits
+    entirely, because the talk-page edit used `appendtext` -- a retry after an
+    edit that had actually succeeded but whose response was lost would append
+    the template twice. `edit_talk_page` now writes the full page text with a
+    `basetimestamp`, which the wiki rejects if the page moved underneath it,
+    so that edit is safe to retry here. Any *new* edit path has to make itself
+    idempotent the same way before using this wrapper.
     """
     http = client or get_http_client()
     response = await http.request(method, url, **kwargs)
@@ -1221,6 +1420,379 @@ def unban_contest_user(code: str, ban_id: int, _: models.User = Depends(get_owne
     db.delete(item)
     db.commit()
     return {"status": "success", "removed": ban_id}
+
+# ---------------------------------------------------------------------------
+# Talk-page queue administration
+# ---------------------------------------------------------------------------
+
+# Feather's OAuth consumer tags every edit it makes on bn.wiktionary.org with
+# this change tag -- confirmed against
+# Special:RecentChanges?tagfilter=OAuth+CID:+18851. It is the wiki's own record
+# of what this tool has edited, which beats anything the app logs about itself.
+# Both the consumer id and the wiki are single-project assumptions: if contests
+# ever run on another project, this has to come from per-contest config.
+FEATHER_OAUTH_CHANGE_TAG = "OAuth CID: 18851"
+TALK_NAMESPACE = 1
+
+# recentchanges is retention-limited (roughly 30-90 days), so submissions
+# older than that need checking against the pages themselves. The check reads
+# talk-page wikitext 50 titles at a time (the API's limit for normal users)
+# instead of one page per request, which is what makes a contest with five
+# figures of articles checkable inside a single request.
+BACKFILL_TITLES_PER_QUERY = 50
+BACKFILL_MAX_RC_PAGES = 20
+
+# Deliberately far lower than the global semaphore (15) used for article
+# validation. Validation runs against a few hundred titles; a backfill on an
+# 11k-article contest is a couple of hundred back-to-back batch reads, which
+# is a sustained burst rather than a spike. Measured against the real 11k
+# contest: at 15-way concurrency bn.wiktionary starts answering 429 partway
+# through and ~5,600 titles came back unverified, at 4 it was 600, at 2 it is
+# zero (a full 4,000-title call takes ~15s).
+BACKFILL_READ_CONCURRENCY = 2
+
+# How many articles one call will examine. The reads are fast and run
+# concurrently, but an unbounded call on a huge contest would sit past the
+# ingress timeout -- so it works through the contest in chunks and reports
+# what is left for the next call.
+BACKFILL_DEFAULT_LIMIT = 4000
+
+# Statuses that mean "this submission was accepted into the contest", i.e. the
+# same set submit_bulk would have queued a template for.
+TALK_TEMPLATE_ARTICLE_STATUSES = (models.ArticleStatus.pending, models.ArticleStatus.accepted)
+
+
+@app.get("/api/admin/contests/{code}/talk-queue")
+def get_talk_queue_status(code: str, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
+    """Counts by status plus the failures, so a stalled queue is visible
+    without opening the database."""
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+
+    counts = {"queued": 0, "processing": 0, "done": 0, "failed": 0}
+    rows = db.query(models.TalkPageJob.status, func.count(models.TalkPageJob.id)).filter(
+        models.TalkPageJob.contest_id == contest.id
+    ).group_by(models.TalkPageJob.status).all()
+    for status, count in rows:
+        counts[status] = counts.get(status, 0) + count
+
+    failed = db.query(models.TalkPageJob).filter(
+        models.TalkPageJob.contest_id == contest.id,
+        models.TalkPageJob.status == "failed"
+    ).order_by(models.TalkPageJob.id).all()
+
+    return {
+        "contest_code": contest.code,
+        "counts": counts,
+        "total": sum(counts.values()),
+        "failed": [
+            {
+                "id": job.id,
+                "title": job.title,
+                "error": job.error,
+                "attempts": job.attempts,
+                "submitted_by": job.submitted_by,
+                "created_at": job.created_at,
+                "processed_at": job.processed_at,
+            }
+            for job in failed
+        ],
+    }
+
+
+@app.post("/api/admin/contests/{code}/talk-queue/retry-failed")
+def retry_failed_talk_jobs(code: str, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    requeued = db.query(models.TalkPageJob).filter(
+        models.TalkPageJob.contest_id == contest.id,
+        models.TalkPageJob.status == "failed"
+    ).update({"status": "queued", "attempts": 0, "error": None}, synchronize_session=False)
+    db.commit()
+    return {"status": "success", "requeued": requeued}
+
+
+def _titles_logged_as_failed(db: Session, contest) -> set:
+    """Best-effort read of past `add_talk_pages` log lines.
+
+    The log message only ever named the *failures* ("Failures (M): title:
+    error, ..."); successes were recorded as a bare count, so this can never
+    tell us a title succeeded. It is used only to skip the per-page live check
+    for titles already known to have failed -- it narrows API work and is
+    never treated as ground truth in either direction. The text is free-form,
+    truncated at ~1500 chars, and titles containing commas or colons break the
+    split, so a miss here is expected and harmless.
+    """
+    logged_failures = set()
+    logs = db.query(models.SystemLog).filter(
+        models.SystemLog.source == "talk_template",
+        models.SystemLog.timestamp >= contest.start_date,
+    ).all()
+    for log in logs:
+        message = log.message or ""
+        marker = message.find("Failures (")
+        if marker == -1:
+            continue
+        tail = message[message.find(":", marker) + 1:]
+        for chunk in tail.split(","):
+            title, sep, _error = chunk.partition(":")
+            if sep and title.strip():
+                logged_failures.add(title.strip())
+    return logged_failures
+
+
+def _bare_talk_title(page_title: str) -> str:
+    """Strip the talk namespace prefix and normalize for comparison.
+
+    bn.wiktionary returns talk pages under the localized prefix (`আলাপ:`),
+    not the canonical `Talk:`, so these cannot be compared against a
+    locally-built "Talk:" + title string. Everything from `rcnamespace=1` is
+    a talk page by construction, so dropping the segment before the first
+    colon leaves the article title -- and only the *first* colon, since the
+    article title may legitimately contain one.
+    """
+    _prefix, _sep, rest = page_title.partition(":")
+    return _normalize_wiki_name(rest if _sep else page_title)
+
+
+async def _fetch_feather_tagged_talk_titles(client: httpx.AsyncClient, since: datetime) -> set:
+    """Article titles whose talk page Feather has already edited, per the
+    wiki's own recentchanges feed. Authoritative but retention-limited."""
+    titles = set()
+    rccontinue = None
+    for _ in range(BACKFILL_MAX_RC_PAGES):
+        params = {
+            "action": "query",
+            "list": "recentchanges",
+            "rctag": FEATHER_OAUTH_CHANGE_TAG,
+            "rcnamespace": TALK_NAMESPACE,
+            "rcprop": "title",
+            "rclimit": "max",
+            "rcdir": "newer",
+            "rcstart": since.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "format": "json",
+            "formatversion": 2,
+        }
+        if rccontinue:
+            params["rccontinue"] = rccontinue
+        response = await wiki_api_request(
+            "GET", MEDIAWIKI_API_URL, client=client,
+            params=params, headers={"User-Agent": WIKI_USER_AGENT}
+        )
+        data = response.json()
+        for change in data.get("query", {}).get("recentchanges", []):
+            if change.get("title"):
+                titles.add(_bare_talk_title(change["title"]))
+        rccontinue = data.get("continue", {}).get("rccontinue")
+        if not rccontinue:
+            break
+    return titles
+
+
+async def _talk_pages_already_templated(client: httpx.AsyncClient, titles: list, template_text: str) -> set:
+    """Of these article titles, which already carry the template on their talk page?
+
+    Returns (set of titles that already carry it, count of titles whose check
+    could not be completed).
+
+    Reads current talk-page wikitext in batches of 50. A per-page
+    revision-tag check would answer the narrower question "has Feather ever
+    edited this page", but it costs one request per page -- unusable on a
+    contest with thousands of articles -- and it is also the wrong question
+    here: what decides whether an edit is needed is whether the template is
+    on the page right now. The one case the two disagree on is a template
+    that Feather added and a human later removed; recentchanges catches that
+    for recent edits, and older ones would be re-added.
+    """
+    templated = set()
+    unverified = 0
+    sem = asyncio.Semaphore(BACKFILL_READ_CONCURRENCY)
+
+    async def check_chunk(chunk: list):
+        params = {
+            "action": "query",
+            "prop": "revisions",
+            "titles": "|".join(talk_page_title(t) for t in chunk),
+            "rvprop": "content",
+            "rvslots": "main",
+            "format": "json",
+            "formatversion": 2,
+        }
+        async with sem:
+            response = await wiki_api_request(
+                "POST", MEDIAWIKI_API_URL, client=client,
+                data=params, headers={"User-Agent": WIKI_USER_AGENT}
+            )
+        data = response.json()
+        found = set()
+        for page in data.get("query", {}).get("pages", []):
+            if page.get("missing"):
+                continue
+            revisions = page.get("revisions", [])
+            if not revisions:
+                continue
+            content = revisions[0].get("slots", {}).get("main", {}).get("content", "") or ""
+            if template_text in content:
+                found.add(_bare_talk_title(page.get("title", "")))
+        return found
+
+    chunks = [titles[i:i + BACKFILL_TITLES_PER_QUERY]
+              for i in range(0, len(titles), BACKFILL_TITLES_PER_QUERY)]
+    for result, chunk in zip(
+        await asyncio.gather(*(check_chunk(c) for c in chunks), return_exceptions=True), chunks
+    ):
+        if isinstance(result, set):
+            templated |= result
+        else:
+            # A failed chunk means "not verified", not "not templated". Those
+            # titles get enqueued, which is safe -- the worker re-reads every
+            # page and skips the edit if the template is already there -- but
+            # it is wasted queue time, so the count is reported back.
+            unverified += len(chunk)
+            print(f"[talk-backfill] Chunk check failed ({len(chunk)} titles): {result}")
+    return templated, unverified
+
+
+@app.post("/api/admin/contests/{code}/talk-queue/backfill")
+async def backfill_talk_queue(
+    code: str,
+    limit: int = Query(default=BACKFILL_DEFAULT_LIMIT, ge=1, le=20000),
+    current_user: models.User = Depends(get_owner_user),
+    db: Session = Depends(get_db)
+):
+    """Queue talk-page templates for articles submitted before this queue existed.
+
+    Only enqueues -- the reads below check what the wiki already has; every
+    actual edit still goes through the worker at the global pace. Call it
+    again while `remaining` is above zero to work through a large contest.
+    """
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    if not contest.talk_template_name:
+        raise HTTPException(status_code=400, detail="This contest has no talk template configured")
+
+    # Fallback for the many submitters with no stored token (see the enqueue
+    # loop below). Checked up front so the owner is told to re-login before
+    # the wiki reads run, not after.
+    owner_token = current_user.oauth_access_token
+    if not owner_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Your account has no stored OAuth token — log out and back in before running a backfill."
+        )
+
+    articles = db.query(models.Article).options(joinedload(models.Article.submitter)).filter(
+        models.Article.contest_id == contest.id,
+        models.Article.status.in_(TALK_TEMPLATE_ARTICLE_STATUSES)
+    ).order_by(models.Article.id).all()
+
+    # A job this queue already ran is the one internal record that is
+    # trustworthy, so those articles never reach the live check.
+    #
+    # `failed` counts as handled too, even though its edit never landed: a
+    # second job row for the same article would not fix anything the first
+    # one could not, it just hides the failure behind a duplicate and inflates
+    # the counts. Retrying those is what /talk-queue/retry-failed is for.
+    handled_article_ids = {
+        row[0] for row in db.query(models.TalkPageJob.article_id).filter(
+            models.TalkPageJob.contest_id == contest.id,
+            models.TalkPageJob.status.in_(("queued", "processing", "done", "failed")),
+        ).all()
+    }
+
+    already_done = len([a for a in articles if a.id in handled_article_ids])
+    pending_articles = [a for a in articles if a.id not in handled_article_ids]
+    candidates = pending_articles[:limit]
+    remaining = len(pending_articles) - len(candidates)
+
+    logged_failures = _titles_logged_as_failed(db, contest)
+
+    to_enqueue = []
+    unverified = 0
+    if candidates:
+        client = get_http_client()
+        since = contest.start_date or (utcnow() - timedelta(days=90))
+        try:
+            tagged_talk_titles = await _fetch_feather_tagged_talk_titles(client, since)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Could not read recent changes from the wiki: {e}")
+
+        # First pass: the wiki's own record of what Feather edited. Free
+        # (one paged list query) but only covers the retention window.
+        needs_page_check = []
+        for article in candidates:
+            if _normalize_wiki_name(article.title) in tagged_talk_titles:
+                already_done += 1
+            elif article.title in logged_failures:
+                # The log says this one failed, so skip straight to enqueueing
+                # rather than spending a check on it.
+                to_enqueue.append(article)
+            else:
+                needs_page_check.append(article)
+
+        # Second pass: read the talk pages themselves for everything older
+        # than the retention window.
+        if needs_page_check:
+            template_text = build_talk_template_text(contest.talk_template_name)
+            try:
+                templated, unverified = await _talk_pages_already_templated(
+                    client, [a.title for a in needs_page_check], template_text
+                )
+            except Exception as e:
+                raise HTTPException(status_code=502, detail=f"Could not read talk pages from the wiki: {e}")
+            for article in needs_page_check:
+                if _normalize_wiki_name(article.title) in templated:
+                    already_done += 1
+                else:
+                    to_enqueue.append(article)
+
+    skipped_no_token = []
+    enqueued = 0
+    used_owner_token = 0
+    for article in to_enqueue:
+        submitter = article.submitter
+        access_token = submitter.oauth_access_token if submitter else None
+        if not access_token:
+            # Most of a long-running contest's submitters have no stored
+            # token: they last logged in before the column existed, or the
+            # article came in through "submit on behalf of", which creates a
+            # bare user row and records nothing about who ran it. Without a
+            # fallback the backfill would skip the large majority of the
+            # contest, so the edit is made by the owner running the backfill
+            # instead. It is attributed to their wiki account; `submitted_by`
+            # still names the participant the article belongs to.
+            access_token = owner_token
+            used_owner_token += 1
+        if not access_token:
+            skipped_no_token.append(article.title)
+            continue
+        db.add(models.TalkPageJob(
+            article_id=article.id,
+            contest_id=contest.id,
+            title=article.title,
+            status="queued",
+            attempts=0,
+            access_token=access_token,
+            submitted_by=submitter.wiki_username if submitter else "unknown",
+            created_at=utcnow(),
+        ))
+        enqueued += 1
+    db.commit()
+
+    return {
+        "enqueued": enqueued,
+        "already_done": already_done,
+        "skipped_no_token": skipped_no_token,
+        "considered": len(articles),
+        "examined": len(candidates),
+        "remaining": remaining,
+        "enqueued_unverified": unverified,
+        "used_owner_token": used_owner_token,
+    }
+
 async def process_articles_batch(
     titles: List[str],
     submitter_username: str,
@@ -1382,7 +1954,6 @@ def get_contest_role(code: str, current_user: models.User = Depends(get_current_
 @app.post("/api/submit-bulk", response_model=List[ValidationResult])
 async def submit_bulk(
     request: BulkSubmitRequest,
-    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -1505,15 +2076,18 @@ async def submit_bulk(
     valid_titles = [r.title for r in results if r.is_valid]
     print(f"[submit-bulk] Talk Template Debug: valid_titles_count={len(valid_titles)}, add_talk_template={contest.add_talk_template}, template_name='{contest.talk_template_name}'")
     if valid_titles and contest.add_talk_template and contest.talk_template_name:
-        background_tasks.add_task(
-            add_talk_pages, 
-            valid_titles, 
-            contest.talk_template_name, 
-            contest.include_talk_header,
+        # Enqueue only. The edits are drained one at a time by
+        # talk_queue_worker so a large submission cannot trip MediaWiki's edit
+        # rate limit, and a restart resumes instead of losing the remainder.
+        queued = enqueue_talk_page_jobs(
+            db,
+            contest,
+            valid_titles,
             current_user.oauth_access_token,
-            request.on_behalf_of
+            submitter_username,
         )
-        
+        print(f"[submit-bulk] Queued {queued} talk page template job(s) for contest {contest.code}.")
+
     return results
 
 @app.get("/api/articles/{contest_code}/pending/next")

@@ -3,3 +3,4 @@ backend/app.db
 backup/
 backend/.env
 services/jury-panel/.env
+backend/alembic/**/__pycache__/

@@ -146,3 +146,31 @@ class SystemLog(Base):
     user_agent = Column(String(500), nullable=True)
     username = Column(String(255), nullable=True)
     timestamp = Column(DateTime, default=utcnow)
+
+class TalkPageJob(Base):
+    """One queued talk-page template edit.
+
+    Talk-page templates used to be written by a FastAPI BackgroundTask that
+    looped over an entire bulk submission and edited every page back to back:
+    a large submission tripped MediaWiki's edit rate limit, and a restart
+    mid-batch dropped the remaining edits with no record they were ever owed.
+    Each edit is now a row here, drained one at a time by
+    talk_queue_worker.py, so the work survives restarts and is inspectable.
+    """
+    __tablename__ = 'talk_page_jobs'
+    id = Column(Integer, primary_key=True, index=True)
+    article_id = Column(Integer, ForeignKey('articles.id'), nullable=False)
+    contest_id = Column(Integer, ForeignKey('contests.id'), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    status = Column(String(20), default="queued", nullable=False, index=True)  # queued, processing, done, failed
+    attempts = Column(Integer, default=0, nullable=False)
+    error = Column(String(500), nullable=True)
+    # Snapshot of the submitter's OAuth token at enqueue time: the edit is
+    # attributed to them, and the worker runs long after their request ended.
+    access_token = Column(Text, nullable=False)
+    submitted_by = Column(String(255), nullable=False)  # wiki_username, for edit summary/logging
+    created_at = Column(DateTime, default=utcnow)
+    processed_at = Column(DateTime, nullable=True)
+
+    article = relationship("Article")
+    contest = relationship("Contest")

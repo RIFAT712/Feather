@@ -17,7 +17,7 @@ This is a **Wiki Article Contest Management Tool** for **Bengali Wiktionary** (`
 
 | Layer    | Technology                           | Details                                         |
 | -------- | ------------------------------------ | ----------------------------------------------- |
-| Backend  | **FastAPI** (Python)                 | REST API, OAuth, SQLAlchemy ORM, SQLite; `tenacity` for MediaWiki API retry/backoff |
+| Backend  | **FastAPI** (Python)                 | REST API, OAuth, SQLAlchemy ORM, SQLite; `tenacity` for MediaWiki API retry/backoff, `APScheduler` for the talk-page queue worker, `alembic` for schema migrations |
 | Frontend | **Vue 3** + **Vite**                 | SPA with Vue Router, Wikimedia Codex UI library, `@tanstack/vue-query` for server-state caching, `dayjs` (+ `utc`/`timezone` plugins) for all date parsing/formatting |
 | Database | **SQLite** (`backend/app.db`)        | Via SQLAlchemy, auto-created on startup          |
 | Auth     | **Wikimedia OAuth 2.0**              | Via `authlib`, JWT session tokens in cookies     |
@@ -39,6 +39,9 @@ D:\Quote Contest\article-tool\
 │   ├── models.py               # SQLAlchemy models (User, Contest, Article, Review, ContestJury)
 │   ├── database.py             # DB engine & session setup (SQLite)
 │   ├── timeutils.py            # utcnow() — naive UTC "now", replacing the deprecated datetime.utcnow()
+│   ├── talk_queue_worker.py    # APScheduler job draining talk_page_jobs one edit at a time (global rate limit)
+│   ├── alembic.ini             # Alembic config; DB URL comes from database.py, not from this file
+│   ├── alembic\                # Migrations (env.py imports models.Base.metadata + the app engine)
 │   ├── requirements.txt        # Python deps, version-pinned with ~=: fastapi, uvicorn, sqlalchemy, httpx, tenacity, authlib, PyJWT, etc.
 │   ├── app.db                  # SQLite database file (auto-generated)
 │   └── venv\                   # Python virtual environment
@@ -66,7 +69,7 @@ D:\Quote Contest\article-tool\
             ├── AdminDashboard.vue  # Owner-only: manage contests & juries
             ├── ContestLayout.vue   # Wrapper layout for contest routes
             ├── ContestDashboard.vue# Contest overview page
-            ├── ContestConfig.vue   # Owner-only contest settings & jury management
+            ├── ContestConfig.vue   # Owner-only contest settings, jury management, integrity re-check, talk-queue panel
             ├── ContestResult.vue   # Public contest results page
             ├── SubmitArticles.vue  # Bulk article submission
             ├── ReviewQueue.vue     # Jury article review queue with article preview
@@ -89,6 +92,7 @@ D:\Quote Contest\article-tool\
 | **ContestBannedUser** | `contest_banned_users` | `id`, `contest_id` (FK), `user_id` (FK), unique contest/user pair; hides submitter articles from review-v2 |
 | **Article**    | `articles`      | `id`, `title`, `submitter_id` (FK), `contest_id` (FK), `status` (pending/accepted/rejected/validation_failed), `validation_error`, `wiki_creation_date`, `wiki_creator`, `submitted_at`, `assigned_to_id` (FK, current jury-queue owner) |
 | **Review**     | `reviews`       | `id`, `article_id` (FK), `reviewer_id` (FK), `status` (accepted/rejected/skipped), `comment`, `timestamp` |
+| **TalkPageJob** | `talk_page_jobs` | `id`, `article_id` (FK), `contest_id` (FK), `title`, `status` (queued/processing/done/failed), `attempts`, `error`, `access_token` (submitter's OAuth token snapshotted at enqueue time), `submitted_by`, `created_at`, `processed_at`; drained by `talk_queue_worker.py` |
 
 ---
 
@@ -139,6 +143,9 @@ D:\Quote Contest\article-tool\
 | GET    | `/api/admin/contests/{code}/export/json` | Export contest submissions JSON    | Owner |
 | GET    | `/api/admin/contests/{code}/export/wikitable` | Export contest submissions Wikitable | Owner |
 | GET    | `/api/admin/backup/download`          | Download current SQLite database or MariaDB dump | Owner |
+| GET    | `/api/admin/contests/{code}/talk-queue` | Talk-page template queue: job counts by status plus the failed jobs and their errors | Owner |
+| POST   | `/api/admin/contests/{code}/talk-queue/retry-failed` | Reset this contest's `failed` talk-page jobs to `queued` with `attempts = 0` | Owner |
+| POST   | `/api/admin/contests/{code}/talk-queue/backfill` | Queue templates for articles submitted before the queue existed. Two-pass check: the wiki's `OAuth CID: 18851` change tag via recentchanges, then talk-page wikitext read 50 titles at a time for anything older than the retention window. Uses the submitter's OAuth token, falling back to the acting owner's for the (majority) of submitters who have none. Enqueues only, never edits. `?limit=` (default 4000) bounds one call; returns `enqueued` / `already_done` / `skipped_no_token` / `remaining` / `used_owner_token` | Owner |
 
 ### Articles & Reviews
 | Method | Path                                          | Description                        | Auth       |
@@ -188,6 +195,34 @@ pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
 ```
 
+#### Migrations (Alembic)
+
+`main.py` still calls `Base.metadata.create_all`, so a brand-new table appears
+on startup either way; Alembic is the versioned record and the way to apply
+anything `create_all` cannot do (column changes, backfills). Revisions live in
+`backend/alembic/versions/`; `alembic/env.py` imports the engine from
+`database.py`, so no URL is configured in `alembic.ini` and the same commands
+work against local SQLite and Toolforge MariaDB.
+
+```bash
+cd backend
+alembic upgrade head                        # apply pending migrations
+alembic revision --autogenerate -m "..."    # after editing models.py — always read the generated file
+alembic current                             # what this database is stamped at
+```
+
+Autogenerate ignores tables and indexes that `models.py` does not declare
+(`article_deletion_snapshots`, `contest_timezone_migrations`, the composite
+`articles` indexes from `run_auto_migrations`) — without that filter its first
+suggestion is to drop them all.
+
+#### Talk-page queue worker
+
+Started from the FastAPI lifespan; drains `talk_page_jobs` at one edit every
+`TALK_QUEUE_INTERVAL_SECONDS` (3s) across the whole tool. Set
+`TALK_QUEUE_WORKER_ENABLED=0` in `backend/.env` to run a local server that
+does not edit the wiki.
+
 ### Frontend
 ```bash
 cd frontend-vue
@@ -213,6 +248,10 @@ Before schema migrations run, the backend writes a rollback snapshot under `back
 ---
 
 ## Change Log
+
+| 2026-08-30 | **Talk queue: admin panel, and a backfill that scales to a real contest.** Added a *Talk Queue* tab to `ContestConfig.vue` — status counts, an ETA from the queue depth, the failed-job table with its errors, and Refresh / Backfill / Retry-failed actions (backfill behind an inline confirm; the panel self-refreshes only while jobs are outstanding). It reuses the Integrity tab's card/stat/table CSS rather than copying it; secondary buttons deliberately avoid `.save-btn`, which `light-theme.css` forces to the accent fill with `!important`. Backfill was reworked after a dry run against the 11k-article contest: the per-page revision-tag fallback (one request per article, capped at 150) is replaced by a batched wikitext read of 50 titles per request at a concurrency of 2 — measured, 15-way concurrency left ~5,600 titles unverified behind 429s, 2-way leaves none and checks 4,000 titles in ~15s. Jobs are no longer duplicated for articles whose previous job `failed` (that is what retry-failed is for), and articles whose submitter has no stored OAuth token — 7,851 of 10,997 in the live contest — now fall back to the acting owner's token instead of being skipped. |
+
+| 2026-08-30 | **Persistent, rate-limited talk-page template queue.** `submit_bulk` no longer fires `add_talk_pages` as an in-memory FastAPI background task that edited every submitted title back to back — a large submission hit MediaWiki's edit rate limit, and a restart mid-batch dropped the remaining edits with no record they were owed. Valid titles are now written to a new `talk_page_jobs` table and drained by `backend/talk_queue_worker.py`, an APScheduler `AsyncIOScheduler` interval job that performs one edit every 3 seconds globally (5s idle poll, exponential back-off on `maxlag`/read-only refusals, 3 attempts before a job is parked as `failed` with a `SystemLog` entry). The per-title edit was refactored out of `add_talk_pages` into `edit_talk_page`, which reads the current wikitext and re-posts it with the template appended (instead of `appendtext`) so the write is safe to retry through `wiki_api_request`, sends `maxlag=5`, and skips pages that already carry the template. New owner endpoints `GET /api/admin/contests/{code}/talk-queue`, `POST .../talk-queue/retry-failed` and `POST .../talk-queue/backfill` expose and repair the queue; backfill uses the wiki's own `OAuth CID: 18851` change tag (recentchanges, then per-page revision tags for older submissions) as ground truth for what was already templated, and reports on-behalf-of submissions whose submitter has no stored OAuth token instead of failing them. Schema change applied via **Alembic** (`backend/alembic/`), now the convention for new migrations. |
 
 | 2026-08-30 | **Centered jury names in profile submissions.** Jury entries in the sortable UserProfile table now center-align consistently, including rows with multiple reviewers, while the separate Status column remains the only article-status display. |
 

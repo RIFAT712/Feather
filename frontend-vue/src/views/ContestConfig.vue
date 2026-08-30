@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, inject, computed, watch } from 'vue';
+import { ref, onMounted, onUnmounted, inject, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CdxTextInput, CdxCheckbox } from '@wikimedia/codex';
 import { contestTimeToUtcIso, utcToContestTimeParts } from '../utils/datetime';
@@ -15,7 +15,7 @@ const toastMessage = ref('');
 const toastIsError = ref(false);
 const talkHeaderLabel = '{{আলাপ পাতা}}';
 
-const activeTab = ref('basic'); // 'basic', 'rules', 'talk', 'jury', 'integrity'
+const activeTab = ref('basic'); // 'basic', 'rules', 'talk', 'queue', 'jury', 'integrity'
 
 // ── Contest integrity re-check ─────────────────────────────────────────────
 // Articles are validated once, at submission. A page deleted, moved, turned
@@ -108,6 +108,118 @@ const editAllowSelfReview = ref(false);
 const editAddTalkTemplate = ref(false);
 const editTalkTemplateName = ref('');
 const editIncludeTalkHeader = ref(true);
+
+// ── Talk page template queue ───────────────────────────────────────────────
+// Templates are written by a background worker at one edit every few seconds
+// rather than in a burst at submission time, so the queue needs to be visible
+// somewhere: this panel is where you see it draining, retry what failed, and
+// backfill articles submitted before the queue existed.
+const QUEUE_STATUSES = [
+  { key: 'queued', label: 'Queued' },
+  { key: 'processing', label: 'Processing' },
+  { key: 'done', label: 'Done' },
+  { key: 'failed', label: 'Failed' },
+];
+const EDIT_INTERVAL_SECONDS = 3;
+
+const queue = ref(null);
+const queueError = ref('');
+const isLoadingQueue = ref(false);
+const isBackfilling = ref(false);
+const isRetrying = ref(false);
+const backfillResult = ref(null);
+const confirmingBackfill = ref(false);
+let queuePollTimer = null;
+
+const queueCounts = computed(() => {
+  const counts = queue.value?.counts || {};
+  return QUEUE_STATUSES.map(s => ({ ...s, count: counts[s.key] || 0 }));
+});
+
+const queueOutstanding = computed(() => {
+  const counts = queue.value?.counts || {};
+  return (counts.queued || 0) + (counts.processing || 0);
+});
+
+// The worker edits one page at a time across the whole tool, so the wait is
+// simply the backlog times the interval. Worth showing plainly — a backfill
+// on a large contest is measured in hours, not minutes.
+const queueEta = computed(() => {
+  const seconds = queueOutstanding.value * EDIT_INTERVAL_SECONDS;
+  if (!seconds) return '';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.round((seconds % 3600) / 60);
+  if (hours) return `about ${hours}h ${minutes}m`;
+  if (minutes) return `about ${minutes} min`;
+  return 'under a minute';
+});
+
+const loadQueue = async ({ quiet = false } = {}) => {
+  if (!contest.value) return;
+  if (!quiet) isLoadingQueue.value = true;
+  try {
+    const res = await fetch(`/api/admin/contests/${contest.value.code}/talk-queue`);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.detail || `Could not load the queue (${res.status})`);
+    queue.value = body;
+    queueError.value = '';
+  } catch (e) {
+    if (!quiet) queueError.value = e.message || 'Could not load the queue.';
+  } finally {
+    isLoadingQueue.value = false;
+  }
+};
+
+const runBackfill = async () => {
+  if (isBackfilling.value || !contest.value) return;
+  confirmingBackfill.value = false;
+  isBackfilling.value = true;
+  queueError.value = '';
+  try {
+    const res = await fetch(`/api/admin/contests/${contest.value.code}/talk-queue/backfill`, { method: 'POST' });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.detail || `Backfill failed (${res.status})`);
+    backfillResult.value = body;
+    await loadQueue({ quiet: true });
+  } catch (e) {
+    backfillResult.value = null;
+    queueError.value = e.message || 'Backfill failed.';
+  } finally {
+    isBackfilling.value = false;
+  }
+};
+
+const retryFailedJobs = async () => {
+  if (isRetrying.value || !contest.value) return;
+  isRetrying.value = true;
+  queueError.value = '';
+  try {
+    const res = await fetch(`/api/admin/contests/${contest.value.code}/talk-queue/retry-failed`, { method: 'POST' });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.detail || `Retry failed (${res.status})`);
+    await loadQueue({ quiet: true });
+  } catch (e) {
+    queueError.value = e.message || 'Could not retry the failed jobs.';
+  } finally {
+    isRetrying.value = false;
+  }
+};
+
+// Poll only while the tab is open and there is something left to drain --
+// a finished queue does not need a request every five seconds.
+watch([activeTab, queueOutstanding], ([tab, outstanding]) => {
+  clearInterval(queuePollTimer);
+  queuePollTimer = null;
+  if (tab === 'queue' && outstanding > 0) {
+    queuePollTimer = setInterval(() => loadQueue({ quiet: true }), 5000);
+  }
+});
+
+watch(activeTab, (tab) => {
+  if (tab === 'queue' && !queue.value) loadQueue();
+});
+
+onUnmounted(() => clearInterval(queuePollTimer));
 const juries = ref([]);
 const jurySearchValue = ref('');
 const juryUsername = ref('');
@@ -399,11 +511,12 @@ const enabledRuleCount = computed(() => [
         <button :class="{'active': activeTab === 'basic'}" @click="activeTab = 'basic'">Basic Info</button>
         <button :class="{'active': activeTab === 'rules'}" @click="activeTab = 'rules'">Rules</button>
         <button :class="{'active': activeTab === 'talk'}" @click="activeTab = 'talk'">Talk Page</button>
+        <button :class="{'active': activeTab === 'queue'}" @click="activeTab = 'queue'">Talk Queue</button>
         <button :class="{'active': activeTab === 'jury'}" @click="activeTab = 'jury'">Jury Management</button>
         <button :class="{'active': activeTab === 'integrity'}" @click="activeTab = 'integrity'">Integrity</button>
       </div>
 
-      <div v-if="activeTab !== 'jury' && activeTab !== 'integrity'" class="settings-form">
+      <div v-if="activeTab !== 'jury' && activeTab !== 'integrity' && activeTab !== 'queue'" class="settings-form">
         <div v-if="activeTab === 'basic'" class="form-section">
           <div class="form-group">
             <label>Contest Name</label>
@@ -461,6 +574,135 @@ const enabledRuleCount = computed(() => [
 
         <div class="actions">
           <button class="save-btn" @click="saveSettings">Save Settings</button>
+        </div>
+      </div>
+
+      <div v-if="activeTab === 'queue'" class="integrity-section tq-section">
+        <div class="integrity-card">
+          <div class="integrity-intro">
+            <h3>Talk page template queue</h3>
+            <p>
+              When a contest adds a talk page template, each submitted article becomes one queued edit rather
+              than an immediate one. A background worker writes them at a rate the wiki accepts — one page
+              every {{ EDIT_INTERVAL_SECONDS }} seconds across the whole tool — and picks up where it left off
+              after a restart.
+            </p>
+            <p v-if="!contest.talk_template_name" class="integrity-note">
+              This contest has no talk template configured, so nothing is being queued. Set one on the
+              Talk Page tab first.
+            </p>
+          </div>
+
+          <div class="integrity-controls">
+            <button class="tq-secondary-btn" :disabled="isLoadingQueue" @click="loadQueue()">
+              {{ isLoadingQueue ? 'Loading…' : 'Refresh' }}
+            </button>
+            <button
+              v-if="contest.talk_template_name"
+              class="save-btn"
+              :disabled="isBackfilling"
+              @click="confirmingBackfill = true"
+            >
+              {{ isBackfilling ? 'Checking the wiki…' : 'Backfill older articles' }}
+            </button>
+            <button
+              v-if="queue && queue.counts.failed"
+              class="tq-secondary-btn"
+              :disabled="isRetrying"
+              @click="retryFailedJobs"
+            >
+              {{ isRetrying ? 'Requeueing…' : `Retry ${queue.counts.failed} failed` }}
+            </button>
+          </div>
+
+          <div v-if="confirmingBackfill" class="tq-confirm">
+            <p>
+              This checks every pending and accepted article against the wiki and queues an edit for each one
+              that does not already carry the template. Articles whose submitter has no stored OAuth token are
+              edited by your account. Nothing is edited while the check runs — the edits then drain at one page
+              every {{ EDIT_INTERVAL_SECONDS }} seconds.
+            </p>
+            <div class="tq-confirm-actions">
+              <button class="save-btn" @click="runBackfill">Queue them</button>
+              <button class="tq-secondary-btn" @click="confirmingBackfill = false">Cancel</button>
+            </div>
+          </div>
+
+          <p v-if="isBackfilling" class="integrity-progress">
+            Reading talk pages 50 at a time to see which already have the template. On a large contest this
+            takes a few seconds.
+          </p>
+          <p v-if="queueError" class="integrity-error">{{ queueError }}</p>
+
+          <div v-if="backfillResult" class="tq-backfill-result">
+            <p>
+              Queued <strong>{{ backfillResult.enqueued.toLocaleString() }}</strong> new edit(s).
+              <template v-if="backfillResult.already_done">
+                {{ backfillResult.already_done.toLocaleString() }} already had the template.
+              </template>
+              <template v-if="backfillResult.used_owner_token">
+                {{ backfillResult.used_owner_token.toLocaleString() }} will be edited by your account, since
+                their submitter has no stored token.
+              </template>
+            </p>
+            <p v-if="backfillResult.remaining" class="integrity-note">
+              {{ backfillResult.remaining.toLocaleString() }} article(s) were not examined in this pass — run
+              the backfill again to continue.
+            </p>
+            <p v-if="backfillResult.skipped_no_token.length" class="integrity-note">
+              Skipped {{ backfillResult.skipped_no_token.length.toLocaleString() }} with no usable token.
+            </p>
+          </div>
+
+          <div v-if="queue" class="integrity-results">
+            <div class="integrity-summary">
+              <div
+                v-for="stat in queueCounts"
+                :key="stat.key"
+                class="integrity-stat"
+                :class="{ 'is-flagged': stat.key === 'failed' && stat.count, 'is-clean': stat.key === 'done' && stat.count }"
+              >
+                <strong>{{ stat.count.toLocaleString() }}</strong>
+                <span>{{ stat.label }}</span>
+              </div>
+            </div>
+
+            <p v-if="queueOutstanding" class="integrity-progress">
+              {{ queueOutstanding.toLocaleString() }} edit(s) left to write — {{ queueEta }} at the current
+              rate. This panel refreshes itself while the queue drains; you can close it and come back.
+            </p>
+            <p v-else-if="queue.total" class="integrity-clean-note">
+              Nothing is waiting. Every queued template has been written.
+            </p>
+            <p v-else class="integrity-note">
+              No talk page jobs for this contest yet.
+            </p>
+
+            <template v-if="queue.failed.length">
+              <div class="integrity-table-wrap">
+                <table class="integrity-table">
+                  <thead>
+                    <tr>
+                      <th>Article</th>
+                      <th>Submitted by</th>
+                      <th>Attempts</th>
+                      <th>Error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="job in queue.failed" :key="job.id">
+                      <td>
+                        <a :href="`https://bn.wiktionary.org/wiki/Talk:${encodeURIComponent(job.title)}`" target="_blank" rel="noopener">{{ job.title }}</a>
+                      </td>
+                      <td>{{ job.submitted_by || '—' }}</td>
+                      <td>{{ job.attempts }}</td>
+                      <td class="integrity-detail">{{ job.error }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </template>
+          </div>
         </div>
       </div>
 
