@@ -77,15 +77,46 @@ const errorArticles = computed(() => errorArticlesQuery.data.value || []);
 const isLoadingErrorArticles = computed(() => errorArticlesQuery.isLoading.value);
 const fetchErrorArticles = () => errorArticlesQuery.refetch();
 
-onMounted(async () => {
-  if (!isAuthorized.value) return;
+const loadJuryProgress = async () => {
   try {
     const progressRes = await fetch(`/api/jury-panel/contests/${route.params.code}/progress`);
     if (progressRes.ok) juryProgress.value = await progressRes.json();
   } catch (err) {
     console.error(err);
   }
+};
+
+onMounted(() => {
+  if (!isAuthorized.value) return;
+  loadJuryProgress();
 });
+
+// Re-level the queues. Needed because a jury member cannot judge their own
+// submissions (nor can anyone restricted against them), so a large batch from
+// one of them leaves the others carrying it and that member permanently light.
+const isRedistributing = ref(false);
+const redistributeMessage = ref('');
+const redistributeFailed = ref(false);
+const redistributeQueues = async () => {
+  if (isRedistributing.value) return;
+  isRedistributing.value = true;
+  redistributeMessage.value = '';
+  redistributeFailed.value = false;
+  try {
+    const res = await fetch(`/api/admin/contests/${route.params.code}/redistribute`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || 'Redistribution failed.');
+    redistributeMessage.value = data.moved
+      ? `Reassigned ${data.moved.toLocaleString()} article${data.moved === 1 ? '' : 's'}.`
+      : 'Queues are already as balanced as the restrictions allow.';
+    await loadJuryProgress();
+  } catch (err) {
+    redistributeFailed.value = true;
+    redistributeMessage.value = err.message || 'Redistribution failed.';
+  } finally {
+    isRedistributing.value = false;
+  }
+};
 
 const overallStats = computed(() => {
   const counts = stats.value.status_counts || {};
@@ -621,7 +652,15 @@ const handleExportWikitable = () => {
         </table>
       </div>
       <div class="jury-section jury-progress-section">
-        <div class="section-title">Jury Progress</div>
+        <div class="section-title section-title-row">
+          <span>Jury Progress</span>
+          <div v-if="roles.is_owner" class="redistribute-controls">
+            <span v-if="redistributeMessage" class="redistribute-note" :class="{ 'is-error': redistributeFailed }">{{ redistributeMessage }}</span>
+            <button class="redistribute-btn" :disabled="isRedistributing" @click="redistributeQueues">
+              {{ isRedistributing ? 'Rebalancing…' : 'Rebalance queues' }}
+            </button>
+          </div>
+        </div>
         <table class="jury-table">
           <thead>
             <tr>

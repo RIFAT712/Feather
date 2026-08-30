@@ -8,10 +8,12 @@ import re
 import unicodedata
 import psutil
 import threading
+import heapq
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
+from collections import defaultdict
 from typing import List, Optional
 from urllib.parse import quote
 
@@ -693,6 +695,10 @@ def db_diagnostics(code: Optional[str] = Query(default=None), _: models.User = D
 # removed in favor of a single source of truth).
 
 REBALANCE_BATCH_LIMIT = 8000
+# A full redistribution reconsiders every pending article in the contest at
+# once, so it needs headroom far beyond a single incremental batch.
+REDISTRIBUTE_BATCH_LIMIT = 200000
+REVIEW_LOCK_MINUTES = 15
 
 def get_eligible_juries(contest):
     """{user_id: wiki_username} for this contest's current jury members."""
@@ -734,41 +740,89 @@ def backfill_reviewed_ownership(db: Session, contest: models.Contest, jury_ids: 
         db.commit()
         print(f"[Jury Assignment] Backfilled ownership for {len(updates)} decided article(s) in {contest.code}")
 
-def clear_all_pending_assignments(db: Session, contest: models.Contest):
-    """Force a full rebalance of every pending article's queue ownership --
-    call this when the eligible-jury roster or COI/self-review rules change,
-    so the new rules apply fairly across the whole pool immediately, instead
-    of only catching newly-submitted articles going forward. An ordinary new
-    submission should NOT call this -- it would needlessly reshuffle queues
-    jury members are already working through."""
-    db.query(models.Article).filter(
-        models.Article.contest_id == contest.id,
-        models.Article.status == models.ArticleStatus.pending,
-    ).update({"assigned_to_id": None}, synchronize_session=False)
-    db.commit()
+def eligible_juries_for_submitter(submitter_id, jury_ids, restrictions, allow_self_review):
+    """Which of this contest's juries may judge one submitter's articles:
+    everyone except the submitter themselves (unless self-review is on) and
+    anyone carrying a COI restriction against them."""
+    return tuple(sorted(
+        uid for uid in jury_ids
+        if (allow_self_review or uid != submitter_id)
+        and (uid, submitter_id) not in restrictions
+    ))
 
-_rebalance_lock = threading.Lock()
+def plan_scarcity_first(movable, loads, eligible_by_submitter):
+    """Pick an owner for every movable article, most-constrained block first.
 
-def rebalance_pending_articles(db: Session, contest: models.Contest, jury_map: dict = None):
-    """Assign every pending article that has no valid, current jury owner to
-    the least-loaded eligible jury, and backfill ownership for already-decided
-    articles that predate the assigned_to_id column. Cheap no-op when nothing
-    needs it, and safe to call from both write endpoints (proactively) and
-    read endpoints (as a self-heal safety net).
+    `movable` is [(article_id, submitter_id, current_owner_id)] and `loads`
+    maps every jury id to the load it already carries that this pass cannot
+    move (decided articles, plus anything a reviewer currently holds a lock
+    on). `loads` is updated in place. Returns {article_id: jury_id}.
 
-    Serialized process-wide: concurrent requests (e.g. several jury members
-    loading the panel at once) would otherwise all read the same "who's
-    least loaded" snapshot before any of them commit, redo the same backfill
-    work, and hand out assignments that don't account for each other."""
-    with _rebalance_lock:
-        _rebalance_pending_articles_locked(db, contest, jury_map)
+    Articles are grouped by submitter -- every article from one submitter has
+    exactly the same set of eligible juries -- and the groups are placed in
+    order of scarcity: fewest eligible juries first.
 
-def _rebalance_pending_articles_locked(db: Session, contest: models.Contest, jury_map: dict = None):
-    if jury_map is None:
-        jury_map = get_eligible_juries(contest)
+    That ordering is the whole point. Assigning in article-id order lets an
+    unconstrained block (one everybody may judge) spread itself perfectly
+    evenly first, which leaves no slack for a restricted block arriving
+    later: a jury excluded from that block -- because they submitted it, or
+    because of a COI restriction -- can then never catch up, and ends the
+    contest hundreds of articles light. Placing the scarce groups while every
+    jury still has slack, then letting the unconstrained groups fill whatever
+    dips remain, keeps the totals level.
+
+    Inside a group the load is water-filled (each article goes to whichever
+    eligible jury is lightest at that moment), and an article whose current
+    owner is still within that jury's share of the group keeps its owner, so
+    rerunning this only moves what balance actually requires."""
+    by_submitter = defaultdict(list)
+    for article_id, submitter_id, owner_id in movable:
+        by_submitter[submitter_id].append((article_id, owner_id))
+
+    groups = [
+        (eligible_by_submitter[submitter_id], items)
+        for submitter_id, items in by_submitter.items()
+        if eligible_by_submitter[submitter_id]
+    ]
+    # Scarcest first; among equally constrained groups the largest one first,
+    # since it has the least room left to absorb a bad placement.
+    groups.sort(key=lambda group: (len(group[0]), -len(group[1]), group[0]))
+
+    plan = {}
+    for eligible, items in groups:
+        quota = defaultdict(int)
+        heap = [(loads[uid], uid) for uid in eligible]
+        heapq.heapify(heap)
+        for _ in items:
+            load, uid = heapq.heappop(heap)
+            quota[uid] += 1
+            loads[uid] = load + 1
+            heapq.heappush(heap, (load + 1, uid))
+
+        # Hand out each jury's share, letting them keep articles they already
+        # own before anything gets moved.
+        leftovers = []
+        for article_id, owner_id in items:
+            if quota.get(owner_id):
+                quota[owner_id] -= 1
+                plan[article_id] = owner_id
+            else:
+                leftovers.append(article_id)
+        openings = [uid for uid, remaining in quota.items() for _ in range(remaining)]
+        for article_id, uid in zip(leftovers, openings):
+            plan[article_id] = uid
+    return plan
+
+def _assign_pending_articles(db: Session, contest: models.Contest, jury_map: dict, full: bool) -> int:
+    """Shared body for the incremental rebalance and the full redistribution.
+
+    `full=False` only places pending articles that have no valid current owner
+    -- cheap, and the common case. `full=True` reconsiders every pending
+    article in the contest, which is what repairs an imbalance that has
+    already been baked into existing assignments."""
     jury_ids = set(jury_map.keys())
     if not jury_ids:
-        return
+        return 0
     backfill_reviewed_ownership(db, contest, jury_ids)
 
     restrictions = {
@@ -790,30 +844,100 @@ def _rebalance_pending_articles_locked(db: Session, contest: models.Contest, jur
     ).group_by(models.Article.assigned_to_id).all():
         loads[uid] = count
 
-    candidates = db.query(models.Article.id, models.Article.submitter_id).filter(
-        *base_filters,
-        models.Article.status == models.ArticleStatus.pending,
-        or_(models.Article.assigned_to_id.is_(None), ~models.Article.assigned_to_id.in_(jury_ids)),
-    ).order_by(models.Article.id.asc()).limit(REBALANCE_BATCH_LIMIT).all()
+    query = db.query(
+        models.Article.id, models.Article.submitter_id, models.Article.assigned_to_id
+    ).filter(*base_filters, models.Article.status == models.ArticleStatus.pending)
+    if not full:
+        query = query.filter(or_(
+            models.Article.assigned_to_id.is_(None),
+            ~models.Article.assigned_to_id.in_(jury_ids),
+        ))
+    movable = query.order_by(models.Article.id.asc()).limit(
+        REDISTRIBUTE_BATCH_LIMIT if full else REBALANCE_BATCH_LIMIT).all()
 
-    if not candidates:
-        return
+    if full and movable:
+        # An article somebody is actively reviewing right now stays put.
+        held = {row[0] for row in db.query(models.ArticleLock.article_id).filter(
+            models.ArticleLock.locked_at >= utcnow() - timedelta(minutes=REVIEW_LOCK_MINUTES)
+        ).all()}
+        if held:
+            movable = [row for row in movable if row[0] not in held]
+    if not movable:
+        return 0
 
-    updates = []
-    for article_id, submitter_id in candidates:
-        choices = [uid for uid in jury_ids
-                   if (contest.allow_self_review or uid != submitter_id)
-                   and (uid, submitter_id) not in restrictions]
-        if not choices:
-            continue
-        chosen = min(choices, key=lambda uid: (loads[uid], uid))
-        updates.append({"id": article_id, "assigned_to_id": chosen})
-        loads[chosen] += 1
+    # `loads` counted the movable articles under their current owner; take them
+    # back out, so what's left is only the load this pass cannot move.
+    for _article_id, _submitter_id, owner_id in movable:
+        if owner_id in loads:
+            loads[owner_id] -= 1
 
-    if updates:
-        db.bulk_update_mappings(models.Article, updates)
-        db.commit()
-        print(f"[Jury Assignment] Rebalanced {len(updates)} pending article(s) for {contest.code}")
+    eligible_by_submitter = {}
+    for _article_id, submitter_id, _owner_id in movable:
+        if submitter_id not in eligible_by_submitter:
+            eligible_by_submitter[submitter_id] = eligible_juries_for_submitter(
+                submitter_id, jury_ids, restrictions, contest.allow_self_review)
+
+    plan = plan_scarcity_first(movable, loads, eligible_by_submitter)
+
+    moves = defaultdict(list)
+    for article_id, _submitter_id, owner_id in movable:
+        # No entry in the plan means nobody is allowed to judge that submitter
+        # any more (they left the jury, or a restriction now covers everyone).
+        # Drop the stale owner rather than leaving the article parked with a
+        # jury who may not touch it.
+        chosen = plan.get(article_id)
+        if chosen != owner_id:
+            moves[chosen].append(article_id)
+    if not moves:
+        return 0
+
+    # One UPDATE per jury per 1000 ids -- a full redistribution can touch tens
+    # of thousands of rows, and per-row updates would be far too slow there.
+    moved = 0
+    for uid, article_ids in moves.items():
+        for start in range(0, len(article_ids), 1000):
+            chunk = article_ids[start:start + 1000]
+            db.query(models.Article).filter(models.Article.id.in_(chunk)).update(
+                {"assigned_to_id": uid}, synchronize_session=False)
+            moved += len(chunk)
+    db.commit()
+    print(f"[Jury Assignment] {'Redistributed' if full else 'Assigned'} "
+          f"{moved} pending article(s) for {contest.code}")
+    return moved
+
+_rebalance_lock = threading.Lock()
+
+def rebalance_pending_articles(db: Session, contest: models.Contest, jury_map: dict = None):
+    """Assign every pending article that has no valid, current jury owner to
+    the least-loaded eligible jury, and backfill ownership for already-decided
+    articles that predate the assigned_to_id column. Cheap no-op when nothing
+    needs it, and safe to call from both write endpoints (proactively) and
+    read endpoints (as a self-heal safety net). Articles that already have a
+    valid owner are left alone -- use redistribute_pending_articles to
+    re-level the queues themselves.
+
+    Serialized process-wide: concurrent requests (e.g. several jury members
+    loading the panel at once) would otherwise all read the same "who's
+    least loaded" snapshot before any of them commit, redo the same backfill
+    work, and hand out assignments that don't account for each other."""
+    with _rebalance_lock:
+        return _assign_pending_articles(
+            db, contest, jury_map or get_eligible_juries(contest), full=False)
+
+def redistribute_pending_articles(db: Session, contest: models.Contest, jury_map: dict = None):
+    """Re-plan ownership of *every* pending article in the contest so per-jury
+    totals come out as level as the COI/self-review rules allow.
+
+    This is the repair path for an imbalance that already exists: a jury who
+    submits a large batch cannot judge it, and any COI restriction against
+    them shrinks their intake further, so incremental assignment alone leaves
+    them permanently behind. Call it when the roster or the rules change,
+    after a bulk submission, or on demand from the admin panel. It reuses
+    existing assignments wherever balance permits and skips articles under an
+    active review lock, so juries keep the queue they're working through."""
+    with _rebalance_lock:
+        return _assign_pending_articles(
+            db, contest, jury_map or get_eligible_juries(contest), full=True)
 
 def serialize_jury_article(article: models.Article, jury_map: dict) -> dict:
     """Same item shape the old jury-panel projection returned, built live
@@ -1287,8 +1411,7 @@ def update_contest(code: str, data: ContestUpdate, _: models.User = Depends(get_
     if data.include_talk_header is not None: c.include_talk_header = data.include_talk_header
     db.commit()
     if self_review_changed:
-        clear_all_pending_assignments(db, c)
-        rebalance_pending_articles(db, c)
+        redistribute_pending_articles(db, c)
     return {"status": "success"}
 
 @app.delete("/api/admin/contests/{code}")
@@ -1328,8 +1451,7 @@ def assign_jury(data: AssignJury, _: models.User = Depends(get_owner_user), db: 
     db.commit()
     if added:
         db.refresh(contest)
-        clear_all_pending_assignments(db, contest)
-        rebalance_pending_articles(db, contest)
+        redistribute_pending_articles(db, contest)
     return {"status": "success", "added": added}
 
 @app.post("/api/admin/unassign-jury")
@@ -1345,9 +1467,20 @@ def unassign_jury(data: UnassignJury, _: models.User = Depends(get_owner_user), 
     db.query(models.ContestJuryRestriction).filter_by(contest_id=contest.id, jury_user_id=user.id).delete()
     db.commit()
     db.refresh(contest)
-    clear_all_pending_assignments(db, contest)
-    rebalance_pending_articles(db, contest)
+    redistribute_pending_articles(db, contest)
     return {"status": "success", "removed": data.wiki_username}
+
+@app.post("/api/admin/contests/{code}/redistribute")
+def redistribute_contest_queues(code: str, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
+    """Re-level every jury's pending queue on demand. Useful after a jury
+    member submits a large batch of their own articles: they cannot judge
+    those, and anyone restricted against them cannot either, so the queues
+    drift apart until they are re-planned as a whole."""
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    moved = redistribute_pending_articles(db, contest)
+    return {"status": "success", "moved": moved}
 
 @app.get("/api/admin/contests/{code}/jury-restrictions")
 def get_jury_restrictions(code: str, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
@@ -1378,8 +1511,7 @@ def add_jury_restriction(code: str, data: JuryRestriction, _: models.User = Depe
     item = models.ContestJuryRestriction(contest_id=contest.id, jury_user_id=jury.id, submitter_user_id=submitter.id)
     db.add(item)
     db.commit()
-    clear_all_pending_assignments(db, contest)
-    rebalance_pending_articles(db, contest)
+    redistribute_pending_articles(db, contest)
     return {"status": "success", "id": item.id}
 
 @app.delete("/api/admin/contests/{code}/jury-restrictions/{restriction_id}")
@@ -1392,6 +1524,7 @@ def delete_jury_restriction(code: str, restriction_id: int, _: models.User = Dep
         raise HTTPException(status_code=404, detail="Restriction not found")
     db.delete(item)
     db.commit()
+    redistribute_pending_articles(db, contest)
     return {"status": "success", "removed": restriction_id}
 
 @app.get("/api/admin/contests/{code}/banned-users")
@@ -2101,7 +2234,7 @@ async def submit_bulk(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database concurrency issue during bulk submit: {str(e)}")
 
-    rebalance_pending_articles(db, contest)
+    redistribute_pending_articles(db, contest)
 
     valid_titles = [r.title for r in results if r.is_valid]
     print(f"[submit-bulk] Talk Template Debug: valid_titles_count={len(valid_titles)}, add_talk_template={contest.add_talk_template}, template_name='{contest.talk_template_name}'")
