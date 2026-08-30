@@ -147,7 +147,36 @@ class SystemLog(Base):
     username = Column(String(255), nullable=True)
     timestamp = Column(DateTime, default=utcnow)
 
+class DeletedArticleLog(Base):
+    """Permanent record of every article removed from a contest.
+
+    Deletion used to leave nothing behind but a SystemLog line with a count
+    ("removed 500 article(s)"), so there was no way to tell *which* pages went
+    or to put them back. One row is written here per deleted article, before
+    the row is destroyed, capturing enough to identify and re-submit it.
+
+    Deliberately not a foreign key to articles.id -- the article is gone. The
+    original id is kept as a plain integer for cross-referencing older logs.
+    This table is never auto-pruned; it is the audit trail.
+    """
+    __tablename__ = 'deleted_article_log'
+    id = Column(Integer, primary_key=True, index=True)
+    article_id = Column(Integer, nullable=False, index=True)   # id the article had before deletion
+    contest_id = Column(Integer, ForeignKey('contests.id'), nullable=False, index=True)
+    contest_code = Column(String(50), nullable=True)
+    title = Column(String(255), nullable=False)
+    submitted_by = Column(String(255), nullable=True)          # wiki_username of the submitter
+    wiki_creator = Column(String(255), nullable=True)
+    wiki_creation_date = Column(DateTime, nullable=True)
+    submitted_at = Column(DateTime, nullable=True)
+    status = Column(String(50), nullable=True)                 # status at the moment of deletion
+    validation_error = Column(String(500), nullable=True)
+    review_count = Column(Integer, default=0, nullable=False)  # reviews destroyed along with it
+    deleted_by = Column(String(255), nullable=False)           # wiki_username who performed the delete
+    deleted_at = Column(DateTime, default=utcnow, nullable=False, index=True)
+
 class TalkPageJob(Base):
+
     """One queued talk-page template edit.
 
     Talk-page templates used to be written by a FastAPI BackgroundTask that

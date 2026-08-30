@@ -415,11 +415,43 @@ def run_auto_migrations(db_engine):
         else:
             print("[Migration] 'contest_banned_users' table already exists.")
 
+        if 'deleted_article_log' not in existing_tables:
+            with db_engine.connect() as conn:
+                try:
+                    conn.execute(text(f"""
+                        CREATE TABLE IF NOT EXISTS deleted_article_log (
+                            id INTEGER NOT NULL {"AUTO_INCREMENT" if is_mysql else ""} PRIMARY KEY,
+                            article_id INTEGER NOT NULL,
+                            contest_id INTEGER NOT NULL,
+                            contest_code VARCHAR(50),
+                            title VARCHAR(255) NOT NULL,
+                            submitted_by VARCHAR(255),
+                            wiki_creator VARCHAR(255),
+                            wiki_creation_date DATETIME,
+                            submitted_at DATETIME,
+                            status VARCHAR(50),
+                            validation_error VARCHAR(500),
+                            review_count INTEGER NOT NULL DEFAULT 0,
+                            deleted_by VARCHAR(255) NOT NULL,
+                            deleted_at DATETIME NOT NULL,
+                            FOREIGN KEY (contest_id) REFERENCES contests(id)
+                        )
+                    """))
+                    conn.commit()
+                    print("[Migration] Created 'deleted_article_log' table.")
+                except Exception as ex:
+                    print(f"[Migration] WARN creating deleted_article_log: {ex}")
+        else:
+            print("[Migration] 'deleted_article_log' table already exists.")
+
         # Composite indexes used by contest dashboards and jury queues.
         index_statements = [
             "CREATE INDEX IF NOT EXISTS ix_articles_contest_id ON articles (contest_id)",
             "CREATE INDEX IF NOT EXISTS ix_articles_contest_status ON articles (contest_id, status)",
             "CREATE INDEX IF NOT EXISTS ix_articles_contest_assigned ON articles (contest_id, assigned_to_id)",
+            # The deletion audit trail is read per contest, newest first.
+            "CREATE INDEX IF NOT EXISTS ix_deleted_log_contest_time ON deleted_article_log (contest_id, deleted_at)",
+            "CREATE INDEX IF NOT EXISTS ix_deleted_log_article ON deleted_article_log (article_id)",
             # /log and /articles/page filter by contest_id and paginate by
             # ORDER BY id (keyset cursor). Without contest_id+id together in
             # one index, MariaDB can't satisfy both the filter and the sort

@@ -110,6 +110,9 @@
 .submission-groups .refresh-submissions:hover { background: #274866 !important; }
 .select-all-submissions, .group-select { display: inline-flex; align-items: center; gap: 7px; color: #355b80; font-size: .8rem; font-weight: 700; cursor: pointer; }
 .select-all-submissions input, .group-select input, .submitter-article input { accent-color: #355b80; }
+.select-all-submissions.is-disabled, .group-select.is-disabled { color: #8ba3ba; cursor: not-allowed; }
+.select-all-submissions.is-disabled input, .group-select.is-disabled input { cursor: not-allowed; }
+.submission-heading-meta .selection-locked-note { border-color: #e0c68a; background: rgba(255,248,230,.9); color: #8a6d1f; }
 .submitter-groups { display: grid; gap: 10px; }
 .submitter-group { overflow: hidden; background: #fff; border: 1px solid #c7d6e3; border-radius: 12px; box-shadow: 0 5px 16px rgba(32,54,77,.06); }
 .submitter-group-header { display: flex; align-items: center; gap: 14px; min-height: 62px; padding: 8px 14px 8px 18px; }

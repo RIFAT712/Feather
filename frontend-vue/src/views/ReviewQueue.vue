@@ -842,25 +842,47 @@ const toggleBulkSelection = (article_id, e) => {
   if (selectedForBulk.value.length < 2) bulkComment.value = '';
 };
 
+// Both bulk endpoints cap a single request at 500 ids and now reject anything
+// larger outright instead of silently dropping the overflow, so send the
+// selection in chunks and merge the per-chunk results.
+const BULK_CHUNK = 200;
+
+const postBulkInChunks = async (url, ids, extraBody = {}) => {
+  const succeeded = [];
+  const failed = [];
+  for (let start = 0; start < ids.length; start += BULK_CHUNK) {
+    const chunk = ids.slice(start, start + BULK_CHUNK);
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...extraBody, article_ids: chunk }),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(result.detail || `Request failed (${res.status})`);
+      succeeded.push(...(result.succeeded || []));
+      failed.push(...(result.failed || []));
+    } catch (err) {
+      // Keep the chunks that already committed rather than losing the run.
+      failed.push(...chunk.map(id => ({ article_id: id, detail: err.message || 'Request failed' })));
+    }
+  }
+  return { succeeded, failed };
+};
+
 const handleBulkDecision = async (decision) => {
   if (isSubmitting.value || !selectedForBulk.value.length) return;
   isSubmitting.value = true;
-  const errors = [];
   const selectedIds = [...selectedForBulk.value];
   const currentWasSelected = selectedIds.includes(currentArticle.value?.article_id);
   const reviewComment = bulkComment.value.trim() || 'Bulk reviewed';
+  let errors = [];
   try {
-    const res = await fetch('/api/articles/bulk-review', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ article_ids: selectedIds, decision, comment: reviewComment }),
-    });
-    const result = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(result.detail || 'Bulk review failed');
-    for (const article_id of result.succeeded || []) {
+    const { succeeded, failed } = await postBulkInChunks('/api/articles/bulk-review', selectedIds, { decision, comment: reviewComment });
+    for (const article_id of succeeded) {
       if (decision === 'accepted' || decision === 'rejected') permanentlyLockedArticleIds.add(article_id);
     }
-    errors.push(...(result.failed || []).map(item => item.article_id));
+    errors = failed.map(item => item.article_id);
     selectedForBulk.value = [];
     bulkComment.value = '';
     const currentWasSuccessfullyReviewed = currentWasSelected && !errors.includes(currentArticle.value?.article_id);
@@ -895,14 +917,14 @@ const handleBulkRemove = async () => {
   isSubmitting.value = true;
   try {
     const selectedIds = [...selectedForBulk.value];
-    const res = await fetch('/api/articles/bulk-delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ article_ids: selectedIds }),
-    });
-    const result = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(result.detail || 'Bulk remove failed');
-    selectedForBulk.value = [];
+    const { failed } = await postBulkInChunks('/api/articles/bulk-delete', selectedIds);
+    // Anything that failed stays selected so the jury can see and retry it,
+    // instead of the whole selection silently clearing on a partial run.
+    const failedIds = failed.map(item => item.article_id);
+    selectedForBulk.value = selectedIds.filter(id => failedIds.includes(id));
+    if (failed.length) {
+      console.warn(`Bulk remove: ${failed.length} article(s) failed to delete:`, failed);
+    }
     bulkComment.value = '';
     currentArticle.value = null;
     // Reconcile silently; bulk deletion must not replace the workspace with

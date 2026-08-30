@@ -233,6 +233,56 @@ const removeArticle = async (article) => {
     removingArticleId.value = null;
   }
 };
+// The API rejects batches over 500 ids, and one huge transaction is exactly
+// what risked timing out partway through a delete. Send the selection in
+// chunks so each request stays small, a failure only costs its own chunk,
+// and the button can report real progress.
+const BULK_DELETE_CHUNK = 200;
+const bulkProgress = ref(null);
+
+// "All submitted" streams in progressively, so a group's article list keeps
+// growing while it's on screen. Select-all used to read that list at click
+// time and silently pick up everything the crawl added afterwards -- ticking
+// a group that showed 2 articles could end up with thousands selected, right
+// next to a Delete button. Lock selection until the crawl is done.
+const selectionLocked = computed(() => activeTab.value === 'submissions' && !isSearchingSubmissions.value && isLoadingMoreArticles.value);
+
+const bulkRemoveLabel = (count) => {
+  if (!isBulkRemoving.value) return `Delete selected${count ? ` (${count})` : ''}`;
+  const progress = bulkProgress.value;
+  return progress && progress.total ? `Removing ${progress.done}/${progress.total}…` : 'Removing…';
+};
+
+const bulkDeleteIds = async (ids) => {
+  const succeeded = [];
+  const failed = [];
+  bulkProgress.value = { done: 0, total: ids.length };
+  try {
+    for (let start = 0; start < ids.length; start += BULK_DELETE_CHUNK) {
+      const chunk = ids.slice(start, start + BULK_DELETE_CHUNK);
+      try {
+        const res = await fetch('/api/articles/bulk-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ article_ids: chunk }),
+        });
+        const result = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(result.detail || `Request failed (${res.status})`);
+        succeeded.push(...(result.succeeded || []));
+        failed.push(...(result.failed || []));
+      } catch (err) {
+        // A dead chunk must not discard the chunks that already committed --
+        // record it and keep going so the caller can say exactly what survived.
+        failed.push(...chunk.map(id => ({ article_id: id, detail: err.message || 'Request failed' })));
+      }
+      bulkProgress.value = { done: Math.min(start + chunk.length, ids.length), total: ids.length };
+    }
+  } finally {
+    bulkProgress.value = null;
+  }
+  return { succeeded, failed };
+};
+
 const removeSelectedSubmissions = async (group = null) => {
   if (isBulkRemoving.value) return;
   const ids = group
@@ -243,18 +293,16 @@ const removeSelectedSubmissions = async (group = null) => {
   isBulkRemoving.value = true;
   removalError.value = '';
   try {
-    const res = await fetch('/api/articles/bulk-delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ article_ids: ids }),
-    });
-    const result = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(result.detail || 'Could not remove selected articles.');
-    const failed = (result.failed || []).map(item => item.article_id);
-    selectedSubmissionIds.value = selectedSubmissionIds.value.filter(id => failed.includes(id));
-    if (failed.length) throw new Error(`Could not remove ${failed.length} article(s).`);
-    removeArticlesFromLogCache(queryClient, route.params.code, ids.filter(id => !failed.includes(id)));
+    const { succeeded, failed } = await bulkDeleteIds(ids);
+    const failedIds = failed.map(item => item.article_id);
+    selectedSubmissionIds.value = selectedSubmissionIds.value.filter(id => failedIds.includes(id));
+    removeArticlesFromLogCache(queryClient, route.params.code, succeeded);
+    // Refresh before surfacing any partial failure, so the list on screen
+    // always reflects what actually got removed.
     await Promise.all([fetchArticles(), fetchStats()]);
+    if (failed.length) {
+      removalError.value = `Removed ${succeeded.length} of ${ids.length}. ${failed.length} could not be removed — ${failed[0].detail}`;
+    }
   } catch (err) {
     removalError.value = err.message || 'Could not remove selected articles.';
   } finally {
@@ -270,21 +318,16 @@ const removeSelectedErrors = async () => {
   isBulkRemoving.value = true;
   removalError.value = '';
   try {
-    const res = await fetch('/api/articles/bulk-delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ article_ids: ids }),
-    });
-    const result = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(result.detail || 'Could not remove selected articles.');
-    const failed = (result.failed || []).map(item => item.article_id);
-    selectedErrorIds.value = failed;
-    if (failed.length) throw new Error(`Could not remove ${failed.length} article(s).`);
+    const { succeeded, failed } = await bulkDeleteIds(ids);
+    selectedErrorIds.value = failed.map(item => item.article_id);
     // Errored articles are also part of the shared "all submitted" cache if
     // that tab was ever opened -- prune them there too, not just their own
     // separately-fetched list.
-    removeArticlesFromLogCache(queryClient, route.params.code, ids.filter(id => !failed.includes(id)));
+    removeArticlesFromLogCache(queryClient, route.params.code, succeeded);
     await Promise.all([fetchErrorArticles(), fetchStats()]);
+    if (failed.length) {
+      removalError.value = `Removed ${succeeded.length} of ${ids.length}. ${failed.length} could not be removed — ${failed[0].detail}`;
+    }
   } catch (err) {
     removalError.value = err.message || 'Could not remove selected articles.';
   } finally {
@@ -622,7 +665,7 @@ const handleExportWikitable = () => {
         </header>
         <div class="errors-toolbar">
           <label class="errors-select-all"><input type="checkbox" :checked="allErrorsSelected" @change="toggleAllErrors" aria-label="Select all errored articles" /><span>Select all</span><small v-if="selectedErrorIds.length">{{ selectedErrorIds.length }} selected</small></label>
-          <div class="errors-toolbar-actions"><button v-if="erroredArticles.length" type="button" class="bulk-remove-submissions errors-delete-button" :disabled="!selectedErrorIds.length || isBulkRemoving" @click="removeSelectedErrors"><CdxIcon :icon="cdxIconTrash" />{{ isBulkRemoving ? 'Removing…' : `Delete selected${selectedErrorIds.length ? ` (${selectedErrorIds.length})` : ''}` }}</button><button type="button" class="refresh-submissions errors-refresh-button" @click="fetchErrorArticles(); fetchStats()">Refresh list</button></div>
+          <div class="errors-toolbar-actions"><button v-if="erroredArticles.length" type="button" class="bulk-remove-submissions errors-delete-button" :disabled="!selectedErrorIds.length || isBulkRemoving" @click="removeSelectedErrors"><CdxIcon :icon="cdxIconTrash" />{{ bulkRemoveLabel(selectedErrorIds.length) }}</button><button type="button" class="refresh-submissions errors-refresh-button" @click="fetchErrorArticles(); fetchStats()">Refresh list</button></div>
         </div>
         <p v-if="removalError" class="removal-error">{{ removalError }}</p>
         <div v-if="isLoadingErrorArticles && !errorArticles.length" class="errors-empty-state"><span class="errors-empty-icon">…</span><strong>Loading validation failures</strong><span>Checking the latest submissions.</span></div>
@@ -651,6 +694,7 @@ const handleExportWikitable = () => {
               </template>
               <span><strong>{{ groupedSubmissions.length.toLocaleString() }}</strong> users loaded</span>
               <span v-if="selectedSubmissionIds.length"><strong>{{ selectedSubmissionIds.length.toLocaleString() }}</strong> selected</span>
+              <span v-if="selectionLocked" class="selection-locked-note">Still loading — selection is locked until every submission is in.</span>
             </div>
             <div class="submission-search">
               <span class="submission-search-icon" aria-hidden="true">🔍</span>
@@ -672,12 +716,12 @@ const handleExportWikitable = () => {
             </div>
           </div>
           <div class="submission-toolbar">
-            <label class="select-all-submissions">
-              <input type="checkbox" :checked="allSubmissionsSelected" :indeterminate="someSubmissionsSelected" @change="toggleAllSubmissions" aria-label="Select all submitted articles" />
+            <label class="select-all-submissions" :class="{ 'is-disabled': selectionLocked }">
+              <input type="checkbox" :checked="allSubmissionsSelected" :indeterminate="someSubmissionsSelected" :disabled="selectionLocked" @change="toggleAllSubmissions" aria-label="Select all submitted articles" />
               Select all
             </label>
-            <button type="button" class="bulk-remove-submissions" :disabled="!selectedSubmissionIds.length || isBulkRemoving" @click="removeSelectedSubmissions()">
-              {{ isBulkRemoving ? 'Removing…' : `Delete selected (${selectedSubmissionIds.length})` }}
+            <button type="button" class="bulk-remove-submissions" :disabled="!selectedSubmissionIds.length || isBulkRemoving || selectionLocked" @click="removeSelectedSubmissions()">
+              {{ bulkRemoveLabel(selectedSubmissionIds.length) }}
             </button>
             <button type="button" class="refresh-submissions" @click="fetchArticles(); fetchStats()">Refresh</button>
           </div>
@@ -695,11 +739,11 @@ const handleExportWikitable = () => {
                 <span class="group-user">{{ group.username }}</span>
                 <span class="group-count">{{ group.articles.length }}</span>
               </button>
-              <label class="group-select">
-                <input type="checkbox" :checked="groupSelectedCount(group) === group.articles.length" :indeterminate="groupPartiallySelected(group)" @change="toggleGroupSelection(group)" :aria-label="`Select all articles by ${group.username}`" />
+              <label class="group-select" :class="{ 'is-disabled': selectionLocked }">
+                <input type="checkbox" :checked="groupSelectedCount(group) === group.articles.length" :indeterminate="groupPartiallySelected(group)" :disabled="selectionLocked" @change="toggleGroupSelection(group)" :aria-label="`Select all articles by ${group.username}`" />
                 Select all
               </label>
-              <button type="button" class="group-delete" :disabled="!groupSelectedCount(group) || isBulkRemoving" @click="removeSelectedSubmissions(group)">Delete selected</button>
+              <button type="button" class="group-delete" :disabled="!groupSelectedCount(group) || isBulkRemoving || selectionLocked" @click="removeSelectedSubmissions(group)">Delete selected</button>
             </header>
             <div v-if="expandedSubmitters[group.username]" class="submitter-articles">
               <label v-for="article in visibleGroupArticles(group)" :key="article.article_id" class="submitter-article">

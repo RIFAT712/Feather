@@ -123,7 +123,7 @@ async def add_process_time_header(request: Request, call_next):
 # runtime images don't reliably include .git, so this is a guaranteed-simple
 # way to confirm what's actually running vs. what's on GitHub, instead of
 # inferring it from behavior after every redeploy.
-APP_BUILD_MARKER = "2026-08-28-shared-cross-view-cache"
+APP_BUILD_MARKER = "2026-08-30-bulk-delete-and-deletion-log"
 
 @app.get("/api/version")
 def get_version():
@@ -2905,24 +2905,131 @@ def get_user_profile(username: str, db: Session = Depends(get_db)):
         "judged_contests": judged
     }
 
+# Deleting one article at a time cost three round-trips per row (its reviews,
+# its locks, then the row itself), so a few hundred selected articles turned
+# into a couple of thousand statements inside a single transaction -- slow
+# enough on Toolforge's MariaDB to risk tripping the ingress timeout partway
+# through and leaving the batch half-applied. Set-based deletes make it three
+# statements per chunk no matter how large the batch is.
+_DELETE_CHUNK = 500
+
 def _delete_articles(articles, current_user, db):
     if not articles:
         raise HTTPException(status_code=404, detail="No articles found")
+    # Everything the audit log needs has to be read *before* the rows go away:
+    # once they're deleted, lazy-loading article.contest is unreliable.
+    article_ids = [article.id for article in articles]
+    contest = articles[0].contest
+    contest_code = contest.code if contest else "unknown"
+
+    # Resolve submitter names and review counts in two queries rather than two
+    # per article -- this runs on batches of up to 500.
+    submitter_ids = {article.submitter_id for article in articles if article.submitter_id}
+    submitter_names = {}
+    if submitter_ids:
+        submitter_names = {
+            user_id: username
+            for user_id, username in db.query(models.User.id, models.User.wiki_username)
+                                       .filter(models.User.id.in_(submitter_ids)).all()
+        }
+    review_counts = {}
+    for start in range(0, len(article_ids), _DELETE_CHUNK):
+        chunk = article_ids[start:start + _DELETE_CHUNK]
+        for article_id, count in db.query(models.Review.article_id, func.count(models.Review.id)) \
+                                   .filter(models.Review.article_id.in_(chunk)) \
+                                   .group_by(models.Review.article_id).all():
+            review_counts[article_id] = count
+
+    deleted_at = datetime.utcnow()
+    db.bulk_save_objects([
+        models.DeletedArticleLog(
+            article_id=article.id,
+            contest_id=article.contest_id,
+            contest_code=contest_code,
+            title=article.title,
+            submitted_by=submitter_names.get(article.submitter_id),
+            wiki_creator=article.wiki_creator,
+            wiki_creation_date=article.wiki_creation_date,
+            submitted_at=article.submitted_at,
+            status=article.status.value if hasattr(article.status, "value") else article.status,
+            validation_error=article.validation_error,
+            review_count=review_counts.get(article.id, 0),
+            deleted_by=current_user.wiki_username,
+            deleted_at=deleted_at,
+        )
+        for article in articles
+    ])
+
+    for start in range(0, len(article_ids), _DELETE_CHUNK):
+        chunk = article_ids[start:start + _DELETE_CHUNK]
+        db.query(models.Review).filter(models.Review.article_id.in_(chunk)).delete(synchronize_session=False)
+        db.query(models.ArticleLock).filter(models.ArticleLock.article_id.in_(chunk)).delete(synchronize_session=False)
+        db.query(models.Article).filter(models.Article.id.in_(chunk)).delete(synchronize_session=False)
+    # synchronize_session=False leaves these instances in the identity map as
+    # live rows, so expire-on-commit would try to refresh them from rows that
+    # no longer exist (ObjectDeletedError) the moment anything touched them
+    # again. Detach them instead; callers use the returned ids, not the objects.
     for article in articles:
-        db.query(models.Review).filter_by(article_id=article.id).delete()
-        db.query(models.ArticleLock).filter_by(article_id=article.id).delete()
-        db.delete(article)
-    contest_code = articles[0].contest.code if articles[0].contest else "unknown"
+        db.expunge(article)
     db.add(models.SystemLog(
         level="info",
         source="backend",
-        message=f"User {current_user.wiki_username} removed {len(articles)} article(s) from contest '{contest_code}'.",
+        message=f"User {current_user.wiki_username} removed {len(article_ids)} article(s) from contest '{contest_code}'.",
         username=current_user.wiki_username
     ))
     db.commit()
-    return {"status": "deleted", "deleted_count": len(articles)}
+    return {"status": "deleted", "deleted_count": len(article_ids), "deleted_ids": article_ids}
+
+@app.get("/api/contests/{code}/deleted-articles")
+def get_deleted_articles(
+    code: str,
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    q: Optional[str] = Query(default=None, max_length=255),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """The deletion audit trail for one contest, newest first.
+
+    Jury/owner only: it lists titles that were removed from the contest, which
+    is moderation history rather than public standings.
+    """
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    is_owner = current_user.role == models.RoleEnum.owner
+    is_jury = db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=current_user.id).first() is not None
+    if not (is_owner or is_jury):
+        raise HTTPException(status_code=403, detail="Not authorized to view deletions for this contest")
+
+    query = db.query(models.DeletedArticleLog).filter_by(contest_id=contest.id)
+    if q and q.strip():
+        query = query.filter(models.DeletedArticleLog.title.like(f"%{q.strip()}%"))
+    total = query.count()
+    rows = query.order_by(models.DeletedArticleLog.deleted_at.desc(), models.DeletedArticleLog.id.desc()) \
+                .offset(offset).limit(limit).all()
+    return {
+        "total": total,
+        "items": [
+            {
+                "article_id": row.article_id,
+                "title": row.title,
+                "submitted_by": row.submitted_by,
+                "wiki_creator": row.wiki_creator,
+                "wiki_creation_date": row.wiki_creation_date,
+                "submitted_at": row.submitted_at,
+                "status": row.status,
+                "validation_error": row.validation_error,
+                "review_count": row.review_count,
+                "deleted_by": row.deleted_by,
+                "deleted_at": row.deleted_at,
+            }
+            for row in rows
+        ],
+    }
 
 @app.delete("/api/articles/{article_id}")
+
 def delete_article(article_id: int, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     article = db.query(models.Article).filter_by(id=article_id).first()
     if not article:
@@ -3023,12 +3130,29 @@ class BulkReviewRequest(BaseModel):
 class BulkDeleteRequest(BaseModel):
     article_ids: List[int]
 
+# Both bulk endpoints used to silently slice the incoming list to the first
+# 500 ids. Anything past that was dropped without landing in `succeeded` or
+# `failed`, so the caller got a 200 that looked like a clean sweep while most
+# of the batch was never touched -- selecting a 814-article submitter and
+# hitting delete removed 500 and reported success. Reject an oversized batch
+# outright instead; the frontend chunks below this limit.
+MAX_BULK_ARTICLE_IDS = 500
+
+def _dedupe_bulk_ids(article_ids):
+    unique_ids = list(dict.fromkeys(article_ids))
+    if len(unique_ids) > MAX_BULK_ARTICLE_IDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many articles in one request ({len(unique_ids)}). Send at most {MAX_BULK_ARTICLE_IDS} per batch."
+        )
+    return unique_ids
+
 @app.post("/api/articles/bulk-review")
 def bulk_review_articles(data: BulkReviewRequest, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     if data.decision not in ("accepted", "rejected", "skipped"):
         raise HTTPException(status_code=400, detail="Invalid decision")
     succeeded, failed = [], []
-    for article_id in list(dict.fromkeys(data.article_ids))[:500]:
+    for article_id in _dedupe_bulk_ids(data.article_ids):
         try:
             review_article(article_id, ReviewRequest(decision=data.decision, comment=data.comment), current_user, db)
             succeeded.append(article_id)
@@ -3038,28 +3162,45 @@ def bulk_review_articles(data: BulkReviewRequest, current_user: models.User = De
 
 @app.post("/api/articles/bulk-delete")
 def bulk_delete_articles(data: BulkDeleteRequest, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    article_ids = _dedupe_bulk_ids(data.article_ids)
     succeeded, failed = [], []
+    # One query for the whole batch rather than a SELECT per id -- the old
+    # per-id loop cost ~1.9s server-side for 500 ids before a single row was
+    # even deleted.
+    found = {
+        article.id: article
+        for article in db.query(models.Article).filter(models.Article.id.in_(article_ids)).all()
+    } if article_ids else {}
+    is_owner = current_user.role == models.RoleEnum.owner
+    jury_contest_ids = set()
+    if not is_owner:
+        jury_contest_ids = {
+            row.contest_id
+            for row in db.query(models.ContestJury).filter_by(user_id=current_user.id).all()
+        }
     candidates = []
-    for article_id in list(dict.fromkeys(data.article_ids))[:500]:
-        article = db.query(models.Article).filter_by(id=article_id).first()
+    for article_id in article_ids:
+        article = found.get(article_id)
         if not article:
             failed.append({"article_id": article_id, "detail": "Article not found"})
             continue
-        is_owner = current_user.role == models.RoleEnum.owner
-        is_jury = db.query(models.ContestJury).filter_by(contest_id=article.contest_id, user_id=current_user.id).first() is not None
-        if not (is_owner or is_jury):
+        if not (is_owner or article.contest_id in jury_contest_ids):
             failed.append({"article_id": article_id, "detail": "Not authorized to delete articles in this contest"})
             continue
         candidates.append(article)
     if candidates:
+        # Capture the ids up front: _delete_articles detaches the instances, so
+        # reading article.id off them afterwards is not safe.
+        candidate_ids = [article.id for article in candidates]
         try:
             _delete_articles(candidates, current_user, db)
-            succeeded = [article.id for article in candidates]
+            succeeded = candidate_ids
         except HTTPException as error:
-            failed.extend({"article_id": article.id, "detail": error.detail} for article in candidates)
+            db.rollback()
+            failed.extend({"article_id": article_id, "detail": error.detail} for article_id in candidate_ids)
         except Exception as error:
             db.rollback()
-            failed.extend({"article_id": article.id, "detail": str(error)} for article in candidates)
+            failed.extend({"article_id": article_id, "detail": str(error)} for article_id in candidate_ids)
     return {"succeeded": succeeded, "failed": failed, "deleted_count": len(succeeded)}
 
 @app.post("/api/articles/{article_id}/review")
