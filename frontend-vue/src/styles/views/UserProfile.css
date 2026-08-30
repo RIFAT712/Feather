@@ -53,7 +53,7 @@
 .status-badge.validation_failed { background: #fbe7e8; color: #a6404c; }
 .decision-badge.skipped { background: #edf1f4; color: #6a7f8e; }
 .jury-cell { min-width: 160px; }
-.jury-entry { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-bottom: 7px; }
+.jury-entry { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 7px; margin-bottom: 7px; }
 .jury-entry:last-child { margin-bottom: 0; }
 .jury-name { color: #365c76; font-size: .82rem; font-weight: 700; }
 .judgment-comment { min-width: 220px; max-width: 420px; color: #4f6879; font-size: .84rem; line-height: 1.5; white-space: normal; }

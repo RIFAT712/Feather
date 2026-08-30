@@ -214,6 +214,10 @@ Before schema migrations run, the backend writes a rollback snapshot under `back
 
 ## Change Log
 
+| 2026-08-30 | **Centered jury names in profile submissions.** Jury entries in the sortable UserProfile table now center-align consistently, including rows with multiple reviewers, while the separate Status column remains the only article-status display. |
+
+| 2026-08-30 | **Removed duplicate jury decision labels from profile submissions.** The submission Status column remains the single source for the final article status; the Jury column now shows only reviewer names, while the separate review-history section retains individual decisions. |
+
 | 2026-08-30 | **Redesigned the Errored Articles jury workspace.** Replaced the dense validation-failure table with a focused light-theme queue featuring a count hero, clearer selection and bulk-delete controls, readable per-article failure reasons, responsive cards, and an explicit empty/clear state while preserving existing refresh and removal behavior. |
 
 | 2026-08-30 | **Clarified chart legends.** Replaced Chart.js' clickable legend controls with explicit, non-interactive status keys and totals, so the chart colors and counts are self-explanatory and cannot be mistaken for enable/disable buttons. Refined chart panel spacing and surfaces. |

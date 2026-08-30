@@ -150,7 +150,7 @@ const formatDate = (dateStr) => {
             </template>
             <template #item-status="{ row }"><span :class="['status-badge', row.status]">{{ row.status === 'validation_failed' ? 'Failed' : row.status }}</span></template>
             <template #item-jury="{ row }">
-              <template v-if="row.reviews?.length"><div v-for="(review, reviewIndex) in row.reviews" :key="`${row.id}-${reviewIndex}`" class="jury-entry"><span class="jury-name">{{ review.jury }}</span><span :class="['decision-badge', review.decision]">{{ review.decision }}</span></div></template>
+              <template v-if="row.reviews?.length"><div v-for="(review, reviewIndex) in row.reviews" :key="`${row.id}-${reviewIndex}`" class="jury-entry"><span class="jury-name">{{ review.jury }}</span></div></template>
               <span v-else class="muted-value">Awaiting review</span>
             </template>
             <template #item-comment="{ row }">
@@ -194,7 +194,7 @@ const formatDate = (dateStr) => {
                     <template v-if="sub.reviews?.length">
                       <div v-for="(review, reviewIndex) in sub.reviews" :key="`${sub.id}-${reviewIndex}`" class="jury-entry">
                         <span class="jury-name">{{ review.jury }}</span>
-                        <span :class="['decision-badge', review.decision]">{{ review.decision }}</span>
+
                       </div>
                     </template>
                     <span v-else class="muted-value">Awaiting review</span>
