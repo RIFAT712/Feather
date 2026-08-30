@@ -16,6 +16,7 @@ import {
   cdxIconLock,
   cdxIconMenu,
   cdxIconSpeechBubbles,
+  cdxIconSearch,
   cdxIconNext,
   cdxIconTrash,
   cdxIconUpTriangle,
@@ -41,6 +42,7 @@ const reviewPanelCollapsed = ref(false);
 
 const showNewArticles = ref(true);
 const showJudgedArticles = ref(false);
+const judgedSearch = ref("");
 const showOtherReviewed = ref(false);
 const theme = ref(localStorage.getItem('review_queue_theme') || 'light');
 const ownerViewMode = ref('judge');
@@ -470,6 +472,12 @@ const releaseArticleLock = (articleId) => {
 const judgedArticles = computed(() => {
   if (!myUsername.value) return [];
   return articles.value.filter(a => a.reviews.some(r => r.reviewer === myUsername.value));
+});
+
+const filteredJudgedArticles = computed(() => {
+  const query = judgedSearch.value.trim().toLocaleLowerCase();
+  if (!query) return judgedArticles.value;
+  return judgedArticles.value.filter(article => article.title.toLocaleLowerCase().includes(query));
 });
 
 const otherReviewedArticles = computed(() => {
@@ -1100,9 +1108,11 @@ const copyTalkSnippet = () => {
             
             <div v-if="showJudgedArticles" class="rq-group-content is-open">
               <div class="rq-group-inner">
-                <ul class="rq-list">
+                <div class="rq-judged-search-wrap">
+                  <CdxTextInput v-model="judgedSearch" class="rq-judged-search" placeholder="Search judged articles" aria-label="Search judged articles" :start-icon="cdxIconSearch" clearable />
+                </div>\n                <ul class="rq-list">
                   <li
-                    v-for="a in visibleSidebarArticles('judged', judgedArticles)"
+                    v-for="a in visibleSidebarArticles('judged', filteredJudgedArticles)"
                     :key="a.article_id"
                     class="rq-list-item"
                     :class="['rq-item-' + getMyLatestDecision(a), { 'is-active': currentArticle?.article_id === a.article_id }]"
@@ -1113,10 +1123,10 @@ const copyTalkSnippet = () => {
                       <span class="rq-item-meta">{{ a.submitted_by }}</span>
                     </div>
                   </li>
-                  <li v-if="!judgedArticles.length" class="rq-list-empty">
-                    <span>Nothing judged yet</span>
+                  <li v-if="!filteredJudgedArticles.length" class="rq-list-empty">
+                    <span>{{ judgedSearch ? "No matching judged articles" : "Nothing judged yet" }}</span>
                   </li>
-                  <li v-if="hasMoreSidebarArticles('judged', judgedArticles)" class="rq-load-more-wrap">
+                  <li v-if="hasMoreSidebarArticles('judged', filteredJudgedArticles)" class="rq-load-more-wrap">
                     <button class="rq-load-more" @click="loadMoreSidebarArticles('judged', judgedArticles)">Load 100 more</button>
                   </li>
                 </ul>
