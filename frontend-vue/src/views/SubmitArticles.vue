@@ -101,7 +101,12 @@ const fetchUserArticles = async () => {
     }
     const data = await res.json();
     if (mySeq !== fetchSeq) return;
-    userCreatedArticles.value = [...new Set(data.titles || [])];
+    // The endpoint returns [{title, created_at}] (creation date comes free
+    // with the replica row it already reads). Older payloads only had
+    // `titles`, so fall back to that and just show no date.
+    userCreatedArticles.value = data.articles
+      ? data.articles
+      : [...new Set(data.titles || [])].map(title => ({ title, created_at: null }));
   } catch (err) {
     if (mySeq !== fetchSeq) return;
     fetchError.value = 'Failed to fetch articles from Wikipedia.';
@@ -120,26 +125,55 @@ onMounted(async () => {
   } catch (err) { console.error(err); }
 });
 
-const availableArticles = computed(() => userCreatedArticles.value.filter(title => !alreadySubmittedTitles.value.includes(title)));
-const submittedArticles = computed(() => userCreatedArticles.value.filter(title => alreadySubmittedTitles.value.includes(title)));
+const availableArticles = computed(() => userCreatedArticles.value.filter(article => !alreadySubmittedTitles.value.includes(article.title)));
+const submittedArticles = computed(() => userCreatedArticles.value.filter(article => alreadySubmittedTitles.value.includes(article.title)));
 
 const isAvailableOpen = ref(true);
 const isSubmittedOpen = ref(false);
 
+const matchesSearch = (article, query) => article.title.toLowerCase().includes(query);
+
 const filteredAvailableArticles = computed(() => {
   const query = articleSearch.value.toLowerCase().trim();
   if (!query) return availableArticles.value;
-  return availableArticles.value.filter(title => title.toLowerCase().includes(query));
+  return availableArticles.value.filter(article => matchesSearch(article, query));
 });
 
 const filteredSubmittedArticles = computed(() => {
   const query = articleSearch.value.toLowerCase().trim();
   if (!query) return submittedArticles.value;
-  return submittedArticles.value.filter(title => title.toLowerCase().includes(query));
+  return submittedArticles.value.filter(article => matchesSearch(article, query));
 });
 
-const visibleAvailableArticles = computed(() => filteredAvailableArticles.value);
-const visibleSubmittedArticles = computed(() => filteredSubmittedArticles.value);
+// Newest first by default -- what you just wrote is what you're most likely
+// to be submitting. Articles with no creation date (the usercontribs
+// fallback can omit it) sort to the bottom either way rather than jumping
+// around as the direction flips.
+const sortDirection = ref('desc');
+const toggleSortDirection = () => { sortDirection.value = sortDirection.value === 'desc' ? 'asc' : 'desc'; };
+const creationTime = (article) => {
+  const parsed = toDate(article.created_at);
+  const time = parsed ? parsed.getTime() : NaN;
+  return Number.isNaN(time) ? null : time;
+};
+const sortByCreation = (articles) => {
+  const factor = sortDirection.value === 'asc' ? 1 : -1;
+  return [...articles].sort((a, b) => {
+    const at = creationTime(a);
+    const bt = creationTime(b);
+    if (at === null && bt === null) return a.title.localeCompare(b.title);
+    if (at === null) return 1;
+    if (bt === null) return -1;
+    return (at - bt) * factor;
+  });
+};
+const formatCreated = (article) => {
+  const parsed = toDate(article.created_at);
+  return parsed && !Number.isNaN(parsed.getTime()) ? formatDate(parsed) : null;
+};
+
+const visibleAvailableArticles = computed(() => sortByCreation(filteredAvailableArticles.value));
+const visibleSubmittedArticles = computed(() => sortByCreation(filteredSubmittedArticles.value));
 
 const selectionOptions = computed(() => [
   'all',
@@ -157,9 +191,12 @@ const selectionRangeLabel = computed(() => selectionRange.value === 'all'
   : selectionRange.value === 'custom' ? effectiveSelectionLimit.value.toLocaleString() : selectionRange.value.toLocaleString());
 const applySelectionRange = () => {
   if (!selectionRange.value) return;
+  // Select from the sorted, on-screen order so "Select 10" takes the first
+  // ten rows the user can actually see, not ten arbitrary ones.
+  const inView = visibleAvailableArticles.value.map(article => article.title);
   selectedArticles.value = effectiveSelectionLimit.value === Infinity
-    ? [...filteredAvailableArticles.value]
-    : filteredAvailableArticles.value.slice(0, effectiveSelectionLimit.value);
+    ? inView
+    : inView.slice(0, effectiveSelectionLimit.value);
 };
 const deselectAll = () => { selectedArticles.value = []; };
 const toggleArticleSelection = (title, event) => {
@@ -363,27 +400,39 @@ const targetDisplayName = computed(() =>
                 <input v-if="selectionRange === 'custom'" v-model.number="customSelectionCount" type="number" min="1" :max="filteredAvailableArticles.length || 1" class="selection-custom-input" aria-label="Custom number of articles" />
               </label>
               <span class="link-btn-sep">·</span>
+              <button
+                type="button"
+                class="sort-toggle"
+                :aria-label="`Sort by creation date, ${sortDirection === 'desc' ? 'newest' : 'oldest'} first`"
+                :title="sortDirection === 'desc' ? 'Newest first — click for oldest first' : 'Oldest first — click for newest first'"
+                @click="toggleSortDirection"
+              >
+                <span>Date</span>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="13" height="13" :class="['sort-toggle__arrow', { 'sort-toggle__arrow--up': sortDirection === 'asc' }]"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v9.586l3.293-3.293a1 1 0 111.414 1.414l-5 5a1 1 0 01-1.414 0l-5-5a1 1 0 111.414-1.414L9 13.586V4a1 1 0 011-1z" clip-rule="evenodd" /></svg>
+              </button>
+              <span class="link-btn-sep">·</span>
               <button class="link-btn" @click="deselectAll">Deselect all</button>
             </div>
           </div>
           <div class="article-list" v-show="isAvailableOpen">
             <label
-              v-for="title in visibleAvailableArticles"
-              :key="title"
+              v-for="article in visibleAvailableArticles"
+              :key="article.title"
               class="article-item"
-              :class="{ 'article-item--checked': selectedArticles.includes(title) }"
+              :class="{ 'article-item--checked': selectedArticles.includes(article.title) }"
             >
               <input
                 type="checkbox"
-                :value="title"
-                :checked="selectedArticles.includes(title)"
-                @change="toggleArticleSelection(title, $event)"
+                :value="article.title"
+                :checked="selectedArticles.includes(article.title)"
+                @change="toggleArticleSelection(article.title, $event)"
                 class="article-item__input"
               />
               <span class="article-item__box">
-                <svg v-if="selectedArticles.includes(title)" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" /></svg>
+                <svg v-if="selectedArticles.includes(article.title)" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" /></svg>
               </span>
-              <span class="article-item__title">{{ title }}</span>
+              <span class="article-item__title">{{ article.title }}</span>
+              <span v-if="formatCreated(article)" class="article-item__date">{{ formatCreated(article) }}</span>
             </label>
           </div>
         </div>
@@ -397,15 +446,16 @@ const targetDisplayName = computed(() =>
           </div>
           <div class="article-list" v-show="isSubmittedOpen">
             <label
-              v-for="title in visibleSubmittedArticles"
-              :key="title"
+              v-for="article in visibleSubmittedArticles"
+              :key="article.title"
               class="article-item article-item--disabled"
             >
-              <input type="checkbox" :value="title" disabled class="article-item__input" />
+              <input type="checkbox" :value="article.title" disabled class="article-item__input" />
               <span class="article-item__box">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" /></svg>
               </span>
-              <span class="article-item__title">{{ title }}</span>
+              <span class="article-item__title">{{ article.title }}</span>
+              <span v-if="formatCreated(article)" class="article-item__date">{{ formatCreated(article) }}</span>
               <span class="already-submitted-inline-badge">Already submitted</span>
             </label>
           </div>

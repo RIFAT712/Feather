@@ -123,7 +123,7 @@ async def add_process_time_header(request: Request, call_next):
 # runtime images don't reliably include .git, so this is a guaranteed-simple
 # way to confirm what's actually running vs. what's on GitHub, instead of
 # inferring it from behavior after every redeploy.
-APP_BUILD_MARKER = "2026-08-30-delete-cascade-talk-jobs"
+APP_BUILD_MARKER = "2026-08-30-submit-creation-dates"
 
 @app.get("/api/version")
 def get_version():
@@ -2760,9 +2760,25 @@ async def get_user_created_articles(code: str, username: str, db: Session = Depe
     if not contest.start_date or not contest.end_date:
         raise HTTPException(status_code=400, detail="Contest has no date range configured")
 
-    titles = query_wiki_replica_user_creations(username, contest.start_date, contest.end_date)
-    if titles is not None:
-        return {"titles": titles, "source": "db"}
+    def serialize(entries):
+        """Both sources produce [{"title", "created_at"}]. `titles` is kept
+        alongside it so nothing that only wants names has to change."""
+        seen, articles = set(), []
+        for entry in entries:
+            title = entry["title"]
+            if title in seen:
+                continue
+            seen.add(title)
+            created_at = entry.get("created_at")
+            articles.append({
+                "title": title,
+                "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
+            })
+        return {"titles": [a["title"] for a in articles], "articles": articles}
+
+    replica_rows = query_wiki_replica_user_creations(username, contest.start_date, contest.end_date)
+    if replica_rows is not None:
+        return {**serialize(replica_rows), "source": "db"}
 
     unique_id = uuid.uuid4().hex[:8]
     contact_email = os.getenv("CONTACT_EMAIL", "contact@example.com")
@@ -2786,7 +2802,7 @@ async def get_user_created_articles(code: str, username: str, db: Session = Depe
                 "ucend": end_ts,
                 "ucdir": "newer",
                 "ucnamespace": 0,
-                "ucprop": "title",
+                "ucprop": "title|timestamp",
                 "ucshow": "new",
                 "uclimit": "max",
                 "format": "json",
@@ -2798,14 +2814,17 @@ async def get_user_created_articles(code: str, username: str, db: Session = Depe
             )
             response.raise_for_status()
             data = response.json()
-            all_titles.extend(c["title"] for c in data.get("query", {}).get("usercontribs", []))
+            all_titles.extend(
+                {"title": c["title"], "created_at": c.get("timestamp")}
+                for c in data.get("query", {}).get("usercontribs", [])
+            )
             uccontinue = data.get("continue", {}).get("uccontinue")
             if not uccontinue:
                 break
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to fetch articles from Wikipedia: {e}")
 
-    return {"titles": list(dict.fromkeys(all_titles)), "source": "api"}
+    return {**serialize(all_titles), "source": "api"}
 
 @app.get("/api/users/{username}/profile")
 def get_user_profile(username: str, db: Session = Depends(get_db)):

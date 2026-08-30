@@ -611,6 +611,22 @@ def query_wiki_replica_batch(titles: list) -> dict:
         return None
 
 
+def _parse_mw_timestamp(value):
+    """MediaWiki's fixed-width "YYYYMMDDHHMMSS" timestamp -> naive UTC datetime.
+
+    The replica returns it as bytes or str depending on the driver, and very
+    old rows can carry zero-padded junk, so anything unparseable becomes None
+    rather than failing the whole listing.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        value = value.decode("ascii", "ignore")
+    try:
+        return datetime.strptime(str(value).strip(), "%Y%m%d%H%M%S")
+    except (ValueError, TypeError):
+        return None
+
 def query_wiki_replica_user_creations(username: str, start: datetime, end: datetime, limit: int = 5000) -> list:
     """
     Queries the Wikimedia MariaDB replica for every mainspace page `username`
@@ -620,9 +636,11 @@ def query_wiki_replica_user_creations(username: str, start: datetime, end: datet
     instead of by a title list. Used to auto-populate SubmitArticles.vue's
     "Articles You Can Submit" list instead of paginating the public
     usercontribs API from the browser.
-    Returns a list of page titles (spaces, not underscores), or None if the
-    replica engine is unavailable or the query fails (triggering the
-    usercontribs HTTP fallback in main.py).
+    Returns a list of {"title", "created_at"} dicts (titles use spaces, not
+    underscores; created_at is a naive-UTC datetime), or None if the replica
+    engine is unavailable or the query fails (triggering the usercontribs
+    HTTP fallback in main.py). The creation timestamp comes free with the
+    row the query already reads, and SubmitArticles.vue shows and sorts by it.
     """
     if not wiki_engine or not username:
         return None
@@ -644,7 +662,8 @@ def query_wiki_replica_user_creations(username: str, start: datetime, end: datet
         with wiki_engine.connect() as conn:
             from sqlalchemy import text
             query = text("""
-                SELECT CONVERT(p.page_title USING utf8mb4) as page_title
+                SELECT CONVERT(p.page_title USING utf8mb4) as page_title,
+                       r.rev_timestamp as rev_timestamp
                 FROM revision r
                 JOIN actor a ON r.rev_actor = a.actor_id
                 JOIN page p ON p.page_id = r.rev_page
@@ -657,7 +676,13 @@ def query_wiki_replica_user_creations(username: str, start: datetime, end: datet
                 LIMIT :limit
             """)
             res = conn.execute(query, {"username": clean_username, "start_ts": start_ts, "end_ts": end_ts, "limit": limit})
-            titles = [row.page_title.replace("_", " ") for row in res]
+            titles = [
+                {
+                    "title": row.page_title.replace("_", " "),
+                    "created_at": _parse_mw_timestamp(row.rev_timestamp),
+                }
+                for row in res
+            ]
         print(f"[Replica] User-creations query for {clean_username!r} ({start_ts}-{end_ts}): {len(titles)} pages")
         return titles
     except Exception as e:
