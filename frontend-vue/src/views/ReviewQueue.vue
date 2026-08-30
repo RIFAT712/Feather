@@ -71,6 +71,7 @@ const assignedStatusStats = ref(null);
 const permanentlyLockedArticleIds = new Set();
 let articleFetchController = null;
 let roleLoaded = false;
+let assignedRefillPromise = null;
 
 const WIKI_BASE = 'https://bn.wiktionary.org/wiki/';
 const DARK_CSS = `
@@ -384,18 +385,30 @@ const fetchArticles = async (showLoading = true, append = false) => {
     if (props.assignedQueue) {
       const ownerQuery = roles.value.is_owner && ownerViewMode.value === 'judge' && selectedJudge.value
         ? `&view_as=${encodeURIComponent(selectedJudge.value)}` : '';
-      const cursor = append && assignedAfterId.value !== null ? `&after_id=${assignedAfterId.value}` : '';
-      const articleEndpoint = `/api/jury-panel/contests/${route.params.code}/articles/page?page_size=250${cursor}${ownerQuery}`;
-      const response = await fetch(articleEndpoint, { signal });
-      if (response.ok) {
+      let cursor = append && assignedAfterId.value !== null ? assignedAfterId.value : null;
+      let combinedArticles = append ? [...articles.value] : [];
+      let shouldFetchMore = true;
+
+      // Load the complete assigned queue across bounded keyset pages. This
+      // keeps the queue stable across reloads and makes the manual next-page
+      // button unnecessary for normal use.
+      while (shouldFetchMore) {
+        const cursorQuery = cursor === null ? '' : `&after_id=${cursor}`;
+        const articleEndpoint = `/api/jury-panel/contests/${route.params.code}/articles/page?page_size=250${cursorQuery}${ownerQuery}`;
+        const response = await fetch(articleEndpoint, { signal });
+        if (!response.ok) throw new Error(`Queue fetch failed (${response.status})`);
         const payload = await response.json();
         const pageItems = ownerVisibleArticles(payload.items || []);
-        assignedAfterId.value = payload.next_after_id ?? null;
+        const existingIds = new Set(combinedArticles.map(article => article.article_id));
+        combinedArticles = [...combinedArticles, ...pageItems.filter(article => !existingIds.has(article.article_id))];
+        articles.value = combinedArticles;
+        assignedAfterId.value = payload.next_after_id ?? cursor;
         assignedHasMore.value = Boolean(payload.has_more);
         assignedStatusStats.value = payload.status_counts
           ? { total: payload.total, ...payload.status_counts }
-          : null;
-        articles.value = append ? [...articles.value, ...pageItems] : pageItems;
+          : assignedStatusStats.value;
+        cursor = payload.next_after_id ?? null;
+        shouldFetchMore = Boolean(payload.has_more) && Boolean(payload.items?.length) && cursor !== null;
       }
     } else {
       // The legacy fallback queue needs every article (for New/My Judged/Other
@@ -481,6 +494,32 @@ const loadMoreAssignedArticles = () => {
   if (assignedHasMore.value && !isLoading.value) fetchArticles(false, true);
 };
 
+// Keep an assigned queue rolling: judged articles remain available in the
+// history sections while one replacement is appended from the server.
+const refillAssignedQueue = async (count = 1) => {
+  if (!props.assignedQueue || !assignedHasMore.value || assignedAfterId.value === null) return;
+  if (assignedRefillPromise) return assignedRefillPromise;
+  assignedRefillPromise = (async () => {
+    try {
+      for (let i = 0; i < count && assignedHasMore.value; i += 1) {
+        const ownerQuery = roles.value.is_owner && ownerViewMode.value === 'judge' && selectedJudge.value
+          ? `&view_as=${encodeURIComponent(selectedJudge.value)}` : '';
+        const response = await fetch(`/api/jury-panel/contests/${route.params.code}/articles/page?page_size=1&after_id=${assignedAfterId.value}${ownerQuery}`);
+        if (!response.ok) throw new Error(`Queue refill failed (${response.status})`);
+        const payload = await response.json();
+        const pageItems = ownerVisibleArticles(payload.items || []);
+        assignedAfterId.value = payload.next_after_id ?? assignedAfterId.value;
+        assignedHasMore.value = Boolean(payload.has_more) && pageItems.length > 0;
+        if (payload.status_counts) assignedStatusStats.value = { total: payload.total, ...payload.status_counts };
+        const existingIds = new Set(articles.value.map(article => article.article_id));
+        articles.value = [...articles.value, ...pageItems.filter(article => !existingIds.has(article.article_id))];
+        if (!payload.items?.length) break;
+      }
+    } catch (error) { console.warn('Background queue refill failed', error); }
+    finally { assignedRefillPromise = null; }
+  })();
+  return assignedRefillPromise;
+};
 const getMyLatestDecision = (article) => {
   const myReviews = article.reviews.filter(r => r.reviewer === myUsername.value);
   if (!myReviews.length) return null;
@@ -531,9 +570,7 @@ const pollLegacyQueue = async () => {
 onMounted(async () => {
   await fetchArticles();
   statsInterval = setInterval(() => {
-    if (props.assignedQueue) {
-      fetchArticles(false).catch(error => console.error('Failed to refresh review queue', error));
-    } else {
+    if (!props.assignedQueue) {
       pollLegacyQueue();
     }
   }, 5000);
@@ -614,8 +651,12 @@ const handleDecision = async (decision) => {
       mobileTab.value = 'list';
     }
 
-    // Reconcile with the server without blocking the interaction.
-    fetchArticles(false).catch(error => console.warn('Background queue refresh failed', error));
+    // Append the next keyset item instead of replacing the first page.
+    if (props.assignedQueue) {
+      refillAssignedQueue();
+    } else {
+      fetchArticles(false).catch(error => console.warn('Background queue refresh failed', error));
+    }
   } catch (error) {
     console.error("Error submitting review", error);
     reviewError.value = error.message || 'Review failed';
