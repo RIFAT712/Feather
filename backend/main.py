@@ -123,7 +123,7 @@ async def add_process_time_header(request: Request, call_next):
 # runtime images don't reliably include .git, so this is a guaranteed-simple
 # way to confirm what's actually running vs. what's on GitHub, instead of
 # inferring it from behavior after every redeploy.
-APP_BUILD_MARKER = "2026-08-30-bulk-delete-and-deletion-log"
+APP_BUILD_MARKER = "2026-08-30-delete-cascade-talk-jobs"
 
 @app.get("/api/version")
 def get_version():
@@ -2913,6 +2913,28 @@ def get_user_profile(username: str, db: Session = Depends(get_db)):
 # statements per chunk no matter how large the batch is.
 _DELETE_CHUNK = 500
 
+def _article_child_columns():
+    """Every column in the schema with a foreign key onto articles.id.
+
+    Derived from the metadata rather than hand-listed. A hand-listed version
+    (reviews + article_locks) silently went stale when talk_page_jobs was
+    added, and deleting articles then failed on MariaDB with
+    "Cannot delete or update a parent row" -- SQLite doesn't enforce foreign
+    keys unless PRAGMA foreign_keys is on, so it passed locally and only
+    broke in production. Deriving it means a new child table is covered the
+    day it's added.
+    """
+    columns = []
+    for table in models.Base.metadata.sorted_tables:
+        if table.name == models.Article.__tablename__:
+            continue
+        for column in table.columns:
+            if any(fk.column is models.Article.__table__.c.id for fk in column.foreign_keys):
+                columns.append(column)
+    return columns
+
+_ARTICLE_CHILD_COLUMNS = _article_child_columns()
+
 def _delete_articles(articles, current_user, db):
     if not articles:
         raise HTTPException(status_code=404, detail="No articles found")
@@ -2962,8 +2984,9 @@ def _delete_articles(articles, current_user, db):
 
     for start in range(0, len(article_ids), _DELETE_CHUNK):
         chunk = article_ids[start:start + _DELETE_CHUNK]
-        db.query(models.Review).filter(models.Review.article_id.in_(chunk)).delete(synchronize_session=False)
-        db.query(models.ArticleLock).filter(models.ArticleLock.article_id.in_(chunk)).delete(synchronize_session=False)
+        # Children first, or MariaDB rejects the parent delete outright.
+        for column in _ARTICLE_CHILD_COLUMNS:
+            db.execute(column.table.delete().where(column.in_(chunk)))
         db.query(models.Article).filter(models.Article.id.in_(chunk)).delete(synchronize_session=False)
     # synchronize_session=False leaves these instances in the identity map as
     # live rows, so expire-on-commit would try to refresh them from rows that
