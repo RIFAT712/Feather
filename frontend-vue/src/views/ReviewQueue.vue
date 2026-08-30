@@ -1110,7 +1110,8 @@ const copyTalkSnippet = () => {
               <div class="rq-group-inner">
                 <div class="rq-judged-search-wrap">
                   <CdxTextInput v-model="judgedSearch" class="rq-judged-search" placeholder="Search judged articles" aria-label="Search judged articles" :start-icon="cdxIconSearch" clearable />
-                </div>\n                <ul class="rq-list">
+                </div>
+                <ul class="rq-list">
                   <li
                     v-for="a in visibleSidebarArticles('judged', filteredJudgedArticles)"
                     :key="a.article_id"
