@@ -422,10 +422,9 @@ def enqueue_talk_page_jobs(db: Session, contest, titles: list[str], access_token
         models.Article.contest_id == contest.id,
         models.Article.title.in_(titles)
     ).all()
-    # Keyed case-insensitively for the same reason submit_bulk's own
-    # existing-article map is: the stored title is the wiki's canonical form,
-    # which may differ in case from what was typed into the submission box.
-    articles_by_title = {a.title.lower(): a for a in articles}
+    # Article titles are case-sensitive on Wiktionary, so use the exact stored
+    # title when connecting a successful submission to its queued talk-page job.
+    articles_by_title = {a.title: a for a in articles}
 
     # A title re-submitted while its first job is still waiting must not get
     # the template twice.
@@ -438,7 +437,7 @@ def enqueue_talk_page_jobs(db: Session, contest, titles: list[str], access_token
 
     queued = 0
     for title in titles:
-        article = articles_by_title.get(title.lower())
+        article = articles_by_title.get(title)
         if not article or article.id in pending_article_ids:
             continue
         db.add(models.TalkPageJob(
@@ -1969,11 +1968,11 @@ async def process_articles_batch(
         models.Article.contest_id == contest.id,
         models.Article.title.in_(titles)
     ).all()
-    existing_titles = {a.title.lower() for a in existing if a.status != models.ArticleStatus.validation_failed}
+    existing_titles = {a.title for a in existing if a.status != models.ArticleStatus.validation_failed}
     
     titles_to_check = []
     for t in titles:
-        if t.lower() in existing_titles:
+        if t in existing_titles:
             results.append(ValidationResult(title=t, is_valid=False, error="Already submitted"))
         else:
             titles_to_check.append(t)
@@ -1983,7 +1982,7 @@ async def process_articles_batch(
     db_replica_results = query_wiki_replica_batch(titles_to_check)
     if db_replica_results is not None:
         for t in titles_to_check:
-            info = db_replica_results.get(t.lower())  # keys are lowercased in query_wiki_replica_batch
+            info = db_replica_results.get(t)
             if not info:
                 results.append(ValidationResult(title=t, is_valid=False, error="Article does not exist"))
                 continue
@@ -2162,15 +2161,14 @@ async def submit_bulk(
             if not effective_user:
                 raise HTTPException(status_code=500, detail="Failed to create submitter user record due to database concurrency.")
     existing_articles_map = {
-        a.title.lower(): a for a in db.query(models.Article).filter(
+        a.title: a for a in db.query(models.Article).filter(
             models.Article.contest_id == contest.id,
             models.Article.title.in_(clean_titles)
         ).all()
     }
 
     for res in results:
-        t_lower = res.title.lower()
-        existing_art = existing_articles_map.get(t_lower)
+        existing_art = existing_articles_map.get(res.title)
 
         wiki_date = None
         if hasattr(res, 'wiki_creation_date') and res.wiki_creation_date:
@@ -3580,7 +3578,7 @@ def contest_integrity_check(
             )
 
         for article in batch:
-            info = found.get(article.title.lower())
+            info = found.get(article.title)
             issue = None
             detail = None
 

@@ -532,6 +532,9 @@ def query_wiki_replica_batch(titles: list) -> dict:
     """
     Queries the Wikimedia MariaDB replica for bnwiktionary_p to validate article creation date & creator.
     Returns a dict: { original_title: { "exists": True, "wiki_creator": str, "wiki_creation_date": datetime, "timestamp_str": str } }
+    Keys preserve the full page-title case: on Wiktionary, `GOD` and `god`
+    can be distinct entries. Spaces and underscores are still normalized only
+    for the replica lookup.
     Returns None if the replica engine is unavailable or query fails (triggering HTTP API fallback).
     """
     if not wiki_engine or not titles:
@@ -547,10 +550,7 @@ def query_wiki_replica_batch(titles: list) -> dict:
             if db_fmt not in title_map:
                 title_map[db_fmt] = clean
             db_titles_set.add(db_fmt)
-            db_fmt_cap = db_fmt[0].upper() + db_fmt[1:] if db_fmt else db_fmt
-            if db_fmt_cap not in title_map:
-                title_map[db_fmt_cap] = clean
-            db_titles_set.add(db_fmt_cap)
+
 
     db_titles = list(db_titles_set)
     if not db_titles:
@@ -601,9 +601,9 @@ def query_wiki_replica_batch(titles: list) -> dict:
                         "page_is_redirect": bool(row.page_is_redirect),
                         "page_len": int(row.page_len) if row.page_len is not None else 0
                     }
-                    results[orig_title.lower()] = entry
-                    results[db_title.lower()] = entry
-                    results[db_title.replace("_", " ").lower()] = entry
+                    results[orig_title] = entry
+                    results[db_title] = entry
+                    results[db_title.replace("_", " ")] = entry
         print(f"[Replica] Query succeeded: {len(results)}/{len(db_titles)} article keys mapped")
         return results
     except Exception as e:
@@ -627,7 +627,7 @@ def _parse_mw_timestamp(value):
     except (ValueError, TypeError):
         return None
 
-def query_wiki_replica_user_creations(username: str, start: datetime, end: datetime, limit: int = 5000) -> list:
+def query_wiki_replica_user_creations(username: str, start: datetime, end: datetime, page_size: int = 5000) -> list:
     """
     Queries the Wikimedia MariaDB replica for every mainspace page `username`
     created (first revision, rev_parent_id = 0) between `start` and `end` --
@@ -641,6 +641,13 @@ def query_wiki_replica_user_creations(username: str, start: datetime, end: datet
     engine is unavailable or the query fails (triggering the usercontribs
     HTTP fallback in main.py). The creation timestamp comes free with the
     row the query already reads, and SubmitArticles.vue shows and sorts by it.
+
+    Results are read from the replica in keyset-paginated pages. A contest
+    period can contain far more than 5,000 creations, so `page_size` bounds
+    one SQL result set only; it is not a cap on the returned list. The
+    `(rev_timestamp, rev_id)` cursor keeps rows with identical second-level
+    MediaWiki timestamps deterministic without the performance penalty or
+    drift risk of OFFSET pagination.
     """
     if not wiki_engine or not username:
         return None
@@ -663,7 +670,8 @@ def query_wiki_replica_user_creations(username: str, start: datetime, end: datet
             from sqlalchemy import text
             query = text("""
                 SELECT CONVERT(p.page_title USING utf8mb4) as page_title,
-                       r.rev_timestamp as rev_timestamp
+                       r.rev_timestamp as rev_timestamp,
+                       r.rev_id as rev_id
                 FROM revision r
                 JOIN actor a ON r.rev_actor = a.actor_id
                 JOIN page p ON p.page_id = r.rev_page
@@ -672,18 +680,44 @@ def query_wiki_replica_user_creations(username: str, start: datetime, end: datet
                   AND p.page_namespace = 0
                   AND r.rev_timestamp >= :start_ts
                   AND r.rev_timestamp <= :end_ts
-                ORDER BY r.rev_timestamp ASC
-                LIMIT :limit
+                  AND (
+                    :last_timestamp IS NULL
+                    OR r.rev_timestamp > :last_timestamp
+                    OR (r.rev_timestamp = :last_timestamp AND r.rev_id > :last_rev_id)
+                  )
+                ORDER BY r.rev_timestamp ASC, r.rev_id ASC
+                LIMIT :page_size
             """)
-            res = conn.execute(query, {"username": clean_username, "start_ts": start_ts, "end_ts": end_ts, "limit": limit})
-            titles = [
-                {
+            titles = []
+            last_timestamp = None
+            last_rev_id = 0
+            page_count = 0
+            while True:
+                rows = conn.execute(query, {
+                    "username": clean_username,
+                    "start_ts": start_ts,
+                    "end_ts": end_ts,
+                    "last_timestamp": last_timestamp,
+                    "last_rev_id": last_rev_id,
+                    "page_size": page_size,
+                }).fetchall()
+                if not rows:
+                    break
+
+                page_count += 1
+                titles.extend({
                     "title": row.page_title.replace("_", " "),
                     "created_at": _parse_mw_timestamp(row.rev_timestamp),
-                }
-                for row in res
-            ]
-        print(f"[Replica] User-creations query for {clean_username!r} ({start_ts}-{end_ts}): {len(titles)} pages")
+                } for row in rows)
+                last_timestamp = rows[-1].rev_timestamp
+                last_rev_id = rows[-1].rev_id
+
+                if len(rows) < page_size:
+                    break
+        print(
+            f"[Replica] User-creations query for {clean_username!r} "
+            f"({start_ts}-{end_ts}): {len(titles)} pages across {page_count} query page(s)"
+        )
         return titles
     except Exception as e:
         print(f"[Replica] Wiki replica user-creations query error, falling back to HTTP API: {e}")
