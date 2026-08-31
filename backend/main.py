@@ -2635,6 +2635,56 @@ def get_jury_panel_articles_page(
         "status_counts": status_counts,
     }
 
+@app.get("/api/jury-panel/contests/{code}/queue-stats")
+def get_jury_panel_queue_stats(
+    code: str,
+    view_as: Optional[str] = Query(default=None),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Counts only -- the numbers behind the review queue's stats strip, so it can
+    poll a few hundred bytes instead of re-fetching the whole assigned queue.
+
+    Deliberately does *not* call rebalance_pending_articles(): every open review
+    tab polls this every few seconds, and the allocator is a write path. Placement
+    stays the job of the endpoints that actually hand out work (/articles/page and
+    the roster/rule-change sites).
+    """
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    is_owner = _jury_panel_authorize(contest, current_user, db, view_as)
+    jury_map = get_eligible_juries(contest)
+
+    target = view_as if (is_owner and view_as) else ("*" if is_owner else current_user.wiki_username)
+    banned_ids = {b.user_id for b in contest.banned_users}
+    query = db.query(
+        models.Article.status,
+        func.count(models.Article.id),
+        func.max(models.Article.id),
+    ).filter(models.Article.contest_id == contest.id)
+    if banned_ids:
+        query = query.filter(~models.Article.submitter_id.in_(banned_ids))
+    if target != "*":
+        target_id = jury_map_username_to_id(jury_map).get(target, -1)
+        query = query.filter(models.Article.assigned_to_id == target_id)
+
+    status_counts = {s.value: 0 for s in models.ArticleStatus}
+    total = 0
+    latest_article_id = 0
+    for status, count, max_id in query.group_by(models.Article.status).all():
+        status_counts[status.value] = int(count)
+        total += int(count)
+        latest_article_id = max(latest_article_id, int(max_id or 0))
+
+    # Moves on a new assignment (total/max id) and on every decision (the status
+    # split). A same-size swap of one article for another is the one change it
+    # can miss; that self-heals on the next real change.
+    signature = f"{total}:{latest_article_id}:" + ":".join(
+        str(status_counts[s.value]) for s in models.ArticleStatus
+    )
+    return {"total": total, "status_counts": status_counts, "signature": signature}
+
 @app.get("/api/jury-panel/contests/{code}/progress")
 def get_jury_panel_progress(code: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Return assigned, judged, and remaining counts for this contest's jury members."""

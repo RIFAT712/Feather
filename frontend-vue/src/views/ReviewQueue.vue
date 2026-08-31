@@ -40,6 +40,13 @@ const mobileTab = ref('list');
 const sidebarCollapsed = ref(false);
 const reviewPanelCollapsed = ref(false);
 
+// Raw-wikitext side panel. Desktop shows it beside the rendered preview;
+// mobile has no room for both, so `previewPane` picks one at a time.
+const showWikitext = ref(localStorage.getItem('review_queue_wikitext') === '1');
+const previewPane = ref('visual');
+const wikitextSource = ref('');
+const wikitextCopied = ref(false);
+
 const showNewArticles = ref(true);
 const showJudgedArticles = ref(false);
 const judgedSearch = ref("");
@@ -55,6 +62,26 @@ const selectedJudge = ref(user?.value?.wiki_username || props.contest?.juries?.[
 const toggleTheme = () => {
   theme.value = theme.value === 'dark' ? 'light' : 'dark';
   localStorage.setItem('review_queue_theme', theme.value);
+};
+
+const toggleWikitext = () => {
+  showWikitext.value = !showWikitext.value;
+  localStorage.setItem('review_queue_wikitext', showWikitext.value ? '1' : '0');
+  if (showWikitext.value) previewPane.value = 'wikitext';
+  else previewPane.value = 'visual';
+};
+
+let wikitextCopyTimer;
+const copyWikitext = async () => {
+  if (!wikitextSource.value) return;
+  try {
+    await navigator.clipboard.writeText(wikitextSource.value);
+    wikitextCopied.value = true;
+    clearTimeout(wikitextCopyTimer);
+    wikitextCopyTimer = setTimeout(() => { wikitextCopied.value = false; }, 1600);
+  } catch (error) {
+    console.warn('Copy failed', error);
+  }
 };
 
 const ownerVisibleArticles = (items) => {
@@ -335,11 +362,13 @@ const fetchPreview = async (title) => {
   const requestId = ++previewRequestId;
   isLoadingPreview.value = true;
   previewSrcdoc.value = '';
+  wikitextSource.value = '';
   try {
-    const res = await fetch(`https://bn.wiktionary.org/w/api.php?action=parse&page=${encodeURIComponent(title)}&format=json&prop=text&origin=*`);
+    const res = await fetch(`https://bn.wiktionary.org/w/api.php?action=parse&page=${encodeURIComponent(title)}&format=json&prop=text%7Cwikitext&origin=*`);
     const data = await res.json();
     const body = data.parse?.text?.['*'] ?? '<p style="color:#94a3b8">Preview not available.</p>';
     if (requestId !== previewRequestId) return;
+    wikitextSource.value = data.parse?.wikitext?.['*'] ?? '';
     previewSrcdoc.value = `<!DOCTYPE html>
 <html lang="bn">
 <head>
@@ -385,8 +414,7 @@ const fetchArticles = async (showLoading = true, append = false) => {
     }
 
     if (props.assignedQueue) {
-      const ownerQuery = roles.value.is_owner && ownerViewMode.value === 'judge' && selectedJudge.value
-        ? `&view_as=${encodeURIComponent(selectedJudge.value)}` : '';
+      const ownerQuery = ownerViewQuery();
       let cursor = append && assignedAfterId.value !== null ? assignedAfterId.value : null;
       let combinedArticles = append ? [...articles.value] : [];
       let shouldFetchMore = true;
@@ -438,7 +466,13 @@ const fetchArticles = async (showLoading = true, append = false) => {
 };
 
 watch([ownerViewMode, selectedJudge], () => {
-  if (props.assignedQueue && roles.value.is_owner) fetchArticles(false);
+  if (!props.assignedQueue || !roles.value.is_owner) return;
+  // The strip's server counts belong to the scope that produced them: drop them
+  // (falling back to local counts) and force the next poll to re-evaluate rather
+  // than showing the previous judge's numbers against the new judge's queue.
+  assignedStatusStats.value = null;
+  lastAssignedSignature = null;
+  fetchArticles(false);
 });
 
 const myUsername = computed(() => user.value?.wiki_username);
@@ -502,26 +536,41 @@ const loadMoreAssignedArticles = () => {
   if (assignedHasMore.value && !isLoading.value) fetchArticles(false, true);
 };
 
-// Keep an assigned queue rolling: judged articles remain available in the
-// history sections while one replacement is appended from the server.
+const ownerViewQuery = () => (
+  roles.value.is_owner && ownerViewMode.value === 'judge' && selectedJudge.value
+    ? `&view_as=${encodeURIComponent(selectedJudge.value)}` : ''
+);
+
+// Append the tail of the assigned queue: replacements for articles just judged,
+// and anything assigned since the page loaded. Deliberately does not require
+// `assignedHasMore` -- the initial load walks to the end of the queue, so by the
+// time a new submission lands has_more is false and the tail still grew.
+// `page_size` must stay >= 25: the endpoint declares `ge=25`, and the old
+// `page_size=1` here made every refill a swallowed 422.
+const ASSIGNED_REFILL_PAGE_SIZE = 25;
+
 const refillAssignedQueue = async (count = 1) => {
-  if (!props.assignedQueue || !assignedHasMore.value || assignedAfterId.value === null) return;
+  if (!props.assignedQueue || assignedAfterId.value === null) return;
   if (assignedRefillPromise) return assignedRefillPromise;
   assignedRefillPromise = (async () => {
     try {
-      for (let i = 0; i < count && assignedHasMore.value; i += 1) {
-        const ownerQuery = roles.value.is_owner && ownerViewMode.value === 'judge' && selectedJudge.value
-          ? `&view_as=${encodeURIComponent(selectedJudge.value)}` : '';
-        const response = await fetch(`/api/jury-panel/contests/${route.params.code}/articles/page?page_size=1&after_id=${assignedAfterId.value}${ownerQuery}`);
+      const wanted = Math.max(count, 1);
+      let added = 0;
+      // Bounded: one request per page, and never more than the caller asked for.
+      while (added < wanted) {
+        const pageSize = Math.min(Math.max(wanted - added, ASSIGNED_REFILL_PAGE_SIZE), 500);
+        const response = await fetch(`/api/jury-panel/contests/${route.params.code}/articles/page?page_size=${pageSize}&after_id=${assignedAfterId.value}${ownerViewQuery()}`);
         if (!response.ok) throw new Error(`Queue refill failed (${response.status})`);
         const payload = await response.json();
         const pageItems = ownerVisibleArticles(payload.items || []);
         assignedAfterId.value = payload.next_after_id ?? assignedAfterId.value;
-        assignedHasMore.value = Boolean(payload.has_more) && pageItems.length > 0;
+        assignedHasMore.value = Boolean(payload.has_more);
         if (payload.status_counts) assignedStatusStats.value = { total: payload.total, ...payload.status_counts };
         const existingIds = new Set(articles.value.map(article => article.article_id));
-        articles.value = [...articles.value, ...pageItems.filter(article => !existingIds.has(article.article_id))];
-        if (!payload.items?.length) break;
+        const fresh = pageItems.filter(article => !existingIds.has(article.article_id));
+        articles.value = [...articles.value, ...fresh];
+        added += fresh.length;
+        if (!payload.items?.length || !payload.has_more) break;
       }
     } catch (error) { console.warn('Background queue refill failed', error); }
     finally { assignedRefillPromise = null; }
@@ -557,6 +606,30 @@ const selectArticle = (article) => {
 let statsInterval;
 let lastQueueSignature = null;
 
+// The assigned queue's Total/Pending/OK/Rejected strip is served by the server's
+// own grouped counts, which used to arrive only with a full queue fetch -- so the
+// numbers sat frozen at whatever they were on page load. This polls the
+// counts-only endpoint instead: a few hundred bytes, no full refetch, and no
+// rebalance on the server side. When the total grows (something newly assigned
+// to this jury) it pulls just the tail in, so the list and the strip agree.
+let lastAssignedSignature = null;
+
+const pollAssignedStats = async () => {
+  try {
+    const res = await fetch(`/api/jury-panel/contests/${route.params.code}/queue-stats?_=1${ownerViewQuery()}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const knownTotal = assignedStatusStats.value?.total ?? articles.value.length;
+    assignedStatusStats.value = { total: data.total, ...data.status_counts };
+    if (data.signature === lastAssignedSignature) return;
+    lastAssignedSignature = data.signature;
+    const grew = data.total - knownTotal;
+    if (grew > 0) await refillAssignedQueue(grew);
+  } catch (error) {
+    console.warn('Failed to refresh queue stats', error);
+  }
+};
+
 // For the legacy (non-assignedQueue) queue, a full refresh means re-fetching
 // every article in bounded pages. Polling that unconditionally every 5s was the
 // dominant cost on large contests, so only do it when a cheap counts endpoint
@@ -578,7 +651,9 @@ const pollLegacyQueue = async () => {
 onMounted(async () => {
   await fetchArticles();
   statsInterval = setInterval(() => {
-    if (!props.assignedQueue) {
+    if (props.assignedQueue) {
+      pollAssignedStats();
+    } else {
       pollLegacyQueue();
     }
   }, 5000);
@@ -764,7 +839,7 @@ const handleShortcut = (event) => {
   // Never steal keys from the comment textarea or any search/filter input.
   if (isTypingTarget(event.target)) return;
 
-  if (event.key === '?') {
+  if (event.key === '/' || event.key === '?') {
     showShortcutHelp.value = !showShortcutHelp.value;
     event.preventDefault();
     return;
@@ -793,6 +868,10 @@ const handleShortcut = (event) => {
       event.preventDefault();
       undoLastDecision();
       break;
+    case 'w':
+      event.preventDefault();
+      toggleWikitext();
+      break;
     default:
       break;
   }
@@ -804,6 +883,7 @@ onMounted(() => window.addEventListener('keydown', handleShortcut));
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleShortcut);
   clearTimeout(undoExpiryTimer);
+  clearTimeout(wikitextCopyTimer);
 });
 
 const handleRemoveArticle = async (article) => {
@@ -890,6 +970,7 @@ const handleBulkDecision = async (decision) => {
       currentArticle.value = null;
       previewRequestId++;
       previewSrcdoc.value = '';
+      wikitextSource.value = '';
       isLoadingPreview.value = false;
     }
     await fetchArticles(false);
@@ -1204,23 +1285,70 @@ const copyTalkSnippet = () => {
                 </div>
               </div>
               
-              <a :href="articleUrl(currentArticle.title)" target="_blank" class="rq-btn-secondary rq-wiki-link-btn" title="Open on Wiktionary">
-                <CdxIcon :icon="cdxIconLinkExternal" /> <span class="rq-desktop-only">Wiki</span>
-              </a>
+              <div class="rq-header-tools">
+                <button
+                  type="button"
+                  class="rq-wikitext-switch"
+                  :class="{ 'is-on': showWikitext }"
+                  role="switch"
+                  :aria-checked="showWikitext ? 'true' : 'false'"
+                  title="Show raw wikitext (W)"
+                  @click="toggleWikitext"
+                >
+                  <span class="rq-switch-label">Wikitext</span>
+                  <span class="rq-switch-track"><span class="rq-switch-knob"></span></span>
+                </button>
+
+                <a :href="articleUrl(currentArticle.title)" target="_blank" class="rq-btn-secondary rq-wiki-link-btn" title="Open on Wiktionary">
+                  <CdxIcon :icon="cdxIconLinkExternal" /> <span class="rq-desktop-only">Wiki</span>
+                </a>
+              </div>
             </header>
 
-            <div class="rq-preview-container">
+            <!-- Mobile only: the two panes never fit side by side, so pick one. -->
+            <div v-if="showWikitext" class="rq-pane-tabs rq-mobile-only">
+              <button
+                type="button"
+                :class="{ 'is-active': previewPane === 'visual' }"
+                @click="previewPane = 'visual'"
+              >Visual</button>
+              <button
+                type="button"
+                :class="{ 'is-active': previewPane === 'wikitext' }"
+                @click="previewPane = 'wikitext'"
+              >Wikitext</button>
+            </div>
+
+            <div
+              class="rq-preview-container"
+              :class="[{ 'is-split': showWikitext }, showWikitext ? 'is-showing-' + previewPane : '']"
+            >
               <div v-if="isLoadingPreview" class="rq-center-state">
                 <div class="rq-spinner rq-spinner-sm"></div>
                 <span class="rq-loading-text">Loading Wikipedia preview…</span>
               </div>
-              <iframe
-                v-else
-                class="rq-wiki-iframe"
-                sandbox="allow-scripts"
-                :srcdoc="previewSrcdoc"
-                referrerpolicy="no-referrer"
-              ></iframe>
+              <template v-else>
+                <div class="rq-preview-pane rq-visual-pane">
+                  <iframe
+                    class="rq-wiki-iframe"
+                    sandbox="allow-scripts"
+                    :srcdoc="previewSrcdoc"
+                    referrerpolicy="no-referrer"
+                  ></iframe>
+                </div>
+                <section v-if="showWikitext" class="rq-preview-pane rq-wikitext-pane" aria-label="Raw wikitext">
+                  <header class="rq-wikitext-bar">
+                    <span class="rq-wikitext-heading">Raw wikitext</span>
+                    <button type="button" class="rq-wikitext-copy" :disabled="!wikitextSource" @click="copyWikitext">
+                      <CdxIcon :icon="cdxIconCopy" /> {{ wikitextCopied ? 'Copied' : 'Copy' }}
+                    </button>
+                  </header>
+                  <div class="rq-wikitext-scroll">
+                    <pre v-if="wikitextSource" class="rq-wikitext-code">{{ wikitextSource }}</pre>
+                    <p v-else class="rq-wikitext-empty">Wikitext not available.</p>
+                  </div>
+                </section>
+              </template>
             </div>
           </main>
 
@@ -1255,13 +1383,6 @@ const copyTalkSnippet = () => {
                     <button class="rq-btn-ghost rq-btn-remove" :disabled="isSubmitting" @click="handleRemove" title="Delete article">
                       <CdxIcon :icon="cdxIconTrash" /> <span class="rq-desktop-only">Delete</span>
                     </button>
-                    <button
-                      type="button"
-                      class="rq-btn-ghost rq-btn-help rq-desktop-only"
-                      title="Keyboard shortcuts (?)"
-                      aria-label="Keyboard shortcuts"
-                      @click="showShortcutHelp = true"
-                    >?</button>
                   </div>
                 </div>
               </div>
@@ -1309,8 +1430,9 @@ const copyTalkSnippet = () => {
           <div class="rq-help-row"><dt><kbd class="rq-kbd">S</kbd></dt><dd>Skip to the next article without deciding</dd></div>
           <div class="rq-help-row"><dt><kbd class="rq-kbd">C</kbd></dt><dd>Focus the comment box</dd></div>
           <div class="rq-help-row"><dt><kbd class="rq-kbd">U</kbd></dt><dd>Undo the last decision</dd></div>
+          <div class="rq-help-row"><dt><kbd class="rq-kbd">W</kbd></dt><dd>Show or hide the raw wikitext panel</dd></div>
           <div class="rq-help-row"><dt><kbd class="rq-kbd">Esc</kbd></dt><dd>Leave the comment box / close this panel</dd></div>
-          <div class="rq-help-row"><dt><kbd class="rq-kbd">?</kbd></dt><dd>Show or hide this panel</dd></div>
+          <div class="rq-help-row"><dt><kbd class="rq-kbd">/</kbd></dt><dd>Show or hide this panel</dd></div>
         </dl>
         <p class="rq-help-note">Shortcuts are ignored while you're typing in a text field.</p>
       </div>

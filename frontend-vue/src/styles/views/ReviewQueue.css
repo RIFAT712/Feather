@@ -387,8 +387,72 @@ button { cursor: pointer; }
 .rq-wiki-link-btn { color: var(--rq-accent-hover); border-color: #312e81; background: #1e1b4b; }
 .rq-wiki-link-btn:hover { background: #312e81; }
 
+.rq-header-tools { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+/* Wikitext switch: pairs the label with a track/knob so its state reads at a
+   glance next to the article title. */
+.rq-wikitext-switch {
+  display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px;
+  border: 1px solid var(--rq-border); border-radius: 8px; background: var(--rq-surface);
+  color: var(--rq-text-muted); font-size: .78rem; font-weight: 650; white-space: nowrap;
+  transition: background 160ms var(--ease-out), color 160ms var(--ease-out), border-color 160ms var(--ease-out);
+}
+.rq-wikitext-switch:hover { background: var(--rq-surface-hover); }
+.rq-wikitext-switch.is-on { color: var(--rq-accent-hover); border-color: #312e81; background: #1e1b4b; }
+.rq-switch-track {
+  position: relative; width: 30px; height: 16px; border-radius: 999px;
+  background: var(--rq-border); transition: background 160ms var(--ease-out);
+}
+.rq-switch-knob {
+  position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%;
+  background: #fff; transition: transform 160ms var(--ease-out);
+}
+.rq-wikitext-switch.is-on .rq-switch-track { background: var(--rq-accent); }
+.rq-wikitext-switch.is-on .rq-switch-knob { transform: translateX(14px); }
+
+/* Mobile pane picker: visual and raw are mutually exclusive on small screens. */
+.rq-pane-tabs {
+  display: none; gap: 4px; padding: 6px 9px; background: #132238;
+  border-bottom: 1px solid var(--rq-border);
+}
+.rq-pane-tabs button {
+  flex: 1; min-height: 32px; border: 1px solid var(--rq-border-light); border-radius: 7px;
+  background: var(--rq-surface); color: var(--rq-text-muted); font-size: .74rem; font-weight: 650;
+}
+.rq-pane-tabs button.is-active { background: var(--rq-accent); border-color: var(--rq-accent); color: #fff; }
+
 .rq-preview-container { flex: 1; min-height: 0; background: var(--rq-bg); display: flex; flex-direction: column; }
+.rq-preview-container.is-split { flex-direction: row; }
+.rq-preview-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .rq-wiki-iframe { flex: 1; width: 100%; border: none; }
+
+.rq-wikitext-pane { background: var(--rq-surface); border-left: 1px solid var(--rq-border); }
+.rq-wikitext-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 6px 10px; background: var(--rq-surface-alt); border-bottom: 1px solid var(--rq-border-light);
+  flex-shrink: 0;
+}
+.rq-wikitext-heading {
+  font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--rq-text-muted);
+}
+.rq-wikitext-copy {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 26px; padding: 0 8px;
+  border: 1px solid var(--rq-border-light); border-radius: 6px; background: var(--rq-surface);
+  color: var(--rq-text); font-size: .7rem; font-weight: 600;
+  transition: background 160ms var(--ease-out);
+}
+.rq-wikitext-copy:hover:not(:disabled) { background: var(--rq-surface-hover); }
+.rq-wikitext-copy:disabled { opacity: .45; cursor: not-allowed; }
+.rq-wikitext-copy .cdx-icon { font-size: .85rem; }
+.rq-wikitext-scroll { flex: 1; min-height: 0; overflow: auto; }
+.rq-wikitext-code {
+  margin: 0; padding: 12px 14px;
+  font-family: 'SFMono-Regular', ui-monospace, Consolas, 'Liberation Mono', monospace;
+  font-size: .78rem; line-height: 1.65; color: var(--rq-text);
+  white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4;
+}
+.rq-wikitext-empty { margin: 0; padding: 16px 14px; color: var(--rq-text-muted); font-size: .8rem; }
 
 /* --- DECISION PANEL (BOTTOM) --- */
 .rq-decision-panel {
@@ -505,6 +569,11 @@ button { cursor: pointer; }
 .rq-app.rq-theme-light .rq-tag-skipped { background: #edf0f3; }
 .rq-app.rq-theme-light .rq-wiki-link-btn { color: var(--rq-accent); border-color: #aebdd4; background: #e8eef8; }
 .rq-app.rq-theme-light .rq-wiki-link-btn:hover { background: #dce6f4; }
+.rq-app.rq-theme-light .rq-wikitext-switch { background: #f4f8fb; }
+.rq-app.rq-theme-light .rq-wikitext-switch.is-on { color: var(--rq-accent); border-color: #aebdd4; background: #e8eef8; }
+.rq-app.rq-theme-light .rq-pane-tabs { background: #e7f0f8; }
+.rq-app.rq-theme-light .rq-wikitext-pane { background: #fff; border-left-color: var(--rq-border-light); }
+.rq-app.rq-theme-light .rq-wikitext-bar { background: #e7f0f8; }
 .rq-app.rq-theme-light .rq-error-msg { background: #fff0f0; border-color: #d99090; }
 .rq-app.rq-theme-light .rq-input:focus { background: var(--rq-surface-alt); }
 .rq-app.rq-theme-light .rq-panel-header,
@@ -528,6 +597,11 @@ button { cursor: pointer; }
   .rq-decision-form { flex-direction: column; align-items: stretch; }
   .rq-actions-wrapper { justify-content: space-between; }
   .rq-input { height: 48px; }
+  /* Not enough width for two readable columns -- stack the panes instead. */
+  .rq-preview-container.is-split { flex-direction: column; }
+  .rq-preview-container.is-split .rq-wikitext-pane {
+    flex: 0 0 42%; border-left: none; border-top: 1px solid var(--rq-border);
+  }
 }
 
 @media (max-width: 768px) {
@@ -559,6 +633,16 @@ button { cursor: pointer; }
   .rq-secondary-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; gap: 8px; }
   
   .rq-mobile-nav { display: flex; position: fixed; bottom: 0; left: 0; right: 0; height: 70px; z-index: 50; }
+
+  .rq-pane-tabs { display: flex !important; }
+  .rq-preview-container.is-split { flex-direction: column; }
+  .rq-preview-container.is-split .rq-wikitext-pane { flex: 1; border-left: none; border-top: none; }
+  .rq-preview-container.is-split.is-showing-visual .rq-wikitext-pane { display: none; }
+  .rq-preview-container.is-split.is-showing-wikitext .rq-visual-pane { display: none; }
+  .rq-wikitext-switch { height: 30px; gap: 6px; padding: 0 8px; font-size: .68rem; }
+  .rq-switch-track { width: 26px; height: 14px; }
+  .rq-switch-knob { width: 10px; height: 10px; }
+  .rq-wikitext-switch.is-on .rq-switch-knob { transform: translateX(12px); }
 }
 
 /* Compact mobile review workspace: keep the article, preview, and decision
@@ -599,9 +683,12 @@ button { cursor: pointer; }
   .rq-btn-ghost { min-height: 34px; padding: 6px 8px; }
   .rq-actions-wrapper { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; gap: 4px; }
   .rq-primary-actions, .rq-secondary-actions { display: contents; }
-  .rq-actions-wrapper .rq-desktop-only { display: inline !important; overflow: hidden; font-size: .58rem; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
-  .rq-actions-wrapper .rq-btn, .rq-actions-wrapper .rq-btn-ghost { min-width: 0; min-height: 40px; flex-direction: column; justify-content: center; gap: 3px; padding: 5px 2px; font-size: .58rem; }
-  .rq-actions-wrapper .rq-btn .cdx-icon, .rq-actions-wrapper .rq-btn-ghost .cdx-icon { font-size: 1rem; }
+  .rq-actions-wrapper .rq-desktop-only { display: inline !important; overflow: hidden; font-size: .62rem; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
+  /* Keyboard hints mean nothing on a phone -- the row only has to fit fingers. */
+  .rq-actions-wrapper .rq-kbd { display: none !important; }
+  .rq-actions-wrapper .rq-btn, .rq-actions-wrapper .rq-btn-ghost { min-width: 0; min-height: 36px; flex-direction: row; justify-content: center; gap: 4px; padding: 4px 3px; font-size: .62rem; }
+  .rq-actions-wrapper .rq-btn .cdx-icon, .rq-actions-wrapper .rq-btn-ghost .cdx-icon { font-size: .95rem; flex-shrink: 0; }
+  .rq-actions-wrapper .rq-btn span, .rq-actions-wrapper .rq-btn-ghost span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rq-error-msg { padding: 4px 7px; font-size: .7rem; }
   .rq-mobile-nav { height: 60px; }
   .rq-nav-btn { gap: 2px; }
@@ -633,13 +720,6 @@ button { cursor: pointer; }
 }
 
 .rq-btn .rq-kbd { opacity: 0.75; }
-
-.rq-btn-help {
-  width: 40px;
-  padding: 0;
-  font-size: 0.95rem;
-  font-weight: 700;
-}
 
 /* --- Undo toast --- */
 .rq-undo-toast {
