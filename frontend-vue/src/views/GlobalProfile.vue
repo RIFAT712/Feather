@@ -13,6 +13,22 @@ const activeTab = ref('participated');
 const expandedParticipated = ref(null);
 const expandedJudged = ref(null);
 
+// One contest section is open at a time, but a prolific user's section still
+// holds thousands of rows: this endpoint returns every article they have ever
+// submitted, across every contest, in a single response (2.3MB for a user with
+// ~11k articles). The fetch is unchanged; only the number of rows drawn is.
+// Keyed per contest so opening a second one does not inherit the first's
+// window, and reset whenever a fresh profile arrives.
+const ROW_WINDOW = 100;
+const rowWindows = ref({});
+const windowFor = (key) => rowWindows.value[key] || ROW_WINDOW;
+const visibleRows = (key, rows) => (rows || []).slice(0, windowFor(key));
+const hiddenRows = (key, rows) => Math.max((rows || []).length - windowFor(key), 0);
+const showMoreRows = (key) => {
+  rowWindows.value = { ...rowWindows.value, [key]: windowFor(key) + ROW_WINDOW };
+};
+watch(profile, () => { rowWindows.value = {}; });
+
 const fetchProfile = async () => {
   isLoading.value = true;
   error.value = null;
@@ -252,7 +268,7 @@ const pctAccepted = (contest) => {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="(art, idx) in contest.articles" :key="art.id" class="art-row">
+                    <tr v-for="(art, idx) in visibleRows('sub-' + contest.code, contest.articles)" :key="art.id" class="art-row">
                       <td class="row-num">{{ idx + 1 }}</td>
                       <td>
                         <a
@@ -265,6 +281,13 @@ const pctAccepted = (contest) => {
                       <td class="muted-cell">{{ art.wiki_creator || '—' }}</td>
                       <td class="muted-cell date-cell">{{ formatDate(art.wiki_creation_date) }}</td>
                       <td class="muted-cell date-cell">{{ formatDateTime(art.submitted_at) }}</td>
+                    </tr>
+                    <tr v-if="hiddenRows('sub-' + contest.code, contest.articles)" class="rows-more-row">
+                      <td colspan="6">
+                        <button type="button" class="rows-more-btn" @click="showMoreRows('sub-' + contest.code)">
+                          Show 100 more - {{ hiddenRows('sub-' + contest.code, contest.articles).toLocaleString() }} not shown
+                        </button>
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -394,7 +417,7 @@ const pctAccepted = (contest) => {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="(rev, idx) in contest.reviews" :key="idx" class="art-row">
+                    <tr v-for="(rev, idx) in visibleRows('rev-' + contest.code, contest.reviews)" :key="idx" class="art-row">
                       <td class="row-num">{{ idx + 1 }}</td>
                       <td>
                         <a
@@ -406,6 +429,13 @@ const pctAccepted = (contest) => {
                       <td><span :class="['status-chip', rev.decision]">{{ rev.decision }}</span></td>
                       <td class="comment-cell" :title="rev.comment">{{ rev.comment || '—' }}</td>
                       <td class="muted-cell date-cell">{{ formatDateTime(rev.reviewed_at) }}</td>
+                    </tr>
+                    <tr v-if="hiddenRows('rev-' + contest.code, contest.reviews)" class="rows-more-row">
+                      <td colspan="5">
+                        <button type="button" class="rows-more-btn" @click="showMoreRows('rev-' + contest.code)">
+                          Show 100 more - {{ hiddenRows('rev-' + contest.code, contest.reviews).toLocaleString() }} not shown
+                        </button>
+                      </td>
                     </tr>
                   </tbody>
                 </table>

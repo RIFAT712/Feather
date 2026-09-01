@@ -67,3 +67,26 @@
 .scroll-top-button svg { width: 21px; height: 21px; fill: currentColor; }
 @media (max-width: 900px) { .profile-header { flex-wrap: wrap; } .stats-grid { width: 100%; margin-left: 0; margin-top: 4px; } }
 @media (max-width: 640px) { .user-profile { padding: 24px 12px 42px; } .profile-header { align-items: flex-start; padding: 22px; } .avatar { width: 58px; height: 58px; flex-basis: 58px; border-radius: 16px; font-size: 1.7rem; } .stats-grid { flex-wrap: wrap; row-gap: 16px; } .profile-metric { flex: 1 1 25%; min-width: 82px; padding: 0 10px; } .profile-metric:nth-child(3) { border-left: 0; } .stat-value { font-size: 1.65rem; } .section-heading { align-items: flex-start; flex-direction: column; gap: 10px; } .section-tools { width: 100%; justify-content: space-between; } .scroll-top-button { right: 14px; bottom: 16px; } }
+
+/* ── Windowed rows ──
+   Long tables render 100 rows at a time and grow on demand; this styles the
+   control that grows them. */
+.rows-more-wrap { display: flex; justify-content: center; padding: 14px 0 4px; }
+.rows-more-row td { padding: 10px 14px; text-align: center; }
+.rows-more-btn {
+  padding: 8px 20px;
+  border: 1px solid var(--feather-border, #d7e0ea);
+  border-radius: 999px;
+  background: var(--feather-surface, #fff);
+  color: var(--feather-muted, #4a6076);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s, color 0.18s;
+}
+.rows-more-btn:hover {
+  background: var(--feather-surface-alt, #eef4f9);
+  border-color: var(--feather-accent, #a9bece);
+  color: var(--feather-text, #22364a);
+}

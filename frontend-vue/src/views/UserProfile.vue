@@ -44,6 +44,25 @@ const sortedSubmissions = computed(() => {
   return submissions.sort((a, b) => multiplier * String(valueFor(a)).localeCompare(String(valueFor(b))));
 });
 
+// Both tables below used to render every row this user has: a prolific
+// submitter on a large contest has thousands, each carrying a nested loop over
+// its reviews, and all of it was committed to the DOM at once. The endpoint
+// already returns the whole set in one response, so this is purely about how
+// much of it is drawn -- sorting still applies to the full list, and the window
+// is taken after the sort so "show more" reveals the next rows in order.
+const ROW_WINDOW = 100;
+const visibleSubmissionCount = ref(ROW_WINDOW);
+const visibleSubmissions = computed(() => sortedSubmissions.value.slice(0, visibleSubmissionCount.value));
+const hiddenSubmissionCount = computed(() =>
+  Math.max(sortedSubmissions.value.length - visibleSubmissionCount.value, 0));
+const showMoreSubmissions = () => { visibleSubmissionCount.value += ROW_WINDOW; };
+
+const visibleReviewCount = ref(ROW_WINDOW);
+const visibleReviews = computed(() => (profile.value?.reviews || []).slice(0, visibleReviewCount.value));
+const hiddenReviewCount = computed(() =>
+  Math.max((profile.value?.reviews || []).length - visibleReviewCount.value, 0));
+const showMoreReviews = () => { visibleReviewCount.value += ROW_WINDOW; };
+
 const fetchProfile = async () => {
   isLoading.value = true;
   try {
@@ -143,7 +162,7 @@ const formatDate = (dateStr) => {
             </div>
             <span class="section-count">{{ profile.submissions.length }} articles</span>
           </div>
-          <cdx-table v-if="profile.submissions.length" class="profile-table" caption="Submissions" hide-caption :columns="submissionColumns" :data="sortedSubmissions" :sort="submissionSort" @update:sort="updateSubmissionSort">
+          <cdx-table v-if="profile.submissions.length" class="profile-table" caption="Submissions" hide-caption :columns="submissionColumns" :data="visibleSubmissions" :sort="submissionSort" @update:sort="updateSubmissionSort">
             <template #item-title="{ row }">
               <a :href="'https://bn.wiktionary.org/wiki/' + encodeURIComponent(row.title)" target="_blank" class="title-link">{{ row.title }}</a>
               <div v-if="row.validation_error" class="error-subtext">âš ï¸ {{ row.validation_error }}</div>
@@ -160,6 +179,12 @@ const formatDate = (dateStr) => {
             <template #item-submitted_at="{ row }">{{ formatDate(row.submitted_at) }}</template>
           </cdx-table>
           <div v-else class="empty-state">No submissions yet.</div>
+          <div v-if="hiddenSubmissionCount" class="rows-more-wrap">
+            <button type="button" class="rows-more-btn" @click="showMoreSubmissions">
+              Show 100 more - {{ hiddenSubmissionCount.toLocaleString() }} not shown
+            </button>
+          </div>
+
           <!--
             Codex renders the sortable header and accessible aria-sort state.
             The custom slots above keep article links and review details rich.
@@ -178,7 +203,7 @@ const formatDate = (dateStr) => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="sub in sortedSubmissions" :key="sub.id">
+                <tr v-for="sub in visibleSubmissions" :key="sub.id">
                   <td>
                     <a :href="'https://bn.wiktionary.org/wiki/' + encodeURIComponent(sub.title)" target="_blank" class="title-link">
                       {{ sub.title }}
@@ -211,6 +236,11 @@ const formatDate = (dateStr) => {
                 </tr>
               </tbody>
             </table>
+            <div v-if="hiddenSubmissionCount" class="rows-more-wrap">
+              <button type="button" class="rows-more-btn" @click="showMoreSubmissions">
+                Show 100 more - {{ hiddenSubmissionCount.toLocaleString() }} not shown
+              </button>
+            </div>
           </template>
         </div>
         
@@ -227,7 +257,7 @@ const formatDate = (dateStr) => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(rev, idx) in profile.reviews" :key="idx">
+                <tr v-for="(rev, idx) in visibleReviews" :key="idx">
                   <td>
                     <a :href="'https://bn.wiktionary.org/wiki/' + encodeURIComponent(rev.article_title)" target="_blank" class="title-link">
                       {{ rev.article_title }}
@@ -241,6 +271,11 @@ const formatDate = (dateStr) => {
                 </tr>
               </tbody>
             </table>
+            <div v-if="hiddenReviewCount" class="rows-more-wrap">
+              <button type="button" class="rows-more-btn" @click="showMoreReviews">
+                Show 100 more - {{ hiddenReviewCount.toLocaleString() }} not shown
+              </button>
+            </div>
           </div>
         </div>
       </div>

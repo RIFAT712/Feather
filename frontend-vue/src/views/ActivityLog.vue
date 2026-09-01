@@ -133,6 +133,40 @@ const groupedByUser = computed(() => {
   return Object.values(map);
 });
 
+// Both views used to render every entry in the contest: the timeline built one
+// card per article with a nested loop over its reviews, and each open user
+// group built a full table of that user's articles. At 35,000 articles that is
+// tens of thousands of DOM nodes committed in one go, which is what actually
+// hangs the tab -- the data behind it arrives in well under a second. Each view
+// now renders a window and grows it on demand, the same way JuryStats's
+// submissions tab does. Nothing about what gets fetched changes.
+const ENTRY_WINDOW = 100;
+
+const visibleTimelineCount = ref(ENTRY_WINDOW);
+const visibleLog = computed(() => displayedLog.value.slice(0, visibleTimelineCount.value));
+const hiddenTimelineCount = computed(() =>
+  Math.max(displayedLog.value.length - visibleTimelineCount.value, 0));
+const showMoreTimeline = () => { visibleTimelineCount.value += ENTRY_WINDOW; };
+
+const visibleGroupCounts = ref({});
+const groupWindow = (group) => visibleGroupCounts.value[group.user] || ENTRY_WINDOW;
+const visibleGroupEntries = (group) => group.entries.slice(0, groupWindow(group));
+const hiddenGroupCount = (group) => Math.max(group.entries.length - groupWindow(group), 0);
+const showMoreInGroup = (group) => {
+  visibleGroupCounts.value = {
+    ...visibleGroupCounts.value,
+    [group.user]: groupWindow(group) + ENTRY_WINDOW,
+  };
+};
+
+// A new search, or a switch between views, has to start from the top again:
+// a window opened deep into the previous result set would otherwise hide the
+// first rows of the new one.
+watch([debouncedSearch, viewMode], () => {
+  visibleTimelineCount.value = ENTRY_WINDOW;
+  visibleGroupCounts.value = {};
+});
+
 const toggleUser = (group) => {
   openGroups.value[group.user] = !openGroups.value[group.user];
 };
@@ -343,7 +377,7 @@ const reviewComments = (entry) => (entry.reviews || [])
               </thead>
               <tbody>
                 <tr
-                  v-for="(entry, idx) in group.entries"
+                  v-for="(entry, idx) in visibleGroupEntries(group)"
                   :key="entry.id || idx"
                   :class="idx % 2 === 0 ? 'row-even' : 'row-odd'"
                 >
@@ -366,6 +400,13 @@ const reviewComments = (entry) => (entry.reviews || [])
                   <td class="td-date">{{ fmt(entry.submitted_at) }}</td>
                   <td class="td-date">{{ entry.reviews && entry.reviews.length ? fmt(entry.reviews[0].reviewed_at) : '—' }}</td>
                 </tr>
+                <tr v-if="hiddenGroupCount(group)" class="log-more-row">
+                  <td colspan="6">
+                    <button type="button" class="log-more-btn" @click="showMoreInGroup(group)">
+                      Show 100 more — {{ hiddenGroupCount(group).toLocaleString() }} not shown
+                    </button>
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -374,7 +415,7 @@ const reviewComments = (entry) => (entry.reviews || [])
 
             <div v-if="viewMode === 'timeline'" class="view-section">
         <div
-          v-for="(entry, idx) in displayedLog"
+          v-for="(entry, idx) in visibleLog"
           :key="entry.id || idx"
           class="timeline-card"
           :class="`tl-${entry.status}`"
@@ -412,6 +453,12 @@ const reviewComments = (entry) => (entry.reviews || [])
               </div>
             </div>
           </div>
+        </div>
+
+        <div v-if="hiddenTimelineCount" class="log-more-wrap">
+          <button type="button" class="log-more-btn" @click="showMoreTimeline">
+            Show 100 more — {{ hiddenTimelineCount.toLocaleString() }} not shown
+          </button>
         </div>
 
         <div v-if="log.length === 0" class="state-center">

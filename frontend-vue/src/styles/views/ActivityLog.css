@@ -666,3 +666,37 @@
   .td-date { display: none; }
   .timeline-card { padding: 14px 16px 12px 18px; }
 }
+
+/* ── Windowed rendering ──
+   The timeline and the per-user tables render 100 entries at a time and grow
+   on demand; these style the control that grows them. Matching .seg-btn's
+   palette rather than introducing new colours. */
+.log-more-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 18px 0 6px;
+}
+
+.log-more-row td {
+  padding: 10px 14px;
+  text-align: center;
+}
+
+.log-more-btn {
+  padding: 8px 20px;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  background: transparent;
+  color: #94a3b8;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+}
+
+.log-more-btn:hover {
+  background: #1a1a1a;
+  border-color: #475569;
+  color: #e2e8f0;
+}

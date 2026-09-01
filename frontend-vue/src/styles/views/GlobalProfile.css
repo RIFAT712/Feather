@@ -622,3 +622,26 @@
   .inner-table { font-size: 0.8rem; }
   .inner-table th, .inner-table td { padding: 8px 10px; }
 }
+
+/* ── Windowed rows ──
+   Long tables render 100 rows at a time and grow on demand; this styles the
+   control that grows them. */
+.rows-more-wrap { display: flex; justify-content: center; padding: 14px 0 4px; }
+.rows-more-row td { padding: 10px 14px; text-align: center; }
+.rows-more-btn {
+  padding: 8px 20px;
+  border: 1px solid var(--feather-border, #d7e0ea);
+  border-radius: 999px;
+  background: var(--feather-surface, #fff);
+  color: var(--feather-muted, #4a6076);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s, color 0.18s;
+}
+.rows-more-btn:hover {
+  background: var(--feather-surface-alt, #eef4f9);
+  border-color: var(--feather-accent, #a9bece);
+  color: var(--feather-text, #22364a);
+}
