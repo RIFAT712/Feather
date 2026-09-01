@@ -1282,9 +1282,12 @@ const copyTalkSnippet = () => {
       </div>
     </div>
 
-    <div v-else-if="isLoading" class="rq-center-state">
+    <div v-else-if="isLoading || (isBackgroundLoading && !currentArticle)" class="rq-center-state">
       <div class="rq-spinner"></div>
       <p class="rq-loading-text">Loading review queue…</p>
+      <p v-if="isBackgroundLoading && articles.length > 0" class="rq-loading-text" style="font-size: 0.9em; opacity: 0.8; margin-top: 8px;">
+        Scanning ({{ articles.length }} / {{ statusStats?.total || '?' }} loaded)…
+      </p>
     </div>
 
     <div v-else class="rq-layout" :class="{ 'is-mobile-review': mobileTab === 'review' }">
@@ -1471,11 +1474,7 @@ const copyTalkSnippet = () => {
         <div v-if="!currentArticle" class="rq-center-state rq-center-full rq-panel">
           <div class="rq-card-done">
             <div class="rq-done-icon"><CdxIcon :icon="cdxIconArticleCheck" /></div>
-            <template v-if="isBackgroundLoading">
-              <h3>Loading your queue…</h3>
-              <p>Loaded {{ articles.length }} of {{ statusStats.total }}. The first reviewable article opens automatically.</p>
-            </template>
-            <template v-else-if="availableNewArticles.length">
+            <template v-if="availableNewArticles.length">
               <h3>Nothing open</h3>
               <p>{{ availableNewArticles.length }} article{{ availableNewArticles.length === 1 ? '' : 's' }} still waiting in your queue — pick one from the sidebar to carry on.</p>
             </template>
@@ -1488,6 +1487,7 @@ const copyTalkSnippet = () => {
             </button>
           </div>
         </div>
+
 
         <template v-else>
           <!-- PREVIEW (Top) -->
