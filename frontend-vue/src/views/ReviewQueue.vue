@@ -957,7 +957,7 @@ const normalizeShortcutKey = (rawKey) => {
   return rawKey.toLowerCase();
 };
 const isBindableKey = (key) =>
-  !RESERVED_SHORTCUT_KEYS.has(key) && (ACTIVATION_KEYS.has(key) || /^[a-z0-9]$/.test(key));
+  !RESERVED_SHORTCUT_KEYS.has(key) && (ACTIVATION_KEYS.has(key) || key.length === 1);
 const shortcutKeyLabel = (key) => {
   if (key === 'space') return 'Space';
   if (key === 'enter') return 'Enter';
@@ -992,7 +992,7 @@ const resetShortcuts = () => {
 const applyCapturedKey = (rawKey) => {
   const key = normalizeShortcutKey(rawKey);
   if (!isBindableKey(key)) {
-    shortcutError.value = 'Pick a letter, a number, Enter or Space. Esc, Tab and / are reserved.';
+    shortcutError.value = 'Pick a single character, Enter or Space. Esc, Tab, / and ? are reserved.';
     return;
   }
   const clash = Object.entries(shortcuts.value).find(([id, k]) => k === key && id !== capturingAction.value);
