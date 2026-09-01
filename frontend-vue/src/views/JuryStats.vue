@@ -103,7 +103,7 @@ const loadSubmitterArticles = async (username, { force = false } = {}) => {
     const items = await fetchAllContestLogPages(route.params.code, {
       includeReviews: false,
       submittedBy: username,
-      pageSize: 500,
+      pageSize: 5000,
     });
     setSubmitterEntry(username, { items, isLoading: false, error: null, loaded: true });
     return items;

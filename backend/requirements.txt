@@ -16,6 +16,18 @@ itsdangerous~=2.2.0
 python-dotenv~=1.2.3
 PyJWT~=2.13.0
 pymysql~=1.2.0
+orjson~=3.12.0          # C JSON encoder; 7x faster than json.dumps on the
+                        # 5,000-row article pages. main.py falls back to
+                        # starlette's JSONResponse if the import fails, so a
+                        # deploy without it degrades rather than breaks.
+# mysqlclient~=2.2.7    # OPTIONAL C replacement for pymysql. pymysql decodes
+                        # every row in pure Python; mysqlclient does it in C
+                        # and is several times faster on multi-thousand-row
+                        # pages. database.py picks it up automatically when
+                        # importable and stays on pymysql otherwise, so
+                        # uncommenting this is the only step -- but it needs
+                        # libmariadb-dev + a compiler at image build time, so
+                        # enable it on a build you can watch, not a hotfix.
 psutil~=7.2.2
 APScheduler~=3.11.3    # interval scheduler for the talk-page queue worker
 alembic~=1.19.1        # schema migrations (backend/alembic)

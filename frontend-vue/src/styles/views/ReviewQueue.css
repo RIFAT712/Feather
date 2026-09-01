@@ -218,7 +218,6 @@ button { cursor: pointer; }
 .rq-stat-ok .rq-stat-val { color: var(--rq-success); }
 .rq-stat-rej .rq-stat-val { color: var(--rq-danger); }
 .rq-stat-lbl { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--rq-text-muted); margin-top: 4px; }
-.rq-bg-loading { flex-basis: 100%; margin: 6px 0 0; font-size: 0.7rem; color: var(--rq-text-muted); }
 
 .rq-panel-scroll { flex: 1; overflow-y: auto; padding-bottom: 24px; }
 

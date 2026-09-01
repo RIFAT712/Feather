@@ -57,7 +57,12 @@ class ContestJury(Base):
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     
     contest = relationship("Contest", back_populates="juries")
-    user = relationship("User", back_populates="jury_assignments")
+    # Eager: a ContestJury row is never useful without the user behind it, and
+    # get_eligible_juries() -- called on every jury-panel request -- walks
+    # contest.juries reading j.user.wiki_username off each one. Lazily that is
+    # one SELECT per jury member, which costs nothing against local SQLite and
+    # is a separate network round trip each against Toolforge's ToolsDB.
+    user = relationship("User", back_populates="jury_assignments", lazy="joined")
 
 class ContestJuryRestriction(Base):
     __tablename__ = 'contest_jury_restrictions'

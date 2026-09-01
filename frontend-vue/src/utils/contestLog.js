@@ -7,7 +7,7 @@
 // page/offset pagination silently skips or re-shuffles rows as the underlying
 // result set shifts underneath it. Cursoring on the last-seen article id is
 // immune to that.
-export async function fetchAllContestLogPages(code, { pageSize = 500, signal, onPage, includeReviews = true, status = null, submittedBy = null } = {}) {
+export async function fetchAllContestLogPages(code, { pageSize = 5000, signal, onPage, includeReviews = true, status = null, submittedBy = null } = {}) {
   const items = [];
   let beforeId = null;
   for (;;) {
@@ -43,7 +43,7 @@ export async function fetchAllContestLogPages(code, { pageSize = 500, signal, on
 // crawl that now takes a couple of seconds instead of a minute has a much
 // smaller window for that drift to even occur.
 export async function fetchRemainingLogPagesConcurrently(code, alreadyLoadedCount, total, {
-  pageSize = 200, concurrency = 5, includeReviews = true, status = null, signal, onBatch,
+  pageSize = 2000, concurrency = 5, includeReviews = true, status = null, signal, onBatch,
 } = {}) {
   const offsets = [];
   for (let offset = alreadyLoadedCount; offset < total; offset += pageSize) {

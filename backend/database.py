@@ -27,6 +27,31 @@ def get_toolforge_credentials():
             print(f"Error reading replica.my.cnf: {e}")
     return None, None
 
+def _mysql_driver():
+    """SQLAlchemy dialect for the MariaDB connections, preferring a C driver.
+
+    pymysql decodes every column of every row in pure Python, which is the same
+    class of overhead as building ORM objects for rows nobody reads -- it just
+    happens one layer lower, where it is invisible from the app. mysqlclient
+    (MySQLdb) does that decoding in C and is typically several times faster on
+    the multi-thousand-row pages the jury panel and /log serve.
+
+    Chosen by import probe rather than pinned, so this is a no-op unless the
+    image actually has the C driver: an environment with only pymysql keeps
+    working exactly as before instead of failing to start. Set FEATHER_DB_DRIVER
+    to force a specific dialect (e.g. "pymysql") if a build needs to opt out.
+    """
+    forced = os.getenv("FEATHER_DB_DRIVER")
+    if forced:
+        return forced
+    try:
+        import MySQLdb  # noqa: F401  (provided by mysqlclient)
+        return "mysqldb"
+    except ImportError:
+        return "pymysql"
+
+MYSQL_DRIVER = _mysql_driver()
+
 DB_NAME = os.getenv("DB_NAME", f"{os.getenv('TOOL_TOOLSDB_USER')}__app" if os.getenv("TOOL_TOOLSDB_USER") else None)
 DB_HOST = os.getenv("DB_HOST", "tools.db.svc.wikimedia.cloud")
 DB_PORT = os.getenv("DB_PORT", "3306")
@@ -34,7 +59,8 @@ DB_USER = os.getenv("DB_USER", os.getenv("TOOL_TOOLSDB_USER"))
 DB_PASSWORD = os.getenv("DB_PASSWORD", os.getenv("TOOL_TOOLSDB_PASSWORD"))
 
 if DB_NAME and DB_USER:
-    SQLALCHEMY_DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4"
+    SQLALCHEMY_DATABASE_URL = f"mysql+{MYSQL_DRIVER}://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4"
+    print(f"[DB] Application engine driver: mysql+{MYSQL_DRIVER}")
     engine = create_engine(
         SQLALCHEMY_DATABASE_URL,
         pool_size=10,
@@ -73,6 +99,124 @@ else:
         cursor.execute("PRAGMA cache_size=-64000")
         cursor.execute("PRAGMA temp_store=MEMORY")
         cursor.close()
+
+# MySQL/MariaDB string escaping, as a translation table so str.translate does it
+# in C. Matches what pymysql's own escaper emits (verified against
+# pymysql.converters.escape_string); NUL and Ctrl-Z have to be escaped or the
+# dump file cannot be fed back through the mysql client.
+_MYSQL_ESCAPES = str.maketrans({
+    "\\": "\\\\",
+    "'": "\\'",
+    '"': '\\"',
+    "\n": "\\n",
+    "\r": "\\r",
+    "\x00": "\\0",
+    "\x1a": "\\Z",
+})
+
+def _sql_literal(value, mysql: bool) -> str:
+    """Render one Python value as a SQL literal for a dump file.
+
+    SQLite has no backslash escape: a quote is doubled and everything else is
+    taken literally, so it needs its own branch rather than MySQL's rules.
+    """
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value)
+    if isinstance(value, (bytes, bytearray)):
+        return f"X'{value.hex()}'" if value else "''"
+    if isinstance(value, datetime):
+        return "'" + value.isoformat(sep=" ") + "'"
+    if hasattr(value, "isoformat"):          # date, time
+        return "'" + value.isoformat() + "'"
+    text_value = str(value)
+    if mysql:
+        return "'" + text_value.translate(_MYSQL_ESCAPES) + "'"
+    return "'" + text_value.replace("'", "''") + "'"
+
+# Each INSERT is capped well under MariaDB's default 16MB max_allowed_packet:
+# one statement per table would be unrestorable on any table of real size.
+_MAX_INSERT_BYTES = 800_000
+
+def write_sql_dump(db_engine, target: Path) -> Path:
+    """Write a restorable .sql dump of every table, without needing mysqldump.
+
+    The DDL is the database's own: SHOW CREATE TABLE on MariaDB, and the stored
+    CREATE statement out of sqlite_master on SQLite -- so indexes, constraints,
+    AUTO_INCREMENT and charset come back exactly as they are rather than being
+    reconstructed from SQLAlchemy's view of them. Rows are streamed, not read
+    into memory, and batched into multi-row INSERTs.
+
+    The result restores with `mysql < dump.sql` (or `sqlite3 db < dump.sql`)
+    like a mysqldump would -- which a JSON snapshot of the same data does not:
+    JSON records the contents but no engine can read it back, so restoring one
+    means writing a bespoke loader at the exact moment you least want to.
+    """
+    from sqlalchemy import inspect, text
+    mysql = "mysql" in str(db_engine.url)
+    inspector = inspect(db_engine)
+
+    with db_engine.connect() as connection, target.open("w", encoding="utf-8", newline="\n") as out:
+        out.write("-- Feather database dump\n")
+        out.write(f"-- Engine: {db_engine.url.get_backend_name()}\n")
+        out.write(f"-- Generated: {utcnow().isoformat()}\n")
+        out.write("-- Written by Feather (mysqldump unavailable); restorable with the standard client.\n\n")
+        if mysql:
+            out.write("SET NAMES utf8mb4;\n")
+            out.write("SET FOREIGN_KEY_CHECKS=0;\n")
+            out.write("SET SQL_MODE='NO_AUTO_VALUE_ON_ZERO';\n\n")
+        else:
+            out.write("PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\n\n")
+
+        for table in inspector.get_table_names():
+            if mysql:
+                ddl = connection.execute(text(f"SHOW CREATE TABLE `{table}`")).fetchone()[1]
+                quoted = f"`{table}`"
+            else:
+                ddl = connection.execute(
+                    text("SELECT sql FROM sqlite_master WHERE type='table' AND name=:n"),
+                    {"n": table},
+                ).scalar()
+                quoted = f'"{table}"'
+            out.write(f"--\n-- Table structure for {table}\n--\n\n")
+            out.write(f"DROP TABLE IF EXISTS {quoted};\n{ddl};\n\n")
+
+            columns = [column["name"] for column in inspector.get_columns(table)]
+            column_list = ", ".join((f"`{c}`" if mysql else f'"{c}"') for c in columns)
+            prefix = f"INSERT INTO {quoted} ({column_list}) VALUES\n"
+            rows = connection.execution_options(stream_results=True, yield_per=1000).execute(
+                text(f"SELECT {column_list} FROM {quoted}")
+            )
+            batch, batch_bytes, row_count = [], 0, 0
+            for row in rows:
+                values = "(" + ",".join(_sql_literal(v, mysql) for v in row) + ")"
+                if batch and batch_bytes + len(values) > _MAX_INSERT_BYTES:
+                    out.write(prefix + ",\n".join(batch) + ";\n")
+                    batch, batch_bytes = [], 0
+                batch.append(values)
+                batch_bytes += len(values) + 2
+                row_count += 1
+            if batch:
+                out.write(prefix + ",\n".join(batch) + ";\n")
+            out.write(f"-- {row_count} row(s) in {table}\n\n")
+
+            # Indexes live inside SHOW CREATE TABLE on MariaDB, but are separate
+            # rows in sqlite_master, so SQLite needs them written out too.
+            if not mysql:
+                for (index_ddl,) in connection.execute(
+                    text("SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name=:n AND sql IS NOT NULL"),
+                    {"n": table},
+                ).all():
+                    out.write(f"{index_ddl};\n")
+                out.write("\n")
+
+        out.write("SET FOREIGN_KEY_CHECKS=1;\n" if mysql else "COMMIT;\nPRAGMA foreign_keys=ON;\n")
+    return target
 
 def _pre_migration_backup(db_engine):
     """Create a rollback snapshot before touching the application schema."""
@@ -146,10 +290,26 @@ def _pre_migration_backup(db_engine):
     except (FileNotFoundError, subprocess.CalledProcessError) as error:
         if sql_target.exists():
             sql_target.unlink()
-        print(f"[Migration Backup] mysqldump unavailable or failed ({error}); using JSON snapshot.")
+        print(f"[Migration Backup] mysqldump unavailable or failed ({error}); dumping SQL in Python.")
 
-    # Toolforge images do not always include mysqldump. This fallback still
-    # captures every table, column definition, and row before migration.
+    # Toolforge images do not always ship mysqldump. This used to fall back to a
+    # JSON snapshot, which captured the data but was not a backup anyone could
+    # restore: no client reads it, so recovering from one meant writing a loader
+    # by hand at the worst possible moment. write_sql_dump produces the same
+    # .sql a mysqldump would, using the database's own DDL.
+    try:
+        write_sql_dump(db_engine, sql_target)
+        protect(sql_target)
+        print(f"[Migration Backup] SQL dump created without mysqldump: {sql_target}")
+        return sql_target
+    except Exception as error:
+        if sql_target.exists():
+            sql_target.unlink()
+        print(f"[Migration Backup] SQL dump failed ({error}); falling back to JSON snapshot.")
+
+    # Last resort only. A pre-migration snapshot must never be skipped outright,
+    # so if even the SQL writer fails we still capture the rows in a form that
+    # can be re-loaded by hand rather than proceeding with no backup at all.
     json_target = backup_root / f"app_{stamp}.json"
     from sqlalchemy import inspect, text
     inspector = inspect(db_engine)
@@ -465,6 +625,11 @@ def run_auto_migrations(db_engine):
             # of crawling the whole contest and grouping client-side, so this
             # needs to be an index lookup, not a filtered scan.
             "CREATE INDEX IF NOT EXISTS ix_articles_contest_submitter ON articles (contest_id, submitter_id)",
+            # /log and the jury panel both fetch a page's review history with a
+            # single WHERE article_id IN (...) over up to 5,000 ids, instead of
+            # a lazy load per article. InnoDB gets this index free from the
+            # foreign key; SQLite does not, so state it explicitly.
+            "CREATE INDEX IF NOT EXISTS ix_reviews_article_id ON reviews (article_id)",
         ]
         with db_engine.connect() as conn:
             for statement in index_statements:
@@ -513,7 +678,7 @@ if not WIKI_DB_USER or not WIKI_DB_PASSWORD:
 wiki_engine = None
 if WIKI_DB_USER and WIKI_DB_PASSWORD:
     try:
-        wiki_db_url = f"mysql+pymysql://{WIKI_DB_USER}:{WIKI_DB_PASSWORD}@{WIKI_DB_HOST}:{WIKI_DB_PORT}/{WIKI_DB_NAME}?charset=utf8mb4"
+        wiki_db_url = f"mysql+{MYSQL_DRIVER}://{WIKI_DB_USER}:{WIKI_DB_PASSWORD}@{WIKI_DB_HOST}:{WIKI_DB_PORT}/{WIKI_DB_NAME}?charset=utf8mb4"
         wiki_engine = create_engine(
             wiki_db_url,
             pool_size=5,

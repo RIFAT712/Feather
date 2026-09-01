@@ -9,7 +9,7 @@ import { computed, toValue } from 'vue';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import { fetchRemainingLogPagesConcurrently, fetchAllContestLogPages } from '../utils/contestLog';
 
-const PAGE_SIZE = 200;
+const PAGE_SIZE = 2000;
 
 function statsKey(code) {
   return ['contest-stats', toValue(code)];
