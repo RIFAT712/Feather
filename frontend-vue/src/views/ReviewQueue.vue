@@ -915,7 +915,9 @@ const loadShortcuts = () => {
     shortcuts.value = {
       ...DEFAULT_SHORTCUTS,
       ...Object.fromEntries(Object.entries(saved || {}).filter(
-        ([id, key]) => id in DEFAULT_SHORTCUTS && typeof key === 'string' && isBindableKey(key))),
+        ([id, key]) => id in DEFAULT_SHORTCUTS && typeof key === 'string'
+                        && isBindableKey(normalizeShortcutKey(key)))
+        .map(([id, key]) => [id, normalizeShortcutKey(key)])),
     };
   } catch {
     shortcuts.value = { ...DEFAULT_SHORTCUTS };
@@ -939,6 +941,9 @@ const RESERVED_SHORTCUT_KEYS = new Set(['escape', 'tab', '/', '?']);
 // Bindable, but the browser also uses them to activate whatever has focus, so
 // they need the guard in handleShortcut below.
 const ACTIVATION_KEYS = new Set(['enter', 'space']);
+// Held on their own these produce a keydown of their own name. Case-preserved
+// because they are compared against raw event.key, before normalisation.
+const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'AltGraph']);
 
 // event.key is a single character for letters and digits but a name for
 // everything else ("Enter", " " for space). Normalising both into one lowercase
@@ -992,7 +997,7 @@ const applyCapturedKey = (rawKey) => {
   }
   const clash = Object.entries(shortcuts.value).find(([id, k]) => k === key && id !== capturingAction.value);
   if (clash) {
-    shortcutError.value = `"${key.toUpperCase()}" is already used for: ${actionLabel(clash[0])}.`;
+    shortcutError.value = `"${shortcutKeyLabel(key)}" is already used for: ${actionLabel(clash[0])}.`;
     return;
   }
   shortcuts.value = { ...shortcuts.value, [capturingAction.value]: key };
@@ -1034,6 +1039,11 @@ const handleShortcut = (event) => {
   // wherever focus happens to be, so it cannot also trigger the old action.
   if (capturingAction.value) {
     event.preventDefault();
+    // A modifier on its own is not a binding, it is the user on their way to
+    // one: Shift+A is how you would naturally try to bind a capital, and the
+    // Shift keydown lands first. Answering it with "pick a letter" reads as a
+    // refusal of capitals, so hold and wait for the real key instead.
+    if (MODIFIER_KEYS.has(event.key)) return;
     if (!event.repeat) applyCapturedKey(event.key);
     return;
   }
