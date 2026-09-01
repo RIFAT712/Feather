@@ -57,6 +57,23 @@ const hiddenSubmissionCount = computed(() =>
   Math.max(sortedSubmissions.value.length - visibleSubmissionCount.value, 0));
 const showMoreSubmissions = () => { visibleSubmissionCount.value += ROW_WINDOW; };
 
+// Collapsible panels. v-if rather than v-show: a collapsed section should cost
+// nothing to render, which is the point on a profile carrying thousands of
+// rows. Open by default so nothing a reader expects to see is hidden on first
+// visit, and the choice is remembered per browser so someone who prefers to
+// work collapsed stays that way as they move between profiles.
+const SECTION_STORAGE_KEY = 'user_profile_sections';
+const openSections = ref({ submissions: true, reviews: true });
+try {
+  const saved = JSON.parse(localStorage.getItem(SECTION_STORAGE_KEY) || 'null');
+  if (saved && typeof saved === 'object') openSections.value = { ...openSections.value, ...saved };
+} catch { /* keep the defaults */ }
+const isSectionOpen = (id) => openSections.value[id] !== false;
+const toggleSection = (id) => {
+  openSections.value = { ...openSections.value, [id]: !isSectionOpen(id) };
+  try { localStorage.setItem(SECTION_STORAGE_KEY, JSON.stringify(openSections.value)); } catch { /* not persisted */ }
+};
+
 const visibleReviewCount = ref(ROW_WINDOW);
 const visibleReviews = computed(() => (profile.value?.reviews || []).slice(0, visibleReviewCount.value));
 const hiddenReviewCount = computed(() =>
@@ -154,14 +171,23 @@ const formatDate = (dateStr) => {
       </div>
       
       <div class="tables-container">
-        <div class="table-section">
-          <div class="section-heading">
+        <div class="table-section" :class="{ 'is-collapsed': !isSectionOpen('submissions') }">
+          <button
+            type="button"
+            class="section-heading section-toggle"
+            :aria-expanded="isSectionOpen('submissions') ? 'true' : 'false'"
+            @click="toggleSection('submissions')"
+          >
             <div>
               <p class="section-kicker">Article history</p>
               <h2>Submissions</h2>
             </div>
-            <span class="section-count">{{ profile.submissions.length }} articles</span>
-          </div>
+            <span class="section-meta">
+              <span class="section-count">{{ profile.submissions.length }} articles</span>
+              <span class="section-chevron" aria-hidden="true">&#9662;</span>
+            </span>
+          </button>
+          <template v-if="isSectionOpen('submissions')">
           <cdx-table v-if="profile.submissions.length" class="profile-table" caption="Submissions" hide-caption :columns="submissionColumns" :data="visibleSubmissions" :sort="submissionSort" @update:sort="updateSubmissionSort">
             <template #item-title="{ row }">
               <a :href="'https://bn.wiktionary.org/wiki/' + encodeURIComponent(row.title)" target="_blank" class="title-link">{{ row.title }}</a>
@@ -184,6 +210,7 @@ const formatDate = (dateStr) => {
               Show 100 more - {{ hiddenSubmissionCount.toLocaleString() }} not shown
             </button>
           </div>
+          </template>
 
           <!--
             Codex renders the sortable header and accessible aria-sort state.
@@ -244,8 +271,20 @@ const formatDate = (dateStr) => {
           </template>
         </div>
         
-                <div class="table-section" v-if="profile.reviews.length">
-          <h3>Reviews</h3>
+                <div class="table-section" v-if="profile.reviews.length" :class="{ 'is-collapsed': !isSectionOpen('reviews') }">
+          <button
+            type="button"
+            class="section-heading section-toggle"
+            :aria-expanded="isSectionOpen('reviews') ? 'true' : 'false'"
+            @click="toggleSection('reviews')"
+          >
+            <div><h3>Reviews</h3></div>
+            <span class="section-meta">
+              <span class="section-count">{{ profile.reviews.length }} reviews</span>
+              <span class="section-chevron" aria-hidden="true">&#9662;</span>
+            </span>
+          </button>
+          <template v-if="isSectionOpen('reviews')">
           <div class="table-wrapper">
             <table class="data-table">
               <thead>
@@ -277,6 +316,7 @@ const formatDate = (dateStr) => {
               </button>
             </div>
           </div>
+          </template>
         </div>
       </div>
     </div>

@@ -90,3 +90,39 @@
   border-color: var(--feather-accent, #a9bece);
   color: var(--feather-text, #22364a);
 }
+
+/* ── Collapsible panels ──
+   The heading is a button now. It reuses .section-heading's flex layout, so
+   only the button chrome has to be reset -- keeping one source for the
+   spacing rather than a near-copy that drifts. */
+.section-toggle {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.section-toggle:focus-visible { outline: 2px solid #9bc4d8; outline-offset: 4px; border-radius: 6px; }
+.section-toggle h2, .section-toggle h3 { transition: color 0.15s; }
+.section-toggle:hover h2, .section-toggle:hover h3 { color: #2d6688; }
+
+.section-meta { display: inline-flex; align-items: center; gap: 10px; }
+
+.section-chevron {
+  color: #8ba5b4;
+  font-size: 0.8rem;
+  line-height: 1;
+  transition: transform 0.18s ease;
+}
+/* Collapsed points right, open points down -- the arrow is the state. */
+.is-collapsed .section-chevron { transform: rotate(-90deg); }
+/* The heading carries the section's whole bottom margin while open; collapsed
+   there is nothing under it to separate from. */
+.is-collapsed .section-heading { margin-bottom: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .section-chevron { transition: none; }
+}
