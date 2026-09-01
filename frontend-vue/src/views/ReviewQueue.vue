@@ -915,7 +915,7 @@ const loadShortcuts = () => {
     shortcuts.value = {
       ...DEFAULT_SHORTCUTS,
       ...Object.fromEntries(Object.entries(saved || {}).filter(
-        ([id, key]) => id in DEFAULT_SHORTCUTS && typeof key === 'string' && key.length === 1)),
+        ([id, key]) => id in DEFAULT_SHORTCUTS && typeof key === 'string' && isBindableKey(key))),
     };
   } catch {
     shortcuts.value = { ...DEFAULT_SHORTCUTS };
@@ -931,9 +931,45 @@ const persistShortcuts = () => {
 
 const capturingAction = ref(null);
 const shortcutError = ref('');
-// Escape is the way out of everything and "/" opens this panel; letting either
-// be rebound would strand the user in a dialog they cannot close.
-const RESERVED_SHORTCUT_KEYS = new Set(['escape', 'enter', 'tab', ' ', '/', '?']);
+// Keys that have to keep their built-in meaning: Escape is the way out of
+// everything, "/" and "?" open this panel, and Tab is how keyboard users move
+// between controls at all. Rebinding any of them would strand someone.
+const RESERVED_SHORTCUT_KEYS = new Set(['escape', 'tab', '/', '?']);
+
+// Bindable, but the browser also uses them to activate whatever has focus, so
+// they need the guard in handleShortcut below.
+const ACTIVATION_KEYS = new Set(['enter', 'space']);
+
+// event.key is a single character for letters and digits but a name for
+// everything else ("Enter", " " for space). Normalising both into one lowercase
+// token means bindings compare, store and display through the same value --
+// an earlier version tested `key.length === 1`, which silently made every named
+// key unbindable while a reserved-list entry for 'enter' sat there implying it
+// was a policy decision rather than a side effect.
+const normalizeShortcutKey = (rawKey) => {
+  if (!rawKey) return '';
+  if (rawKey === ' ' || rawKey === 'Spacebar') return 'space';
+  return rawKey.toLowerCase();
+};
+const isBindableKey = (key) =>
+  !RESERVED_SHORTCUT_KEYS.has(key) && (ACTIVATION_KEYS.has(key) || /^[a-z0-9]$/.test(key));
+const shortcutKeyLabel = (key) => {
+  if (key === 'space') return 'Space';
+  if (key === 'enter') return 'Enter';
+  return (key || '').toUpperCase();
+};
+
+// Enter and Space press the focused control. If focus is on a button -- the
+// reviewer just clicked Accept, or is tabbing through -- the browser must keep
+// the keystroke, or one press would both activate that button and fire the
+// shortcut: two decisions on one article.
+const isInteractiveTarget = (el) => {
+  if (!el || el === document.body) return false;
+  const tag = el.tagName;
+  return tag === 'BUTTON' || tag === 'A' || tag === 'INPUT' || tag === 'SELECT'
+    || tag === 'TEXTAREA' || tag === 'SUMMARY' || el.isContentEditable
+    || el.getAttribute?.('role') === 'button';
+};
 
 const startShortcutCapture = (actionId) => { capturingAction.value = actionId; shortcutError.value = ''; };
 const cancelShortcutCapture = () => { capturingAction.value = null; shortcutError.value = ''; };
@@ -949,9 +985,9 @@ const resetShortcuts = () => {
 };
 
 const applyCapturedKey = (rawKey) => {
-  const key = (rawKey || '').toLowerCase();
-  if (key.length !== 1 || RESERVED_SHORTCUT_KEYS.has(key)) {
-    shortcutError.value = 'Pick a single letter or number. Esc and / are reserved.';
+  const key = normalizeShortcutKey(rawKey);
+  if (!isBindableKey(key)) {
+    shortcutError.value = 'Pick a letter, a number, Enter or Space. Esc, Tab and / are reserved.';
     return;
   }
   const clash = Object.entries(shortcuts.value).find(([id, k]) => k === key && id !== capturingAction.value);
@@ -972,7 +1008,7 @@ const applyCapturedKey = (rawKey) => {
 // backs it up by requiring the key to be physically released before the same
 // action can fire again, which also contains a stuck key.
 const heldKeys = new Set();
-const releaseHeldKey = (event) => heldKeys.delete((event.key || '').toLowerCase());
+const releaseHeldKey = (event) => heldKeys.delete(normalizeShortcutKey(event.key));
 // A keyup that lands on another window never reaches us, so a key held while
 // tabbing away would stay "down" forever. Clear the set when focus leaves.
 const clearHeldKeys = () => heldKeys.clear();
@@ -1016,10 +1052,13 @@ const handleShortcut = (event) => {
   if (showShortcutHelp.value) return;
   if (!currentArticle.value || isSubmitting.value) return;
 
-  const key = event.key.toLowerCase();
+  const key = normalizeShortcutKey(event.key);
   if (heldKeys.has(key)) return;
   const action = SHORTCUT_ACTIONS.find(a => shortcuts.value[a.id] === key)?.id;
   if (!action) return;
+  // Let the browser have Enter/Space whenever they would be activating a
+  // control; the shortcut only applies when focus is on the page itself.
+  if (ACTIVATION_KEYS.has(key) && isInteractiveTarget(document.activeElement)) return;
   heldKeys.add(key);
   event.preventDefault();
 
@@ -1478,7 +1517,7 @@ const copyTalkSnippet = () => {
                   :class="{ 'is-on': showWikitext }"
                   role="switch"
                   :aria-checked="showWikitext ? 'true' : 'false'"
-                  :title="`Show raw wikitext (${shortcuts.wikitext.toUpperCase()})`"
+                  :title="`Show raw wikitext (${shortcutKeyLabel(shortcuts.wikitext)})`"
                   @click="toggleWikitext"
                 >
                   <span class="rq-switch-label">Wikitext</span>
@@ -1563,10 +1602,10 @@ const copyTalkSnippet = () => {
                 <div class="rq-actions-wrapper">
                   <div class="rq-primary-actions">
                     <button type="button" class="rq-btn rq-btn-accept" :disabled="isSubmitting" @click.prevent="handleDecision('accepted')" title="Accept (A)">
-                      <CdxIcon :icon="cdxIconCheck" /> <span>Accept</span> <kbd class="rq-kbd rq-desktop-only">{{ shortcuts.accept.toUpperCase() }}</kbd>
+                      <CdxIcon :icon="cdxIconCheck" /> <span>Accept</span> <kbd class="rq-kbd rq-desktop-only">{{ shortcutKeyLabel(shortcuts.accept) }}</kbd>
                     </button>
                     <button type="button" class="rq-btn rq-btn-reject" :disabled="isSubmitting" @click.prevent="handleDecision('rejected')" title="Reject (R)">
-                      <CdxIcon :icon="cdxIconClear" /> <span>Reject</span> <kbd class="rq-kbd rq-desktop-only">{{ shortcuts.reject.toUpperCase() }}</kbd>
+                      <CdxIcon :icon="cdxIconClear" /> <span>Reject</span> <kbd class="rq-kbd rq-desktop-only">{{ shortcutKeyLabel(shortcuts.reject) }}</kbd>
                     </button>
                   </div>
 
@@ -1606,7 +1645,7 @@ const copyTalkSnippet = () => {
         <span class="rq-undo-title">{{ lastDecision.title }}</span>
       </span>
       <button type="button" class="rq-undo-btn" :disabled="isUndoing" @click="undoLastDecision">
-        {{ isUndoing ? 'Undoing…' : 'Undo' }} <kbd class="rq-kbd">{{ shortcuts.undo.toUpperCase() }}</kbd>
+        {{ isUndoing ? 'Undoing…' : 'Undo' }} <kbd class="rq-kbd">{{ shortcutKeyLabel(shortcuts.undo) }}</kbd>
       </button>
       <button type="button" class="rq-undo-dismiss" aria-label="Dismiss" @click="dismissUndo">×</button>
     </div>
@@ -1627,11 +1666,11 @@ const copyTalkSnippet = () => {
                 :class="{ 'is-capturing': capturingAction === action.id }"
                 :aria-label="`Change the key for: ${action.label}`"
                 @click="capturingAction === action.id ? cancelShortcutCapture() : startShortcutCapture(action.id)"
-              >{{ capturingAction === action.id ? '…' : shortcuts[action.id].toUpperCase() }}</button>
+              >{{ capturingAction === action.id ? '…' : shortcutKeyLabel(shortcuts[action.id]) }}</button>
             </dt>
             <dd :class="{ 'is-capturing': capturingAction === action.id }">{{
               capturingAction === action.id
-                ? 'Press any letter or number — Esc to cancel'
+                ? 'Press a letter, number, Enter or Space — Esc to cancel'
                 : action.label
             }}</dd>
           </div>

@@ -858,7 +858,9 @@ button { cursor: pointer; }
   gap: 12px;
   padding: 7px 0;
 }
-.rq-help-row dt { flex-shrink: 0; width: 46px; margin: 0; }
+/* Wide enough for the longest bindable label ("Enter"/"Space"), not just a
+   single letter. */
+.rq-help-row dt { flex-shrink: 0; width: 62px; margin: 0; }
 .rq-help-row dd { margin: 0; font-size: 0.82rem; color: var(--rq-text-muted); }
 
 .rq-help-note {
@@ -886,7 +888,7 @@ button { cursor: pointer; }
    description instead, and the key box only changes colour. */
 .rq-kbd-editable {
   cursor: pointer;
-  width: 34px;
+  width: 100%;
   font: inherit;
   font-size: 0.68rem;
   font-weight: 700;
