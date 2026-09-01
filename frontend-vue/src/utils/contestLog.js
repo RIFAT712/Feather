@@ -7,7 +7,7 @@
 // page/offset pagination silently skips or re-shuffles rows as the underlying
 // result set shifts underneath it. Cursoring on the last-seen article id is
 // immune to that.
-export async function fetchAllContestLogPages(code, { pageSize = 5000, signal, onPage, includeReviews = true, status = null, submittedBy = null } = {}) {
+export async function fetchAllContestLogPages(code, { pageSize = 10000, signal, onPage, includeReviews = true, status = null, submittedBy = null } = {}) {
   const items = [];
   let beforeId = null;
   for (;;) {
@@ -42,8 +42,15 @@ export async function fetchAllContestLogPages(code, { pageSize = 5000, signal, o
 // reflects live truth; this just fills in older rows behind it, and a
 // crawl that now takes a couple of seconds instead of a minute has a much
 // smaller window for that drift to even occur.
+// Page size and concurrency multiply here, unlike on the sequential paths: what
+// matters is rows in flight at once, since each in-flight request costs the
+// backend ~16MB and ~300ms of CPU at 10,000 rows, and the Toolforge webservice
+// runs a single GIL-bound worker. 10,000 x 5 would put 50,000 rows and five
+// simultaneous CPU-bound requests on that one worker; 10,000 x 2 keeps 20,000
+// in flight -- twice today's 2,000 x 5, still bounded -- while cutting a 35k
+// contest from 18 requests in 4 waves to 4 requests in 2.
 export async function fetchRemainingLogPagesConcurrently(code, alreadyLoadedCount, total, {
-  pageSize = 2000, concurrency = 5, includeReviews = true, status = null, signal, onBatch,
+  pageSize = 10000, concurrency = 2, includeReviews = true, status = null, signal, onBatch,
 } = {}) {
   const offsets = [];
   for (let offset = alreadyLoadedCount; offset < total; offset += pageSize) {

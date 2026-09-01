@@ -2460,7 +2460,7 @@ def get_contest_log(
     code: str,
     before_id: Optional[int] = Query(default=None),
     offset: Optional[int] = Query(default=None, ge=0),
-    page_size: int = Query(default=200, ge=1, le=5000),
+    page_size: int = Query(default=200, ge=1, le=10000),
     include_reviews: bool = Query(default=True),
     status: Optional[str] = Query(default=None),
     submitted_by: Optional[str] = Query(default=None),
@@ -2710,7 +2710,7 @@ def get_jury_panel_articles(code: str, view_as: Optional[str] = Query(default=No
 def get_jury_panel_articles_page(
     code: str,
     after_id: Optional[int] = Query(default=None),
-    page_size: int = Query(default=250, ge=25, le=5000),
+    page_size: int = Query(default=250, ge=25, le=10000),
     view_as: Optional[str] = Query(default=None),
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),

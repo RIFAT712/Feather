@@ -400,7 +400,7 @@ watch(theme, () => {
 // a promise that settles once the *first* page is in `articles.value`, so the
 // panel is reviewable before the walk finishes.
 //
-// `page_size=5000` (the endpoint's cap) rather than the old 250. The cost here
+// `page_size=10000` (the endpoint's cap) rather than the old 250. The cost here
 // was never the database -- serving a 5000-row page costs the backend ~80ms of
 // ORM hydration against an index-covered query -- it was doing thirty of these
 // round-trips back to back, each paying full request latency, to fetch a queue
@@ -419,7 +419,7 @@ const walkAssignedQueue = (signal, { startCursor = null, replaceFirstPage = true
     let shouldFetchMore = true;
     while (shouldFetchMore) {
       const cursorQuery = cursor === null ? '' : `&after_id=${cursor}`;
-      const endpoint = `/api/jury-panel/contests/${route.params.code}/articles/page?page_size=5000${cursorQuery}${ownerViewQuery()}`;
+      const endpoint = `/api/jury-panel/contests/${route.params.code}/articles/page?page_size=10000${cursorQuery}${ownerViewQuery()}`;
       const response = await fetch(endpoint, { signal });
       if (!response.ok) throw new Error(`Queue fetch failed (${response.status})`);
       const payload = await response.json();
