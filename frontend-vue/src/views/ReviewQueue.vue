@@ -23,6 +23,7 @@ import {
 } from '@wikimedia/codex-icons';
 import { formatDateDayFirst } from '../utils/datetime';
 import { fetchAllContestLogPages } from '../utils/contestLog';
+import GlobalLoader from '../components/ui/GlobalLoader.vue';
 
 const props = defineProps(['contest', 'assignedQueue']);
 const route = useRoute();
@@ -1282,13 +1283,10 @@ const copyTalkSnippet = () => {
       </div>
     </div>
 
-    <div v-else-if="isLoading || (isBackgroundLoading && !currentArticle)" class="rq-center-state">
-      <div class="rq-spinner"></div>
-      <p class="rq-loading-text">Loading review queue…</p>
-      <p v-if="isBackgroundLoading && articles.length > 0" class="rq-loading-text" style="font-size: 0.9em; opacity: 0.8; margin-top: 8px;">
-        Scanning ({{ articles.length }} / {{ statusStats?.total || '?' }} loaded)…
-      </p>
-    </div>
+    <GlobalLoader 
+      v-else-if="isLoading || (isBackgroundLoading && !currentArticle)" 
+      :label="isBackgroundLoading && articles.length > 0 ? `Scanning (${articles.length} / ${statusStats?.total || '?'} loaded)…` : 'Loading review queue…'" 
+    />
 
     <div v-else class="rq-layout" :class="{ 'is-mobile-review': mobileTab === 'review' }">
       
