@@ -880,9 +880,13 @@ button { cursor: pointer; }
    The key in the help panel is a button now: click it, press a key. Sized to
    match .rq-kbd so the panel does not reflow when a row switches to
    "Press a key…". */
+/* Geometry is identical in both states. .rq-help-row dt is a fixed 46px
+   column, so the old capturing width of 6.5rem overflowed its own cell and
+   shoved the row around; the "press a key" prompt now lives in the flexible
+   description instead, and the key box only changes colour. */
 .rq-kbd-editable {
   cursor: pointer;
-  min-width: 2.2rem;
+  width: 34px;
   font: inherit;
   font-size: 0.68rem;
   font-weight: 700;
@@ -892,8 +896,18 @@ button { cursor: pointer; }
 .rq-kbd-editable.is-capturing {
   border-color: var(--rq-accent);
   color: var(--rq-accent);
-  min-width: 6.5rem;
-  font-weight: 600;
+  animation: rq-kbd-pulse 1.1s ease-out infinite;
+}
+/* The row is waiting on a keystroke -- say so where there is room for words. */
+.rq-help-row dd.is-capturing { color: var(--rq-accent); font-weight: 600; }
+
+@keyframes rq-kbd-pulse {
+  0%   { box-shadow: 0 0 0 0 var(--rq-accent); }
+  70%  { box-shadow: 0 0 0 5px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rq-kbd-editable.is-capturing { animation: none; }
 }
 
 .rq-help-error {
@@ -928,9 +942,15 @@ button { cursor: pointer; }
 /* Shortcut help button in the article header. Deliberately NOT inside
    .rq-actions-wrapper: the mobile override there force-shows .rq-desktop-only,
    which is exactly how the previous version of this button leaked onto phones. */
+/* Square, and the same 34px tall as the Wikitext switch beside it. Inheriting
+   .rq-btn-secondary's 8px 14px padding while zeroing the width collapsed it to
+   roughly half the height of its neighbours. */
 .rq-help-btn {
-  width: 32px;
+  width: 34px;
+  height: 34px;
   padding: 0;
   justify-content: center;
+  font-size: 0.95rem;
   font-weight: 700;
+  line-height: 1;
 }

@@ -1627,9 +1627,13 @@ const copyTalkSnippet = () => {
                 :class="{ 'is-capturing': capturingAction === action.id }"
                 :aria-label="`Change the key for: ${action.label}`"
                 @click="capturingAction === action.id ? cancelShortcutCapture() : startShortcutCapture(action.id)"
-              >{{ capturingAction === action.id ? 'Press a key…' : shortcuts[action.id].toUpperCase() }}</button>
+              >{{ capturingAction === action.id ? '…' : shortcuts[action.id].toUpperCase() }}</button>
             </dt>
-            <dd>{{ action.label }}</dd>
+            <dd :class="{ 'is-capturing': capturingAction === action.id }">{{
+              capturingAction === action.id
+                ? 'Press any letter or number — Esc to cancel'
+                : action.label
+            }}</dd>
           </div>
           <div class="rq-help-row"><dt><kbd class="rq-kbd">Esc</kbd></dt><dd>Leave the comment box / close this panel</dd></div>
           <div class="rq-help-row"><dt><kbd class="rq-kbd">/</kbd></dt><dd>Show or hide this panel</dd></div>
