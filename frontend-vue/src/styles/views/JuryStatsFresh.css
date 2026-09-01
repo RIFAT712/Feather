@@ -133,6 +133,8 @@
 .submitter-article-copy strong { overflow: hidden; color: #20364d; font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
 .submitter-article-copy small { overflow: hidden; color: #47637c; font-size: .74rem; text-overflow: ellipsis; white-space: nowrap; }
 .submitter-article .remove-submission { flex: 0 0 auto; display: grid; place-items: center; width: 30px; height: 30px; }
+.group-inline-note { margin: 10px 18px 12px 50px; font-size: .78rem; color: #5a6b7c; }
+.group-inline-error { color: #a3402f; }
 .load-more-group { margin: 10px 18px 14px 50px; border: 1px solid #b7cada; border-radius: 8px; padding: 10px 14px; background: #fff; color: #355b80; font: inherit; font-size: .78rem; font-weight: 800; cursor: pointer; }
 .load-more-group:hover { background: #eaf3f8; border-color: #8eacc3; }
 .group-empty { padding: 44px 20px; background: #fff; border: 1px solid #c7d6e3; border-radius: 12px; }

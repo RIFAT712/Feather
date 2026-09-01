@@ -396,6 +396,69 @@ watch(theme, () => {
   if (currentArticle.value?.title) fetchPreview(currentArticle.value.title);
 });
 
+// Walks the assigned queue in bounded keyset pages until it runs out. Returns
+// a promise that settles once the *first* page is in `articles.value` -- on a
+// 30k-article contest waiting for the whole walk meant staring at a spinner
+// through ~120 sequential requests, when page one is already enough to start
+// reviewing. Later pages resolve into the same reactive array, so the sidebar
+// groups and local fallback counts fill in as they land.
+const isBackgroundLoading = ref(false);
+
+const walkAssignedQueue = (signal, { startCursor = null, replaceFirstPage = true } = {}) => {
+  let firstPageSettled;
+  const firstPage = new Promise((resolve, reject) => { firstPageSettled = { resolve, reject }; });
+  let sawFirstPage = false;
+
+  const run = async () => {
+    let cursor = startCursor;
+    let replaceNext = replaceFirstPage;
+    let shouldFetchMore = true;
+    while (shouldFetchMore) {
+      const cursorQuery = cursor === null ? '' : `&after_id=${cursor}`;
+      const endpoint = `/api/jury-panel/contests/${route.params.code}/articles/page?page_size=250${cursorQuery}${ownerViewQuery()}`;
+      const response = await fetch(endpoint, { signal });
+      if (!response.ok) throw new Error(`Queue fetch failed (${response.status})`);
+      const payload = await response.json();
+      const pageItems = ownerVisibleArticles(payload.items || []);
+      // Merge into the *live* array, never a snapshot taken when the walk
+      // started. The panel is usable from page one now, so a jury can judge an
+      // article (which updates `articles` optimistically and deliberately does
+      // not abort this walk) while later pages are still arriving -- writing
+      // back a snapshot would revert that decision and drop the article back
+      // into their New queue. Only the first page of a fresh load replaces.
+      const base = replaceNext ? [] : articles.value;
+      replaceNext = false;
+      const existingIds = new Set(base.map(article => article.article_id));
+      articles.value = [...base, ...pageItems.filter(article => !existingIds.has(article.article_id))];
+      assignedAfterId.value = payload.next_after_id ?? cursor;
+      assignedHasMore.value = Boolean(payload.has_more);
+      assignedStatusStats.value = payload.status_counts
+        ? { total: payload.total, ...payload.status_counts }
+        : assignedStatusStats.value;
+      cursor = payload.next_after_id ?? null;
+      shouldFetchMore = Boolean(payload.has_more) && Boolean(payload.items?.length) && cursor !== null;
+      if (!sawFirstPage) {
+        sawFirstPage = true;
+        // Hand control back to the caller (and let Vue paint) before the next page.
+        firstPageSettled.resolve();
+      }
+    }
+  };
+
+  isBackgroundLoading.value = true;
+  run()
+    .then(() => { if (!sawFirstPage) firstPageSettled.resolve(); })
+    .catch((error) => {
+      // Only the first page can fail the caller. A later page failing leaves a
+      // partially loaded but perfectly reviewable queue, so it just warns.
+      if (!sawFirstPage) firstPageSettled.reject(error);
+      else if (error.name !== 'AbortError') console.warn('Background queue page failed', error);
+    })
+    .finally(() => { if (!signal.aborted) isBackgroundLoading.value = false; });
+
+  return firstPage;
+};
+
 const fetchArticles = async (showLoading = true, append = false) => {
   if (showLoading) isLoading.value = true;
   articleFetchController?.abort();
@@ -414,32 +477,12 @@ const fetchArticles = async (showLoading = true, append = false) => {
     }
 
     if (props.assignedQueue) {
-      const ownerQuery = ownerViewQuery();
-      let cursor = append && assignedAfterId.value !== null ? assignedAfterId.value : null;
-      let combinedArticles = append ? [...articles.value] : [];
-      let shouldFetchMore = true;
-
-      // Load the complete assigned queue across bounded keyset pages. This
-      // keeps the queue stable across reloads and makes the manual next-page
-      // button unnecessary for normal use.
-      while (shouldFetchMore) {
-        const cursorQuery = cursor === null ? '' : `&after_id=${cursor}`;
-        const articleEndpoint = `/api/jury-panel/contests/${route.params.code}/articles/page?page_size=250${cursorQuery}${ownerQuery}`;
-        const response = await fetch(articleEndpoint, { signal });
-        if (!response.ok) throw new Error(`Queue fetch failed (${response.status})`);
-        const payload = await response.json();
-        const pageItems = ownerVisibleArticles(payload.items || []);
-        const existingIds = new Set(combinedArticles.map(article => article.article_id));
-        combinedArticles = [...combinedArticles, ...pageItems.filter(article => !existingIds.has(article.article_id))];
-        articles.value = combinedArticles;
-        assignedAfterId.value = payload.next_after_id ?? cursor;
-        assignedHasMore.value = Boolean(payload.has_more);
-        assignedStatusStats.value = payload.status_counts
-          ? { total: payload.total, ...payload.status_counts }
-          : assignedStatusStats.value;
-        cursor = payload.next_after_id ?? null;
-        shouldFetchMore = Boolean(payload.has_more) && Boolean(payload.items?.length) && cursor !== null;
-      }
+      // Resolve as soon as the first page has rendered; the remaining pages
+      // keep streaming into `articles` behind the already-usable panel.
+      await walkAssignedQueue(signal, {
+        startCursor: append && assignedAfterId.value !== null ? assignedAfterId.value : null,
+        replaceFirstPage: !append,
+      });
     } else {
       // The legacy fallback queue needs every article (for New/My Judged/Other
       // Judges grouping), fetched in bounded pages instead of one giant request.
@@ -592,6 +635,9 @@ const getMyLatestComment = (article) => {
 const selectArticle = (article) => {
   const canReReview = article?.reviews?.some(r => r.reviewer === myUsername.value);
   if (!article || (article.status !== 'pending' && !canReReview)) return;
+  // A deliberate pick ends the initial auto-select; a later page arriving must
+  // not yank the reviewer off the article they just opened.
+  awaitingFirstSelection.value = false;
   reviewError.value = '';
   if (currentArticle.value?.article_id && currentArticle.value.article_id !== article?.article_id) {
     releaseArticleLock(currentArticle.value.article_id);
@@ -648,6 +694,25 @@ const pollLegacyQueue = async () => {
   }
 };
 
+// The queue is ordered by id, so a jury who has already worked through the
+// start of theirs gets a first page of nothing but judged articles. Auto-select
+// used to run after the whole queue had loaded, so it always found something;
+// now that the panel opens on page one it has to stay armed and fire when the
+// first reviewable article actually arrives, instead of giving up at mount and
+// leaving the reviewer staring at "Queue is Clear" beside a filling sidebar.
+const awaitingFirstSelection = ref(true);
+
+const autoSelectFirstArticle = () => {
+  if (!awaitingFirstSelection.value || currentArticle.value) return;
+  const next = availableNewArticles.value[0];
+  if (!next) return;
+  awaitingFirstSelection.value = false;
+  selectArticle(next);
+  if (window.innerWidth <= 768) mobileTab.value = 'list';
+};
+
+watch(availableNewArticles, autoSelectFirstArticle);
+
 onMounted(async () => {
   await fetchArticles();
   statsInterval = setInterval(() => {
@@ -657,12 +722,7 @@ onMounted(async () => {
       pollLegacyQueue();
     }
   }, 5000);
-  if (availableNewArticles.value.length > 0 && !currentArticle.value) {
-    selectArticle(availableNewArticles.value[0]);
-    if (window.innerWidth <= 768) {
-      mobileTab.value = 'list';
-    }
-  }
+  autoSelectFirstArticle();
 });
 
 const skipArticle = () => {
@@ -1100,6 +1160,7 @@ const copyTalkSnippet = () => {
             <div class="rq-stat rq-stat-ok"><span class="rq-stat-val">{{ statusStats.accepted }}</span><span class="rq-stat-lbl">OK</span></div>
             <div class="rq-stat rq-stat-rej"><span class="rq-stat-val">{{ statusStats.rejected }}</span><span class="rq-stat-lbl">Rej</span></div>
           </div>
+          <p v-if="isBackgroundLoading" class="rq-bg-loading">Loaded {{ articles.length }} of {{ statusStats.total }} — the rest of your queue is still loading.</p>
         </header>
 
         <transition name="rq-fade">
@@ -1161,7 +1222,7 @@ const copyTalkSnippet = () => {
                   <li v-if="hasMoreSidebarArticles('pending', newArticles)" class="rq-load-more-wrap">
                     <button type="button" class="rq-load-more" @click="loadMoreSidebarArticles('pending', newArticles)">Show 100 more</button>
                   </li>
-                  <li v-if="!hasMoreSidebarArticles('pending', newArticles) && hasMoreAssignedArticles" class="rq-load-more-wrap">
+                  <li v-if="!hasMoreSidebarArticles('pending', newArticles) && hasMoreAssignedArticles && !isBackgroundLoading" class="rq-load-more-wrap">
                     <button type="button" class="rq-load-more" @click="loadMoreAssignedArticles">Load next 250 articles from server</button>
                   </li>
                 </ul>
@@ -1246,8 +1307,18 @@ const copyTalkSnippet = () => {
         <div v-if="!currentArticle" class="rq-center-state rq-center-full rq-panel">
           <div class="rq-card-done">
             <div class="rq-done-icon"><CdxIcon :icon="cdxIconArticleCheck" /></div>
-            <h3>Queue is Clear</h3>
-            <p>You have reviewed all available articles in your queue.</p>
+            <template v-if="isBackgroundLoading">
+              <h3>Loading your queue…</h3>
+              <p>Loaded {{ articles.length }} of {{ statusStats.total }}. The first reviewable article opens automatically.</p>
+            </template>
+            <template v-else-if="availableNewArticles.length">
+              <h3>Nothing open</h3>
+              <p>{{ availableNewArticles.length }} article{{ availableNewArticles.length === 1 ? '' : 's' }} still waiting in your queue — pick one from the sidebar to carry on.</p>
+            </template>
+            <template v-else>
+              <h3>Queue is Clear</h3>
+              <p>You have reviewed all available articles in your queue.</p>
+            </template>
             <button class="rq-btn-secondary" @click="sidebarCollapsed = false" style="margin-top: 16px;">
               <CdxIcon :icon="cdxIconMenu" /> Open Sidebar
             </button>

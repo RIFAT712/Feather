@@ -2605,7 +2605,13 @@ def get_jury_panel_articles_page(
         raise HTTPException(status_code=404, detail="Contest not found")
     is_owner = _jury_panel_authorize(contest, current_user, db, view_as)
     jury_map = get_eligible_juries(contest)
-    rebalance_pending_articles(db, contest, jury_map)
+    # Only the first page of a queue walk plans assignments. The allocator is a
+    # write path that scans the contest's whole pending pool, and the frontend
+    # walks the queue in 250-row pages -- on a 30k-article contest that meant
+    # running it ~120 times per panel load to re-derive a plan the first page
+    # already produced. Cursor pages are a continuation of that same plan.
+    if after_id is None:
+        rebalance_pending_articles(db, contest, jury_map)
 
     target = view_as if (is_owner and view_as) else ("*" if is_owner else current_user.wiki_username)
     base_query = _jury_panel_base_query(db, contest)
