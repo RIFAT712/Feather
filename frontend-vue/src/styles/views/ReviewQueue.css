@@ -875,3 +875,62 @@ button { cursor: pointer; }
 @media (max-width: 768px) {
   .rq-undo-toast { bottom: 76px; }
 }
+
+/* ── Rebindable shortcuts ──
+   The key in the help panel is a button now: click it, press a key. Sized to
+   match .rq-kbd so the panel does not reflow when a row switches to
+   "Press a key…". */
+.rq-kbd-editable {
+  cursor: pointer;
+  min-width: 2.2rem;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.rq-kbd-editable:hover { border-color: var(--rq-accent); color: var(--rq-text); }
+.rq-kbd-editable.is-capturing {
+  border-color: var(--rq-accent);
+  color: var(--rq-accent);
+  min-width: 6.5rem;
+  font-weight: 600;
+}
+
+.rq-help-error {
+  margin: 10px 0 0;
+  font-size: 0.72rem;
+  color: var(--rq-danger);
+}
+
+.rq-help-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 12px;
+}
+.rq-help-footer .rq-help-note { margin: 0; flex: 1; }
+
+.rq-help-reset {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--rq-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--rq-text-muted);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rq-help-reset:hover { border-color: var(--rq-accent); color: var(--rq-text); }
+
+/* Shortcut help button in the article header. Deliberately NOT inside
+   .rq-actions-wrapper: the mobile override there force-shows .rq-desktop-only,
+   which is exactly how the previous version of this button leaked onto phones. */
+.rq-help-btn {
+  width: 32px;
+  padding: 0;
+  justify-content: center;
+  font-weight: 700;
+}

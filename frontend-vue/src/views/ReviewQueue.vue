@@ -886,12 +886,106 @@ const isTypingTarget = (target) => {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 };
 
+// The rebindable actions, in the order the help panel lists them. One source
+// for the handler, the help panel and the on-screen hints, so a rebound key
+// shows up everywhere rather than the hints quietly lying about what does what.
+const SHORTCUT_ACTIONS = [
+  { id: 'accept', label: 'Accept the current article', default: 'a' },
+  { id: 'reject', label: 'Reject the current article', default: 'r' },
+  { id: 'skip', label: 'Skip to the next article without deciding', default: 's' },
+  { id: 'comment', label: 'Focus the comment box', default: 'c' },
+  { id: 'undo', label: 'Undo the last decision', default: 'u' },
+  { id: 'wikitext', label: 'Show or hide the raw wikitext panel', default: 'w' },
+];
+const DEFAULT_SHORTCUTS = Object.fromEntries(SHORTCUT_ACTIONS.map(a => [a.id, a.default]));
+const actionLabel = (id) => SHORTCUT_ACTIONS.find(a => a.id === id)?.label || id;
+
+// Stored per wiki username, not per browser: juries share machines, and one
+// person rebinding Accept to "k" must not silently rearm someone else's muscle
+// memory on the same laptop.
+const shortcuts = ref({ ...DEFAULT_SHORTCUTS });
+const shortcutStorageKey = () => `review_queue_shortcuts:${myUsername.value || 'anonymous'}`;
+
+const loadShortcuts = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(shortcutStorageKey()) || 'null');
+    // Only bindings for actions that still exist survive a reload -- an action
+    // dropped in a later version must not leave a dead binding behind that
+    // swallows a keystroke and does nothing.
+    shortcuts.value = {
+      ...DEFAULT_SHORTCUTS,
+      ...Object.fromEntries(Object.entries(saved || {}).filter(
+        ([id, key]) => id in DEFAULT_SHORTCUTS && typeof key === 'string' && key.length === 1)),
+    };
+  } catch {
+    shortcuts.value = { ...DEFAULT_SHORTCUTS };
+  }
+};
+watch(myUsername, loadShortcuts, { immediate: true });
+
+const persistShortcuts = () => {
+  // Private windows and blocked site data throw on write; a shortcut that only
+  // lasts the session is a far better outcome than a crashed review screen.
+  try { localStorage.setItem(shortcutStorageKey(), JSON.stringify(shortcuts.value)); } catch { /* not persisted */ }
+};
+
+const capturingAction = ref(null);
+const shortcutError = ref('');
+// Escape is the way out of everything and "/" opens this panel; letting either
+// be rebound would strand the user in a dialog they cannot close.
+const RESERVED_SHORTCUT_KEYS = new Set(['escape', 'enter', 'tab', ' ', '/', '?']);
+
+const startShortcutCapture = (actionId) => { capturingAction.value = actionId; shortcutError.value = ''; };
+const cancelShortcutCapture = () => { capturingAction.value = null; shortcutError.value = ''; };
+// Closing the panel by any route -- the x, the backdrop, Escape -- has to
+// disarm capture. Otherwise it stays armed behind a closed dialog and eats the
+// reviewer's next keystroke, which would look exactly like a dead keyboard.
+watch(showShortcutHelp, (open) => { if (!open) cancelShortcutCapture(); });
+const resetShortcuts = () => {
+  shortcuts.value = { ...DEFAULT_SHORTCUTS };
+  persistShortcuts();
+  capturingAction.value = null;
+  shortcutError.value = '';
+};
+
+const applyCapturedKey = (rawKey) => {
+  const key = (rawKey || '').toLowerCase();
+  if (key.length !== 1 || RESERVED_SHORTCUT_KEYS.has(key)) {
+    shortcutError.value = 'Pick a single letter or number. Esc and / are reserved.';
+    return;
+  }
+  const clash = Object.entries(shortcuts.value).find(([id, k]) => k === key && id !== capturingAction.value);
+  if (clash) {
+    shortcutError.value = `"${key.toUpperCase()}" is already used for: ${actionLabel(clash[0])}.`;
+    return;
+  }
+  shortcuts.value = { ...shortcuts.value, [capturingAction.value]: key };
+  persistShortcuts();
+  capturingAction.value = null;
+  shortcutError.value = '';
+};
+
+// Long-press guard. A held key repeats at the OS auto-repeat rate, and on this
+// screen that means one leaned-on Accept key could tear through a dozen
+// articles before the jury lifts their finger -- irreversible decisions, on
+// articles they never saw. `event.repeat` catches the OS repeats; `heldKeys`
+// backs it up by requiring the key to be physically released before the same
+// action can fire again, which also contains a stuck key.
+const heldKeys = new Set();
+const releaseHeldKey = (event) => heldKeys.delete((event.key || '').toLowerCase());
+// A keyup that lands on another window never reaches us, so a key held while
+// tabbing away would stay "down" forever. Clear the set when focus leaves.
+const clearHeldKeys = () => heldKeys.clear();
+
 const handleShortcut = (event) => {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
 
   // Escape always works, including from the comment box -- it's the way out.
   if (event.key === 'Escape') {
-    if (showShortcutHelp.value) {
+    if (capturingAction.value) {
+      cancelShortcutCapture();
+      event.preventDefault();
+    } else if (showShortcutHelp.value) {
       showShortcutHelp.value = false;
       event.preventDefault();
     } else if (isTypingTarget(event.target)) {
@@ -900,8 +994,19 @@ const handleShortcut = (event) => {
     return;
   }
 
+  // While rebinding, the next keystroke is the new binding -- swallowed
+  // wherever focus happens to be, so it cannot also trigger the old action.
+  if (capturingAction.value) {
+    event.preventDefault();
+    if (!event.repeat) applyCapturedKey(event.key);
+    return;
+  }
+
   // Never steal keys from the comment textarea or any search/filter input.
   if (isTypingTarget(event.target)) return;
+
+  // Auto-repeat from a held key never counts as a second deliberate press.
+  if (event.repeat) return;
 
   if (event.key === '/' || event.key === '?') {
     showShortcutHelp.value = !showShortcutHelp.value;
@@ -911,29 +1016,30 @@ const handleShortcut = (event) => {
   if (showShortcutHelp.value) return;
   if (!currentArticle.value || isSubmitting.value) return;
 
-  switch (event.key.toLowerCase()) {
-    case 'a':
-      event.preventDefault();
+  const key = event.key.toLowerCase();
+  if (heldKeys.has(key)) return;
+  const action = SHORTCUT_ACTIONS.find(a => shortcuts.value[a.id] === key)?.id;
+  if (!action) return;
+  heldKeys.add(key);
+  event.preventDefault();
+
+  switch (action) {
+    case 'accept':
       handleDecision('accepted');
       break;
-    case 'r':
-      event.preventDefault();
+    case 'reject':
       handleDecision('rejected');
       break;
-    case 's':
-      event.preventDefault();
+    case 'skip':
       skipArticle();
       break;
-    case 'c':
-      event.preventDefault();
+    case 'comment':
       commentBox.value?.focus();
       break;
-    case 'u':
-      event.preventDefault();
+    case 'undo':
       undoLastDecision();
       break;
-    case 'w':
-      event.preventDefault();
+    case 'wikitext':
       toggleWikitext();
       break;
     default:
@@ -943,9 +1049,15 @@ const handleShortcut = (event) => {
 
 const commentBox = ref(null);
 
-onMounted(() => window.addEventListener('keydown', handleShortcut));
+onMounted(() => {
+  window.addEventListener('keydown', handleShortcut);
+  window.addEventListener('keyup', releaseHeldKey);
+  window.addEventListener('blur', clearHeldKeys);
+});
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleShortcut);
+  window.removeEventListener('keyup', releaseHeldKey);
+  window.removeEventListener('blur', clearHeldKeys);
   clearTimeout(undoExpiryTimer);
   clearTimeout(wikitextCopyTimer);
 });
@@ -1366,12 +1478,20 @@ const copyTalkSnippet = () => {
                   :class="{ 'is-on': showWikitext }"
                   role="switch"
                   :aria-checked="showWikitext ? 'true' : 'false'"
-                  title="Show raw wikitext (W)"
+                  :title="`Show raw wikitext (${shortcuts.wikitext.toUpperCase()})`"
                   @click="toggleWikitext"
                 >
                   <span class="rq-switch-label">Wikitext</span>
                   <span class="rq-switch-track"><span class="rq-switch-knob"></span></span>
                 </button>
+
+                <button
+                  type="button"
+                  class="rq-btn-secondary rq-help-btn rq-desktop-only"
+                  title="Keyboard shortcuts (/)"
+                  aria-label="Keyboard shortcuts"
+                  @click="showShortcutHelp = true"
+                >?</button>
 
                 <a :href="articleUrl(currentArticle.title)" target="_blank" class="rq-btn-secondary rq-wiki-link-btn" title="Open on Wiktionary">
                   <CdxIcon :icon="cdxIconLinkExternal" /> <span class="rq-desktop-only">Wiki</span>
@@ -1443,10 +1563,10 @@ const copyTalkSnippet = () => {
                 <div class="rq-actions-wrapper">
                   <div class="rq-primary-actions">
                     <button type="button" class="rq-btn rq-btn-accept" :disabled="isSubmitting" @click.prevent="handleDecision('accepted')" title="Accept (A)">
-                      <CdxIcon :icon="cdxIconCheck" /> <span>Accept</span> <kbd class="rq-kbd rq-desktop-only">A</kbd>
+                      <CdxIcon :icon="cdxIconCheck" /> <span>Accept</span> <kbd class="rq-kbd rq-desktop-only">{{ shortcuts.accept.toUpperCase() }}</kbd>
                     </button>
                     <button type="button" class="rq-btn rq-btn-reject" :disabled="isSubmitting" @click.prevent="handleDecision('rejected')" title="Reject (R)">
-                      <CdxIcon :icon="cdxIconClear" /> <span>Reject</span> <kbd class="rq-kbd rq-desktop-only">R</kbd>
+                      <CdxIcon :icon="cdxIconClear" /> <span>Reject</span> <kbd class="rq-kbd rq-desktop-only">{{ shortcuts.reject.toUpperCase() }}</kbd>
                     </button>
                   </div>
 
@@ -1486,7 +1606,7 @@ const copyTalkSnippet = () => {
         <span class="rq-undo-title">{{ lastDecision.title }}</span>
       </span>
       <button type="button" class="rq-undo-btn" :disabled="isUndoing" @click="undoLastDecision">
-        {{ isUndoing ? 'Undoing…' : 'Undo' }} <kbd class="rq-kbd">U</kbd>
+        {{ isUndoing ? 'Undoing…' : 'Undo' }} <kbd class="rq-kbd">{{ shortcuts.undo.toUpperCase() }}</kbd>
       </button>
       <button type="button" class="rq-undo-dismiss" aria-label="Dismiss" @click="dismissUndo">×</button>
     </div>
@@ -1499,16 +1619,29 @@ const copyTalkSnippet = () => {
           <button type="button" class="rq-help-close" aria-label="Close" @click="showShortcutHelp = false">×</button>
         </div>
         <dl class="rq-help-list">
-          <div class="rq-help-row"><dt><kbd class="rq-kbd">A</kbd></dt><dd>Accept the current article</dd></div>
-          <div class="rq-help-row"><dt><kbd class="rq-kbd">R</kbd></dt><dd>Reject the current article</dd></div>
-          <div class="rq-help-row"><dt><kbd class="rq-kbd">S</kbd></dt><dd>Skip to the next article without deciding</dd></div>
-          <div class="rq-help-row"><dt><kbd class="rq-kbd">C</kbd></dt><dd>Focus the comment box</dd></div>
-          <div class="rq-help-row"><dt><kbd class="rq-kbd">U</kbd></dt><dd>Undo the last decision</dd></div>
-          <div class="rq-help-row"><dt><kbd class="rq-kbd">W</kbd></dt><dd>Show or hide the raw wikitext panel</dd></div>
+          <div v-for="action in SHORTCUT_ACTIONS" :key="action.id" class="rq-help-row">
+            <dt>
+              <button
+                type="button"
+                class="rq-kbd rq-kbd-editable"
+                :class="{ 'is-capturing': capturingAction === action.id }"
+                :aria-label="`Change the key for: ${action.label}`"
+                @click="capturingAction === action.id ? cancelShortcutCapture() : startShortcutCapture(action.id)"
+              >{{ capturingAction === action.id ? 'Press a key…' : shortcuts[action.id].toUpperCase() }}</button>
+            </dt>
+            <dd>{{ action.label }}</dd>
+          </div>
           <div class="rq-help-row"><dt><kbd class="rq-kbd">Esc</kbd></dt><dd>Leave the comment box / close this panel</dd></div>
           <div class="rq-help-row"><dt><kbd class="rq-kbd">/</kbd></dt><dd>Show or hide this panel</dd></div>
         </dl>
-        <p class="rq-help-note">Shortcuts are ignored while you're typing in a text field.</p>
+        <p v-if="shortcutError" class="rq-help-error">{{ shortcutError }}</p>
+        <div class="rq-help-footer">
+          <p class="rq-help-note">
+            Click a key to rebind it. Saved for {{ myUsername || 'this browser' }} only.
+            Shortcuts are ignored while you're typing in a text field, and a held key acts once.
+          </p>
+          <button type="button" class="rq-help-reset" @click="resetShortcuts">Reset to defaults</button>
+        </div>
       </div>
     </div>
   </div>
