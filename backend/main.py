@@ -17,7 +17,7 @@ from collections import defaultdict
 from typing import List, Optional
 from urllib.parse import quote
 
-from fastapi import FastAPI, Depends, HTTPException, Request, Response, BackgroundTasks, Query
+from fastapi import FastAPI, Depends, HTTPException, Request, Response, Query
 from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
@@ -145,16 +145,6 @@ async def add_process_time_header(request: Request, call_next):
     response.headers["X-Process-Time"] = f"{time.perf_counter() - start:.4f}"
     return response
 
-# Bumped manually with each deploy-relevant change. Buildpacks-produced
-# runtime images don't reliably include .git, so this is a guaranteed-simple
-# way to confirm what's actually running vs. what's on GitHub, instead of
-# inferring it from behavior after every redeploy.
-APP_BUILD_MARKER = "2026-08-30-submit-creation-dates"
-
-@app.get("/api/version")
-def get_version():
-    return {"build": APP_BUILD_MARKER}
-
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     import traceback
@@ -206,9 +196,9 @@ WIKI_DB_PASSWORD = os.getenv("WIKI_DB_PASSWORD", "")
 # ---------------------------------------------------------------------------
 # Talk-page template editing
 #
-# The per-title edit used to live inline in add_talk_pages. It is split out
-# here because talk_queue_worker.py performs the same edit one job at a time,
-# and two copies of the MediaWiki edit request would drift apart.
+# These helpers are shared with talk_queue_worker.py, which drains the
+# talk_page_jobs queue one edit at a time; two copies of the MediaWiki edit
+# request would drift apart.
 # ---------------------------------------------------------------------------
 
 WIKI_USER_AGENT = "QuoteContestArticleTool/1.0 (https://github.com/RIFAT712/Feather)"
@@ -383,48 +373,6 @@ def log_talk_template_event(level: str, message: str):
             db.close()
     except Exception as e:
         print(f"[talk-template] Error writing to SystemLog: {e}")
-
-
-async def add_talk_pages(titles: list[str], template_name: str, include_header: bool, access_token: str = None, submitter: str = None):
-    """Edit a whole batch of talk pages in one pass.
-
-    Superseded by the talk_page_jobs queue for live submissions (see
-    enqueue_talk_page_jobs) -- kept as the direct, unqueued path.
-    """
-    if not access_token:
-        print(f"[add_talk_pages] Skipped — no OAuth access token stored for user. They need to log out and back in.")
-        return
-
-    template_text = build_talk_template_text(template_name)
-    append_text = build_talk_append_text(template_name, include_header)
-
-    async with httpx.AsyncClient() as client:
-        headers = wiki_auth_headers(access_token)
-        csrf_token, token_data = await fetch_csrf_token(client, headers)
-        print(f"[add_talk_pages] CSRF token response: {token_data}")
-        if not csrf_token:
-            msg = ("Failed to get CSRF token. OAuth may have insufficient scope or the token is "
-                   f"invalid. Full response: {token_data}")
-            print(f"[add_talk_pages] {msg}")
-            log_talk_template_event("error", msg)
-            return
-
-        successes = []
-        failures = []
-        for title in titles:
-            try:
-                outcome, detail = await edit_talk_page(client, headers, csrf_token, title, append_text, template_text)
-            except Exception as e:
-                outcome, detail = "failed", str(e)
-            if outcome in ("done", "skipped"):
-                successes.append(title)
-            else:
-                failures.append(f"{title}: {detail}")
-
-        msg = f"Talk page template added for {len(successes)} articles."
-        if failures:
-            msg += f" Failures ({len(failures)}): " + ", ".join(failures)[:1500]
-        log_talk_template_event("info" if not failures else "warning", msg)
 
 
 def enqueue_talk_page_jobs(db: Session, contest, titles: list[str], access_token: str, submitted_by: str) -> int:
@@ -1096,170 +1044,19 @@ async def logout(request: Request):
 def get_me(current_user: models.User = Depends(get_current_user)):
     return {"wiki_username": current_user.wiki_username, "role": current_user.role.value}
 
-_is_restarting = False
-def _write_backup_files(dest_dir: str, label: str):
-    """Dump articles per contest, users, and contests to CSV files in dest_dir.
-    Also writes a SystemLog entry so the event appears in /api/logs.
-    """
-    os.makedirs(dest_dir, exist_ok=True)
-    timestamp = utcnow().strftime('%Y%m%d_%H%M%S')
-    db = next(get_db())
-    try:
-        def translate_status(s):
-            if s == "accepted": return "গৃহীত"
-            if s == "rejected": return "প্রত্যাখ্যাত"
-            if s == "pending": return "অপেক্ষমাণ"
-            if s == "validation_failed": return "যাচাইকরণ ব্যর্থ"
-            return s
-
-        contests = db.query(models.Contest).all()
-        total_articles = 0
-        for c in contests:
-            articles = db.query(models.Article).options(
-                joinedload(models.Article.submitter),
-                selectinload(models.Article.reviews).joinedload(models.Review.reviewer)
-            ).filter_by(contest_id=c.id).order_by(models.Article.submitted_at.desc()).all()
-            
-            total_articles += len(articles)
-            
-            if label == "EMERGENCY":
-                filename = f"{c.code}_articles_{timestamp}.csv"
-            else:
-                filename = f"{c.code}_articles.csv"
-                
-            filepath = os.path.join(dest_dir, filename)
-            with open(filepath, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow([
-                    "Article ID", "Title", "Submitter", "Status", "Validation Error",
-                    "Wiki Creator", "Wiki Creation Date", "Submitted At", "Reviews Count", "Last Review Decision", "Last Reviewer", "Last Review Comment"
-                ])
-                for a in articles:
-                    reviews = sorted(a.reviews, key=lambda r: r.timestamp or datetime.min)
-                    last_rev = reviews[-1] if reviews else None
-                    writer.writerow([
-                        a.id, a.title, a.submitter.wiki_username if a.submitter else "",
-                        translate_status(a.status.value), a.validation_error or "",
-                        a.wiki_creator or "", a.wiki_creation_date.isoformat() if a.wiki_creation_date else "",
-                        a.submitted_at.isoformat() if a.submitted_at else "", len(reviews),
-                        translate_status(last_rev.status.value) if last_rev else "",
-                        last_rev.reviewer.wiki_username if last_rev and last_rev.reviewer else "",
-                        last_rev.comment or "" if last_rev else ""
-                    ])
-        users = db.query(models.User).all()
-        users_file = f'users_{timestamp}.csv' if label == "EMERGENCY" else 'users.csv'
-        with open(os.path.join(dest_dir, users_file), 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow(['id', 'wiki_username', 'role'])
-            for u in users:
-                writer.writerow([u.id, u.wiki_username, u.role.value])
-        contests_file = f'contests_{timestamp}.csv' if label == "EMERGENCY" else 'contests.csv'
-        with open(os.path.join(dest_dir, contests_file), 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow(['id', 'code', 'name', 'start_date', 'end_date'])
-            for c in contests:
-                writer.writerow([c.id, c.code, c.name, c.start_date, c.end_date])
-
-        msg = (
-            f"{label} backup completed — {total_articles} articles across {len(contests)} contests, {len(users)} users "
-            f"→ {dest_dir} [{timestamp}]"
-        )
-        print(f"[Backup] {msg}")
-        db.add(models.SystemLog(
-            level="info",
-            source="backup",
-            message=msg,
-            timestamp=utcnow(),
-        ))
-        db.commit()
-    except Exception as e:
-        err_msg = f"{label} backup FAILED: {e} (dest={dest_dir})"
-        print(f"[Backup] {err_msg}")
-        try:
-            db.add(models.SystemLog(
-                level="error",
-                source="backup",
-                message=err_msg[:2000],
-                timestamp=utcnow(),
-            ))
-            db.commit()
-        except Exception:
-            pass  # Don't let a logging failure mask the original error
-    finally:
-        db.close()
-def _resolve_backup_root() -> str:
-    """
-    Resolve where ~/backup/ should live.
-    Priority:
-      1. BACKUP_ROOT env var (explicit override)
-      2. Path.home()  — works on Toolforge Kubernetes (HOME=/data/project/<tool>/)
-      3. Fallback: directory two levels above main.py (project root)
-    Always verifies the chosen path is writable before returning it.
-    """
-    candidates = []
-    if os.environ.get("BACKUP_ROOT"):
-        candidates.append(("BACKUP_ROOT env var", os.environ["BACKUP_ROOT"]))
-    try:
-        candidates.append(("Path.home()", str(Path.home())))
-    except Exception:
-        pass
-    candidates.append(("project root fallback", os.path.dirname(os.path.dirname(__file__))))
-
-    for label, base in candidates:
-        probe = os.path.join(base, "backup")
-        try:
-            os.makedirs(probe, exist_ok=True)
-            test_file = os.path.join(probe, ".write_test")
-            with open(test_file, "w") as f:
-                f.write("ok")
-            os.remove(test_file)
-            print(f"[Backup] Using backup root via {label}: {base}")
-            return base
-        except Exception as e:
-            print(f"[Backup] Cannot write to {probe} ({label}): {e} — trying next candidate")
-
-    raise RuntimeError("[Backup] No writable backup root found!")
-def do_emergency_backup_and_restart():
-    global _is_restarting
-    if _is_restarting:
-        return
-    _is_restarting = True
-
-    home = _resolve_backup_root()
-    emergency_dir = os.path.join(home, 'backup', 'emergency')
-    _write_backup_files(emergency_dir, "EMERGENCY")
-
-    time.sleep(2)   # Give FastAPI time to send the response
-    os._exit(1)     # Restart via process manager (Procfile / systemd)
-
-# There is deliberately no scheduled backup thread. The hourly one that used to
-# live here ran _write_backup_files() in-process, which walks every article of
-# every contest and writes it out as CSV -- on a 30k-article contest that is a
-# full scan competing with live requests, inside a single-worker container, for
-# a snapshot nobody had asked for. The emergency path above still fires on
-# overload, /api/admin/backup/download takes one on demand, and _pre_migration_
-# backup() takes one before any schema change, which covers the cases that
-# actually need a backup.
-
 @app.get("/api/system/status")
-def system_status(background_tasks: BackgroundTasks):
-    global _is_restarting
+def system_status():
+    """Read-only load probe for the admin dashboard gauges and the overload banner.
+
+    It used to be able to take a full CSV backup and os._exit(1) the process when
+    cpu/mem crossed 90 -- a health check that could take the tool down, walking
+    every article of every contest on the way. Toolforge restarts a dead
+    webservice on its own, and /api/admin/backup/download takes a restorable
+    backup on demand, so the probe just reports numbers now.
+    """
     cpu = psutil.cpu_percent(interval=None)
     mem = psutil.virtual_memory().percent
-
-    overloaded = cpu > 90 or mem > 90 or _is_restarting
-
-    # A health probe must remain read-only. Automatic full backups during an
-    # overload caused a feedback loop that could stall every API endpoint.
-    if overloaded and os.getenv("ENABLE_AUTO_RECOVERY", "0").lower() in {"1", "true", "yes"} and not _is_restarting:
-        background_tasks.add_task(do_emergency_backup_and_restart)
-
-    return {
-        "cpu_percent": cpu,
-        "mem_percent": mem,
-        "overloaded": overloaded,
-        "restarting": _is_restarting
-    }
+    return {"cpu_percent": cpu, "mem_percent": mem, "overloaded": cpu > 90 or mem > 90}
 
 @app.get("/api/contests")
 def list_contests(db: Session = Depends(get_db)):
@@ -1718,7 +1515,11 @@ def retry_failed_talk_jobs(code: str, _: models.User = Depends(get_owner_user), 
 
 
 def _titles_logged_as_failed(db: Session, contest) -> set:
-    """Best-effort read of past `add_talk_pages` log lines.
+    """Best-effort read of the historical batch talk-page log lines.
+
+    These were written by the pre-queue `add_talk_pages()` path, removed once
+    everything moved to talk_page_jobs; the rows it left in system_logs are
+    still the only record of those runs, so this parser stays.
 
     The log message only ever named the *failures* ("Failures (M): title:
     error, ..."); successes were recorded as a bare count, so this can never
@@ -2308,55 +2109,6 @@ async def submit_bulk(
 
     return results
 
-@app.get("/api/articles/{contest_code}/pending/next")
-def get_next_pending(contest_code: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    contest = db.query(models.Contest).filter_by(code=contest_code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
-    
-    is_owner = current_user.role == models.RoleEnum.owner
-    is_jury = db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=current_user.id).first() is not None
-    
-    if not (is_owner or is_jury):
-        raise HTTPException(status_code=403, detail="Not authorized to review this contest")
-    lock_cutoff = utcnow() - timedelta(minutes=15)
-    locked_by_others = db.query(models.ArticleLock.article_id).filter(
-        models.ArticleLock.locked_at >= lock_cutoff,
-        models.ArticleLock.locked_by != current_user.wiki_username
-    ).subquery()
-    
-    reviewed_by_me = db.query(models.Review.article_id).filter(
-        models.Review.reviewer_id == current_user.id
-    ).subquery()
-
-    query = db.query(models.Article).options(joinedload(models.Article.submitter)).filter(
-        models.Article.contest_id == contest.id, 
-        models.Article.status == models.ArticleStatus.pending,
-        ~models.Article.id.in_(locked_by_others),
-        ~models.Article.id.in_(reviewed_by_me)
-    )
-    
-    if not is_owner and not contest.allow_self_review:
-        query = query.filter(models.Article.submitter_id != current_user.id)
-    if is_jury and not is_owner:
-        query = query.filter(~exists().where(
-            models.ContestJuryRestriction.contest_id == contest.id,
-            models.ContestJuryRestriction.jury_user_id == current_user.id,
-            models.ContestJuryRestriction.submitter_user_id == models.Article.submitter_id,
-        ))
-        
-    article = query.first()    
-    if not article:
-        raise HTTPException(status_code=404, detail="No pending articles")
-        
-    return {
-        "id": article.id,
-        "title": article.title,
-        "submitter": article.submitter.wiki_username,
-        "submitted_at": article.submitted_at,
-        "wiki_creation_date": article.wiki_creation_date
-    }
-
 @app.get("/api/contests/{code}/results")
 def get_contest_results(code: str, db: Session = Depends(get_db)):
     contest = db.query(models.Contest).filter_by(code=code).first()
@@ -2689,23 +2441,6 @@ def _jury_panel_page_query(db, contest):
         models.User, models.User.id == models.Article.submitter_id
     ).filter(*_jury_panel_filters(contest))
 
-@app.get("/api/jury-panel/contests/{code}/articles")
-def get_jury_panel_articles(code: str, view_as: Optional[str] = Query(default=None), current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
-    is_owner = _jury_panel_authorize(contest, current_user, db, view_as)
-    jury_map = get_eligible_juries(contest)
-    rebalance_pending_articles(db, contest, jury_map)
-
-    target = view_as if (is_owner and view_as) else ("*" if is_owner else current_user.wiki_username)
-    query = _jury_panel_page_query(db, contest)
-    if target != "*":
-        target_id = jury_map_username_to_id(jury_map).get(target, -1)
-        query = query.filter(models.Article.assigned_to_id == target_id)
-    rows = query.order_by(models.Article.id.asc()).all()
-    return FastJSONResponse(serialize_jury_articles(db, rows, jury_map))
-
 @app.get("/api/jury-panel/contests/{code}/articles/page")
 def get_jury_panel_articles_page(
     code: str,
@@ -2860,15 +2595,6 @@ def get_jury_panel_progress(code: str, current_user: models.User = Depends(get_c
         })
     return progress
 
-class ClientErrorLog(BaseModel):
-    message: str
-    stack_trace: Optional[str] = None
-    url: Optional[str] = None
-    user_agent: Optional[str] = None
-    level: Optional[str] = "error"
-
-SESSION_SECRET = os.getenv("SESSION_SECRET", "super-secret")
-
 @app.post("/api/admin/force-migration")
 def force_migration(_: models.User = Depends(get_owner_user)):
     try:
@@ -2877,34 +2603,6 @@ def force_migration(_: models.User = Depends(get_owner_user)):
         return {"status": "success", "message": "Migration forced successfully"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
-@app.post("/api/logs/client-error")
-def log_client_error(
-    payload: ClientErrorLog,
-    request: Request,
-    db: Session = Depends(get_db)
-):
-    username = None
-    token = request.cookies.get("auth_token")
-    if token:
-        try:
-            payload_data = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-            username = payload_data.get("sub")
-        except Exception:
-            pass
-
-    log_entry = models.SystemLog(
-        level=payload.level or "error",
-        source="frontend",
-        message=payload.message[:2000],
-        stack_trace=payload.stack_trace[:4000] if payload.stack_trace else None,
-        url=payload.url[:500] if payload.url else None,
-        user_agent=(payload.user_agent or request.headers.get("user-agent", ""))[:500],
-        username=username,
-        timestamp=utcnow()
-    )
-    db.add(log_entry)
-    db.commit()
-    return {"status": "ok"}
 
 @app.get("/api/logs")
 def get_global_logs(
@@ -2983,20 +2681,6 @@ def get_global_logs(
 
     logs.sort(key=lambda x: x.get("timestamp") or "", reverse=True)
     return logs[:limit]
-
-@app.get("/api/contests/{code}/my-submissions")
-def get_my_submissions(code: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
-    
-    articles = db.query(models.Article).filter_by(contest_id=contest.id, submitter_id=current_user.id).all()
-    return [{
-        "title": a.title,
-        "status": a.status.value,
-        "validation_error": a.validation_error,
-        "submitted_at": a.submitted_at.isoformat() if a.submitted_at else None
-    } for a in articles]
 
 @app.get("/api/contests/{code}/users/{username}")
 def get_contest_user_profile(code: str, username: str, db: Session = Depends(get_db)):
@@ -3452,23 +3136,6 @@ def unlock_article(article_id: int, current_user: models.User = Depends(get_curr
         db.commit()
     return {"success": True}
 
-@app.get("/api/proxy/article/{title}")
-async def proxy_article(title: str):
-    unique_id = uuid.uuid4().hex[:8]
-    headers = {
-        "User-Agent": f"QuoteContestArticleTool/1.0 (contact@example.com; RequestID:{unique_id})"
-    }
-    client = get_http_client()
-    res = await wiki_api_request(
-        "GET",
-        f"https://bn.wiktionary.org/api/rest_v1/page/mobile-html/{title}",
-        client=client,
-        headers=headers,
-    )
-    html = res.text
-    html = html.replace("<head>", f'<head><base href="https://bn.wiktionary.org/wiki/">')
-    return HTMLResponse(content=html, status_code=res.status_code)
-
 class ReviewRequest(BaseModel):
     decision: str  # "accepted", "rejected", "skipped"
     comment: Optional[str] = None
@@ -3821,23 +3488,37 @@ def contest_integrity_check(
     }
 
 
-@app.get("/api/admin/contests/{code}/export/csv")
-def export_contest_csv(code: str, mode: str = "summary", _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
+_STATUS_BN = {
+    "accepted": "গৃহীত",
+    "rejected": "প্রত্যাখ্যাত",
+    "pending": "অপেক্ষমাণ",
+    "validation_failed": "যাচাইকরণ ব্যর্থ",
+}
+# The exports are read by contest organisers on-wiki, so the status column is
+# Bengali. Both export formats shared a verbatim copy of this before.
+def translate_status(s):
+    return _STATUS_BN.get(s, s)
+
+
+def _export_articles(code: str, db: Session):
+    """The contest and its articles, with submitters and reviewers eager-loaded.
+
+    Both exports open with exactly this: a lazy load per article would be one
+    query per row on a 12k-article contest.
+    """
     contest = db.query(models.Contest).filter_by(code=code).first()
     if not contest:
         raise HTTPException(status_code=404, detail="Contest not found")
-        
     articles = db.query(models.Article).options(
         joinedload(models.Article.submitter),
         selectinload(models.Article.reviews).joinedload(models.Review.reviewer)
     ).filter_by(contest_id=contest.id).order_by(models.Article.submitted_at.desc()).all()
-    
-    def translate_status(s):
-        if s == "accepted": return "গৃহীত"
-        if s == "rejected": return "প্রত্যাখ্যাত"
-        if s == "pending": return "অপেক্ষমাণ"
-        if s == "validation_failed": return "যাচাইকরণ ব্যর্থ"
-        return s
+    return contest, articles
+
+
+@app.get("/api/admin/contests/{code}/export/csv")
+def export_contest_csv(code: str, mode: str = "summary", _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
+    contest, articles = _export_articles(code, db)
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -3900,21 +3581,7 @@ def export_contest_csv(code: str, mode: str = "summary", _: models.User = Depend
 
 @app.get("/api/admin/contests/{code}/export/json")
 def export_contest_json(code: str, mode: str = "summary", _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
-        
-    articles = db.query(models.Article).options(
-        joinedload(models.Article.submitter),
-        selectinload(models.Article.reviews).joinedload(models.Review.reviewer)
-    ).filter_by(contest_id=contest.id).order_by(models.Article.submitted_at.desc()).all()
-    
-    def translate_status(s):
-        if s == "accepted": return "গৃহীত"
-        if s == "rejected": return "প্রত্যাখ্যাত"
-        if s == "pending": return "অপেক্ষমাণ"
-        if s == "validation_failed": return "যাচাইকরণ ব্যর্থ"
-        return s
+    contest, articles = _export_articles(code, db)
 
     if mode == "detailed":
         return {
@@ -3938,57 +3605,38 @@ def export_contest_json(code: str, mode: str = "summary", _: models.User = Depen
                 } for a in articles
             ]
         }
-    else:
-        submitters = {}
-        juries = {}
-        
-        for a in articles:
-            if a.submitter:
-                u = a.submitter.wiki_username
-                if u not in submitters:
-                    submitters[u] = {"accepted": 0, "rejected": 0, "total": 0}
-                submitters[u]["total"] += 1
-                if a.status.value == "accepted": submitters[u]["accepted"] += 1
-                elif a.status.value == "rejected": submitters[u]["rejected"] += 1
-                
-            for r in a.reviews:
-                if r.reviewer:
-                    j = r.reviewer.wiki_username
-                    if j not in juries:
-                        juries[j] = {"accepted": 0, "rejected": 0, "total": 0}
-                    juries[j]["total"] += 1
-                    if r.status.value == "accepted": juries[j]["accepted"] += 1
-                    elif r.status.value == "rejected": juries[j]["rejected"] += 1
 
-        return {
-            "contest_name": contest.name,
-            "contest_code": contest.code,
-            "exported_at": utcnow().isoformat(),
-            "submitter_stats": [
-                {"username": u, **stats} for u, stats in submitters.items()
-            ],
-            "jury_stats": [
-                {"username": j, **stats} for j, stats in juries.items()
-            ]
-        }
+    submitters = {}
+    juries = {}
+    for a in articles:
+        if a.submitter:
+            u = a.submitter.wiki_username
+            if u not in submitters:
+                submitters[u] = {"accepted": 0, "rejected": 0, "total": 0}
+            submitters[u]["total"] += 1
+            if a.status.value == "accepted": submitters[u]["accepted"] += 1
+            elif a.status.value == "rejected": submitters[u]["rejected"] += 1
+
+        for r in a.reviews:
+            if r.reviewer:
+                j = r.reviewer.wiki_username
+                if j not in juries:
+                    juries[j] = {"accepted": 0, "rejected": 0, "total": 0}
+                juries[j]["total"] += 1
+                if r.status.value == "accepted": juries[j]["accepted"] += 1
+                elif r.status.value == "rejected": juries[j]["rejected"] += 1
+
+    return {
+        "contest_name": contest.name,
+        "contest_code": contest.code,
+        "exported_at": utcnow().isoformat(),
+        "submitter_stats": [{"username": u, **stats} for u, stats in submitters.items()],
+        "jury_stats": [{"username": j, **stats} for j, stats in juries.items()],
+    }
 
 @app.get("/api/admin/contests/{code}/export/wikitable")
 def export_contest_wikitable(code: str, mode: str = "summary", _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
-        
-    articles = db.query(models.Article).options(
-        joinedload(models.Article.submitter),
-        selectinload(models.Article.reviews).joinedload(models.Review.reviewer)
-    ).filter_by(contest_id=contest.id).order_by(models.Article.submitted_at.desc()).all()
-
-    def translate_status(s):
-        if s == "accepted": return "গৃহীত"
-        if s == "rejected": return "প্রত্যাখ্যাত"
-        if s == "pending": return "অপেক্ষমাণ"
-        if s == "validation_failed": return "যাচাইকরণ ব্যর্থ"
-        return s
+    contest, articles = _export_articles(code, db)
 
     lines = []
     
@@ -4057,8 +3705,6 @@ def export_contest_wikitable(code: str, mode: str = "summary", _: models.User = 
         media_type="text/plain",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 
 DIST_DIR = Path(__file__).resolve().parent.parent / "frontend-vue" / "dist"
 dist_dir = str(DIST_DIR)

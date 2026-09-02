@@ -1,7 +1,7 @@
 <script setup>
-import { ref, onMounted, inject, watch, computed } from 'vue';
+import { ref, inject, watch, computed } from 'vue';
 import { useRouter } from 'vue-router';
-import { CdxButton, CdxTextInput, CdxMessage, CdxCheckbox, CdxLookup } from '@wikimedia/codex';
+import { CdxTextInput, CdxCheckbox } from '@wikimedia/codex';
 import { contestTimeToUtcIso, utcToContestTimeParts, formatDate as fmtDate, windowStatus, windowProgress, formatDateTimeDayFirst, dayjs } from '../utils/datetime';
 
 const user = inject('user');
@@ -261,23 +261,6 @@ const handleDownloadDatabase = () => {
   window.location.href = '/api/admin/backup/download';
 };
 
-const handleExportJSON = async (code, cName) => {
-  try {
-    const res = await fetch(`/api/admin/contests/${code}/export/json`);
-    if (!res.ok) throw new Error("Export failed");
-    const data = await res.json();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `contest_${code}_${cName.replace(/\s+/g, '_')}_export.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast(`📥 Downloaded JSON report for "${cName}"`);
-  } catch (e) {
-    showToast("Failed to export contest JSON data", true);
-  }
-};
 const handleDelete = async (code, cName) => {
   if (!confirm(`Are you sure you want to permanently delete contest "${cName}"? All articles and reviews will be removed.`)) return;
   try {
@@ -285,6 +268,11 @@ const handleDelete = async (code, cName) => {
     if (res.ok) {
       showToast(`Contest "${cName}" deleted.`);
       refreshData();
+    } else {
+      // The catch below only fires for network failures. Without this branch a
+      // rejected delete (403, 404, 500) left the contest on screen and said
+      // nothing at all, which reads exactly like a button that does not work.
+      showToast(`Could not delete "${cName}" (${res.status}).`, true);
     }
   } catch (e) {
     showToast("Failed to delete contest", true);
@@ -490,6 +478,8 @@ const handleUnassignJury = async (contestCode, username) => {
     if (res.ok) {
       showToast(`Removed ${username} from jury.`);
       refreshData();
+    } else {
+      showToast(`Could not remove ${username} (${res.status}).`, true);
     }
   } catch (e) {
     showToast("Failed to remove jury member", true);

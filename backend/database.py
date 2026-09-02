@@ -1,6 +1,5 @@
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
-import sqlite3
 import os
 import configparser
 
@@ -70,18 +69,6 @@ if DB_NAME and DB_USER:
     )
 else:
     SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./app.db")
-    try:
-        db_path = SQLALCHEMY_DATABASE_URL.replace("sqlite:///", "")
-        conn = sqlite3.connect(db_path)
-        # WAL lets API reads continue while a submission, migration, or
-        # projection refresh is writing. TRUNCATE made the entire app queue
-        # behind one SQLite writer.
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=60000")
-        conn.close()
-    except Exception as e:
-        print(f"Could not enable SQLite WAL mode: {e}")
-        
     engine = create_engine(
         SQLALCHEMY_DATABASE_URL, 
         connect_args={"check_same_thread": False, "timeout": 60},
@@ -90,6 +77,10 @@ else:
         pool_pre_ping=True,
     )
 
+    # WAL lets API reads continue while a submission or migration is writing;
+    # the default TRUNCATE journal made the whole app queue behind one writer.
+    # Set on every connection rather than once up front -- an eager sqlite3
+    # connect before create_engine did the same thing twice.
     @event.listens_for(engine, "connect")
     def set_sqlite_pragma(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()

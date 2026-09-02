@@ -27,10 +27,6 @@ function submittersKey(code) {
   return ['contest-submitters', toValue(code)];
 }
 
-function userLogKey(code, username) {
-  return ['contest-user-log', toValue(code), toValue(username)];
-}
-
 // Shared across Dashboard/ActivityLog/JuryStats: whichever view mounts first
 // pays for the request, the rest reuse it straight from the vue-query cache.
 export function useContestStats(code, options = {}) {
@@ -105,8 +101,7 @@ export function useContestErrorLog(code, options = {}) {
 
 // Cheap per-submitter counts (username + article count) -- backs the
 // dashboard's "Submissions by User" panel's group headers without crawling
-// every article in the contest just to group them client-side (see
-// useUserArticles below for how each group's actual articles get fetched).
+// every article in the contest just to group them client-side.
 export function useContestSubmitters(code, options = {}) {
   return useQuery({
     queryKey: computed(() => submittersKey(code)),
@@ -114,26 +109,6 @@ export function useContestSubmitters(code, options = {}) {
       const res = await fetch(`/api/contests/${queryKey[1]}/submitters`, { signal });
       if (!res.ok) throw new Error('Could not load submitters.');
       return (await res.json()).submitters;
-    },
-    ...options,
-  });
-}
-
-// One submitter's articles, filtered server-side (?submitted_by=) rather
-// than pulled from the full contest crawl -- used by the dashboard's
-// per-user drill-down, fetched only once that user's group is expanded
-// (see `enabled` in the caller). Capped at one generous page rather than a
-// full keyset crawl: this is a quick dashboard drill-down, not the audit
-// view the standalone Timeline Log page (useContestLog above) already
-// serves for "everything, for every user."
-export function useUserArticles(code, username, options = {}) {
-  return useQuery({
-    queryKey: computed(() => userLogKey(code, username)),
-    queryFn: async ({ queryKey, signal }) => {
-      const [, contestCode, user] = queryKey;
-      const res = await fetch(`/api/contests/${contestCode}/log?page_size=200&submitted_by=${encodeURIComponent(user)}`, { signal });
-      if (!res.ok) throw new Error('Failed to load articles for this user.');
-      return res.json();
     },
     ...options,
   });

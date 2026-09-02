@@ -369,3 +369,51 @@ body .contest-layout:not(.review-layout) .contest-name,
 body .contest-layout:not(.review-layout) .nav-link--active { color: var(--feather-text) !important; }
 body .contest-layout:not(.review-layout) .contest-dates-chip,
 body .contest-layout:not(.review-layout) .nav-link { color: var(--feather-muted) !important; }
+
+/* Toast banner — one definition for every route that raises one.
+   AdminDashboard.css and ContestConfig.css each carried a near-copy: same
+   markup, same class names, different corner, and only one of them defined the
+   transition classes its <transition name="toast"> needed, so ContestConfig's
+   toast appeared and vanished with no animation. Scoped view stylesheets could
+   not share it; this layer is global. */
+.toast-banner {
+  /* Bottom-right, not top-right: the app header is sticky and carries the
+     account pill and Sign out, which a top-right toast sits on top of for its
+     whole 4s life. This is where ContestConfig's copy already put it. */
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #1a1a1a;
+  border: 1px solid #ffffff;
+  color: #e5e7eb;
+  padding: 12px 20px;
+  border-radius: 12px;
+  box-shadow: 0 16px 36px rgba(0,0,0,0.5);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+/* The legacy-panel block above lists .toast-banner and forces background, color
+   and border-color on it. `.toast-error` alone lost every declaration it had --
+   an error toast rendered identically to a success one, same white panel, same
+   navy text, distinguishable only by the emoji (measured: both computed to
+   rgb(255,255,255)/rgb(32,54,77)). !important alone is not enough either: that
+   block's `body:not(:has(.rq-app)) :where(...)` scores (0,1,1) against a bare
+   class's (0,1,0), and between two !important declarations specificity still
+   decides. Hence `body .toast-banner.toast-error` — (0,2,1) — which outranks it.
+   Pale red with dark text, per the status colours in docs/STYLE_GUIDE.md. */
+body .toast-banner.toast-error {
+  background: #fff0f0 !important;
+  border-color: #e6bcbc !important;
+  color: #a33a3a !important;
+}
+/* No enter/leave transition rules on purpose. AdminDashboard.css used to
+   define them scoped to itself and ContestConfig had none, so its toast simply
+   appeared. Promoting them to this global layer gave ContestConfig's toast an
+   `opacity: 0` enter state that it never left -- Vue kept `toast-enter-from` on
+   the element and the toast stayed invisible for its whole 4s life, verified in
+   the browser on a clean load with a single save. A fade nobody asked for is not
+   worth a message the user never sees, so the toast just appears now. */

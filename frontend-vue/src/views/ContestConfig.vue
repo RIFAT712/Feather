@@ -390,6 +390,8 @@ const handleUnassignJury = async (username) => {
     if (res.ok) {
       showToast(`Removed ${username} from jury.`);
       fetchContest();
+    } else {
+      showToast(`Could not remove ${username} (${res.status}).`, true);
     }
   } catch (e) {
     showToast("Failed to remove jury member", true);

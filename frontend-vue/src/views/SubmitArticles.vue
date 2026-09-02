@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, watch, inject, computed } from 'vue';
 import { useRoute } from 'vue-router';
-import { CdxButton, CdxLookup } from '@wikimedia/codex';
+import { CdxLookup } from '@wikimedia/codex';
 import { useQueryClient } from '@tanstack/vue-query';
 import { invalidateContestData } from '../composables/useContestData';
 import { formatDate, toDate } from '../utils/datetime';

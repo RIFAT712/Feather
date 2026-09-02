@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, inject, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { CdxButton, CdxTextInput, CdxIcon } from '@wikimedia/codex';
+import { CdxTextInput, CdxIcon } from '@wikimedia/codex';
 import {
   cdxIconArticle,
   cdxIconArticleCheck,
@@ -11,15 +11,12 @@ import {
   cdxIconCollapse,
   cdxIconCopy,
   cdxIconDownTriangle,
-  cdxIconExpand,
   cdxIconLinkExternal,
   cdxIconLock,
   cdxIconMenu,
-  cdxIconSpeechBubbles,
   cdxIconSearch,
   cdxIconNext,
   cdxIconTrash,
-  cdxIconUpTriangle,
 } from '@wikimedia/codex-icons';
 import { formatDateDayFirst } from '../utils/datetime';
 import { fetchAllContestLogPages } from '../utils/contestLog';
@@ -39,7 +36,6 @@ const isLoadingPreview = ref(false);
 const reviewError = ref('');
 const mobileTab = ref('list');
 const sidebarCollapsed = ref(false);
-const reviewPanelCollapsed = ref(false);
 
 // Raw-wikitext side panel. Desktop shows it beside the rendered preview;
 // mobile has no room for both, so `previewPane` picks one at a time.
@@ -1255,30 +1251,6 @@ const handleBulkRemove = async () => {
 
 const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
 
-const talkPageSnippet = computed(() => {
-  if (!props.contest?.add_talk_template) return '';
-  let template = props.contest.talk_template_name || '';
-  template = template.trim();
-  if (template && !template.startsWith('{{')) {
-    template = `{{${template}}}`;
-  }
-  let snippet = '';
-  if (props.contest.include_talk_header) {
-    snippet += '{{আলাপ পাতা}}\n\n';
-  }
-  if (template) {
-    snippet += template;
-  }
-  return snippet;
-});
-
-const isCopiedTalkSnippet = ref(false);
-const copyTalkSnippet = () => {
-  if (!talkPageSnippet.value) return;
-  navigator.clipboard.writeText(talkPageSnippet.value);
-  isCopiedTalkSnippet.value = true;
-  setTimeout(() => { isCopiedTalkSnippet.value = false; }, 2500);
-};
 </script>
 
 <template>

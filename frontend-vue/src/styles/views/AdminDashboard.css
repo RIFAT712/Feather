@@ -8,31 +8,7 @@
   color: #e2e8f0;
 }
 
-/* Toast */
-.toast-banner {
-  position: fixed;
-  top: 24px;
-  right: 24px;
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: #1a1a1a;
-  border: 1px solid #ffffff;
-  color: #e5e7eb;
-  padding: 12px 20px;
-  border-radius: 12px;
-  box-shadow: 0 16px 36px rgba(0,0,0,0.5);
-  font-weight: 600;
-  font-size: 0.95rem;
-}
-.toast-error {
-  background: #451a1a;
-  border-color: #ffffff;
-  color: #9ca3af;
-}
-.toast-enter-active, .toast-leave-active { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(-20px); }
+/* Toast styles live in styles/light-theme.css — shared with ContestConfig. */
 
 /* Header Card */
 .admin-header-card {

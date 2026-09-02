@@ -1,5 +1,0 @@
-sqlalchemy
-pydantic>=2.0
-pymysql
-cryptography
-python-dotenv

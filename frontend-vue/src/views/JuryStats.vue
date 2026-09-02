@@ -918,4 +918,4 @@ const handleExportWikitable = () => {
   </div>
 </template>
 
-<style scoped src="../styles/views/JuryStatsFresh.css"></style>
+<style scoped src="../styles/views/JuryStats.css"></style>
