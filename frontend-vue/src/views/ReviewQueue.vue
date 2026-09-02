@@ -901,39 +901,6 @@ const SHORTCUT_ACTIONS = [
 const DEFAULT_SHORTCUTS = Object.fromEntries(SHORTCUT_ACTIONS.map(a => [a.id, a.default]));
 const actionLabel = (id) => SHORTCUT_ACTIONS.find(a => a.id === id)?.label || id;
 
-// Stored per wiki username, not per browser: juries share machines, and one
-// person rebinding Accept to "k" must not silently rearm someone else's muscle
-// memory on the same laptop.
-const shortcuts = ref({ ...DEFAULT_SHORTCUTS });
-const shortcutStorageKey = () => `review_queue_shortcuts:${myUsername.value || 'anonymous'}`;
-
-const loadShortcuts = () => {
-  try {
-    const saved = JSON.parse(localStorage.getItem(shortcutStorageKey()) || 'null');
-    // Only bindings for actions that still exist survive a reload -- an action
-    // dropped in a later version must not leave a dead binding behind that
-    // swallows a keystroke and does nothing.
-    shortcuts.value = {
-      ...DEFAULT_SHORTCUTS,
-      ...Object.fromEntries(Object.entries(saved || {}).filter(
-        ([id, key]) => id in DEFAULT_SHORTCUTS && typeof key === 'string'
-                        && isBindableKey(normalizeShortcutKey(key)))
-        .map(([id, key]) => [id, normalizeShortcutKey(key)])),
-    };
-  } catch {
-    shortcuts.value = { ...DEFAULT_SHORTCUTS };
-  }
-};
-watch(myUsername, loadShortcuts, { immediate: true });
-
-const persistShortcuts = () => {
-  // Private windows and blocked site data throw on write; a shortcut that only
-  // lasts the session is a far better outcome than a crashed review screen.
-  try { localStorage.setItem(shortcutStorageKey(), JSON.stringify(shortcuts.value)); } catch { /* not persisted */ }
-};
-
-const capturingAction = ref(null);
-const shortcutError = ref('');
 // Keys that have to keep their built-in meaning: Escape is the way out of
 // everything, "/" and "?" open this panel, and Tab is how keyboard users move
 // between controls at all. Rebinding any of them would strand someone.
@@ -964,6 +931,47 @@ const shortcutKeyLabel = (key) => {
   if (key === 'enter') return 'Enter';
   return (key || '').toUpperCase();
 };
+
+// Stored per wiki username, not per browser: juries share machines, and one
+// person rebinding Accept to "k" must not silently rearm someone else's muscle
+// memory on the same laptop.
+const shortcuts = ref({ ...DEFAULT_SHORTCUTS });
+const shortcutStorageKey = () => `review_queue_shortcuts:${myUsername.value || 'anonymous'}`;
+
+const loadShortcuts = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(shortcutStorageKey()) || 'null');
+    // Only bindings for actions that still exist survive a reload -- an action
+    // dropped in a later version must not leave a dead binding behind that
+    // swallows a keystroke and does nothing.
+    shortcuts.value = {
+      ...DEFAULT_SHORTCUTS,
+      ...Object.fromEntries(Object.entries(saved || {}).filter(
+        ([id, key]) => id in DEFAULT_SHORTCUTS && typeof key === 'string'
+                        && isBindableKey(normalizeShortcutKey(key)))
+        .map(([id, key]) => [id, normalizeShortcutKey(key)])),
+    };
+  } catch (error) {
+    // Corrupt JSON or unreadable site data: fall back to defaults, but say so.
+    // A silent catch here once hid the key helpers being read before they were
+    // initialised, which quietly reset every rebound key on each reload.
+    console.warn('Could not read saved review shortcuts', error);
+    shortcuts.value = { ...DEFAULT_SHORTCUTS };
+  }
+};
+// Registered after the key helpers above: the immediate run calls loadShortcuts
+// synchronously, and App.vue only mounts this view once `user` is resolved, so
+// this first pass is the only one that runs for most reloads.
+watch(myUsername, loadShortcuts, { immediate: true });
+
+const persistShortcuts = () => {
+  // Private windows and blocked site data throw on write; a shortcut that only
+  // lasts the session is a far better outcome than a crashed review screen.
+  try { localStorage.setItem(shortcutStorageKey(), JSON.stringify(shortcuts.value)); } catch { /* not persisted */ }
+};
+
+const capturingAction = ref(null);
+const shortcutError = ref('');
 
 // Enter and Space press the focused control. If focus is on a button -- the
 // reviewer just clicked Accept, or is tabbing through -- the browser must keep
