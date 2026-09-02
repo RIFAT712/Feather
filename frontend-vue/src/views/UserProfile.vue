@@ -20,6 +20,13 @@ const submissionColumns = [
   { id: 'submitted_at', label: 'Submitted At', allowSort: true, minWidth: '170px' }
 ];
 
+const reviewColumns = [
+  { id: 'article_title', label: 'Article', minWidth: '220px' },
+  { id: 'decision', label: 'Decision' },
+  { id: 'comment', label: 'Comment', minWidth: '260px' },
+  { id: 'reviewed_at', label: 'Reviewed At', minWidth: '170px' },
+];
+
 const updateSubmissionSort = (sort) => { submissionSort.value = sort; };
 
 const articleStats = computed(() => {
@@ -59,11 +66,15 @@ const showMoreSubmissions = () => { visibleSubmissionCount.value += ROW_WINDOW; 
 
 // Collapsible panels. v-if rather than v-show: a collapsed section should cost
 // nothing to render, which is the point on a profile carrying thousands of
-// rows. Open by default so nothing a reader expects to see is hidden on first
-// visit, and the choice is remembered per browser so someone who prefers to
-// work collapsed stays that way as they move between profiles.
+// rows. The choice is remembered per browser, so someone who prefers to work
+// with a section open stays that way as they move between profiles.
 const SECTION_STORAGE_KEY = 'user_profile_sections';
-const openSections = ref({ submissions: true, reviews: true });
+// Both start collapsed. A prolific submitter's profile opened to two full
+// tables of hundreds of rows, so the page began somewhere in the middle of a
+// list rather than at its own summary -- the headers are the navigation, and
+// you open the one you came for. A returning visitor's own choice is restored
+// from localStorage below and wins over this.
+const openSections = ref({ submissions: false, reviews: false });
 try {
   const saved = JSON.parse(localStorage.getItem(SECTION_STORAGE_KEY) || 'null');
   if (saved && typeof saved === 'object') openSections.value = { ...openSections.value, ...saved };
@@ -73,6 +84,27 @@ const toggleSection = (id) => {
   openSections.value = { ...openSections.value, [id]: !isSectionOpen(id) };
   try { localStorage.setItem(SECTION_STORAGE_KEY, JSON.stringify(openSections.value)); } catch { /* not persisted */ }
 };
+
+// What a collapsed card shows: the section's outcome breakdown, the same
+// status pills the global profile puts on a contest header. Only non-zero
+// statuses appear, so a card carries no rows that say nothing.
+const countBy = (rows, key, value) => rows.filter(row => row[key] === value).length;
+const pillsFor = (rows, key, statuses) => statuses
+  .map(({ status, label, cls }) => ({ label, cls, count: countBy(rows, key, status) }))
+  .filter(pill => pill.count > 0);
+
+const submissionPills = computed(() => pillsFor(profile.value?.submissions || [], 'status', [
+  { status: 'accepted', label: 'accepted', cls: 'status-badge accepted' },
+  { status: 'pending', label: 'pending', cls: 'status-badge pending' },
+  { status: 'rejected', label: 'rejected', cls: 'status-badge rejected' },
+  { status: 'validation_failed', label: 'failed', cls: 'status-badge validation_failed' },
+]));
+
+const reviewPills = computed(() => pillsFor(profile.value?.reviews || [], 'decision', [
+  { status: 'accepted', label: 'accepted', cls: 'decision-badge accepted' },
+  { status: 'rejected', label: 'rejected', cls: 'decision-badge rejected' },
+  { status: 'skipped', label: 'skipped', cls: 'decision-badge skipped' },
+]));
 
 const visibleReviewCount = ref(ROW_WINDOW);
 const visibleReviews = computed(() => (profile.value?.reviews || []).slice(0, visibleReviewCount.value));
@@ -131,13 +163,9 @@ const formatDate = (dateStr) => {
 
 <template>
   <div class="user-profile">
-    <div v-if="false" class="status-state">
-      <p>⏳ Loading profile...</p>
-    </div>
-    
     <GlobalLoader v-if="isLoading" label="Loading profile…" />
     <div v-else-if="error" class="status-state error">
-      <p>❌ {{ error }}</p>
+      <p>{{ error }}</p>
     </div>
     
     <div v-else-if="profile" class="profile-content">
@@ -171,7 +199,7 @@ const formatDate = (dateStr) => {
       </div>
       
       <div class="tables-container">
-        <div class="table-section" :class="{ 'is-collapsed': !isSectionOpen('submissions') }">
+        <div class="table-section panel-card" :class="{ 'is-collapsed': !isSectionOpen('submissions') }">
           <button
             type="button"
             class="section-heading section-toggle"
@@ -183,15 +211,23 @@ const formatDate = (dateStr) => {
               <h2>Submissions</h2>
             </div>
             <span class="section-meta">
+              <!-- Inline in the header, like the contest headers on the global
+                   profile: the outcome reads without opening the section. -->
+              <span v-if="submissionPills.length" class="contest-pills">
+                <span v-for="pill in submissionPills" :key="'sp-' + pill.label" :class="pill.cls">
+                  {{ pill.count.toLocaleString() }} {{ pill.label }}
+                </span>
+              </span>
               <span class="section-count">{{ profile.submissions.length }} articles</span>
               <span class="section-chevron" aria-hidden="true">&#9662;</span>
             </span>
           </button>
+
           <template v-if="isSectionOpen('submissions')">
           <cdx-table v-if="profile.submissions.length" class="profile-table" caption="Submissions" hide-caption :columns="submissionColumns" :data="visibleSubmissions" :sort="submissionSort" @update:sort="updateSubmissionSort">
             <template #item-title="{ row }">
               <a :href="'https://bn.wiktionary.org/wiki/' + encodeURIComponent(row.title)" target="_blank" class="title-link">{{ row.title }}</a>
-              <div v-if="row.validation_error" class="error-subtext">âš ï¸ {{ row.validation_error }}</div>
+              <div v-if="row.validation_error" class="error-subtext">{{ row.validation_error }}</div>
             </template>
             <template #item-status="{ row }"><span :class="['status-badge', row.status]">{{ row.status === 'validation_failed' ? 'Failed' : row.status }}</span></template>
             <template #item-jury="{ row }">
@@ -212,109 +248,54 @@ const formatDate = (dateStr) => {
           </div>
           </template>
 
-          <!--
-            Codex renders the sortable header and accessible aria-sort state.
-            The custom slots above keep article links and review details rich.
-          -->
-          <!--
-            Legacy table markup intentionally removed below.
-          -->
-          <template v-if="false"><table>
-              <thead>
-                <tr>
-                  <th><button class="sortable-header" @click="toggleSubmissionSort('title')">Article <span>{{ sortIndicator('title') }}</span></button></th>
-                  <th><button class="sortable-header" @click="toggleSubmissionSort('status')">Status <span>{{ sortIndicator('status') }}</span></button></th>
-                  <th><button class="sortable-header" @click="toggleSubmissionSort('jury')">Jury <span>{{ sortIndicator('jury') }}</span></button></th>
-                  <th><button class="sortable-header" @click="toggleSubmissionSort('comment')">Judgment comment <span>{{ sortIndicator('comment') }}</span></button></th>
-                  <th><button class="sortable-header" @click="toggleSubmissionSort('submitted_at')">Submitted At <span>{{ sortIndicator('submitted_at') }}</span></button></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="sub in visibleSubmissions" :key="sub.id">
-                  <td>
-                    <a :href="'https://bn.wiktionary.org/wiki/' + encodeURIComponent(sub.title)" target="_blank" class="title-link">
-                      {{ sub.title }}
-                    </a>
-                    <div v-if="sub.validation_error" class="error-subtext">
-                      ⚠️ {{ sub.validation_error }}
-                    </div>
-                  </td>
-                  <td>
-                    <span :class="['status-badge', sub.status]">{{ sub.status === 'validation_failed' ? 'Failed' : sub.status }}</span>
-                  </td>
-                  <td class="jury-cell">
-                    <template v-if="sub.reviews?.length">
-                      <div v-for="(review, reviewIndex) in sub.reviews" :key="`${sub.id}-${reviewIndex}`" class="jury-entry">
-                        <span class="jury-name">{{ review.jury }}</span>
-
-                      </div>
-                    </template>
-                    <span v-else class="muted-value">Awaiting review</span>
-                  </td>
-                  <td class="comment-cell">
-                    <template v-if="sub.reviews?.length">
-                      <div v-for="(review, reviewIndex) in sub.reviews" :key="`${sub.id}-comment-${reviewIndex}`" class="judgment-comment">
-                        {{ review.comment || 'No comment' }}
-                      </div>
-                    </template>
-                    <span v-else class="muted-value">—</span>
-                  </td>
-                  <td>{{ formatDate(sub.submitted_at) }}</td>
-                </tr>
-              </tbody>
-            </table>
-            <div v-if="hiddenSubmissionCount" class="rows-more-wrap">
-              <button type="button" class="rows-more-btn" @click="showMoreSubmissions">
-                Show 100 more - {{ hiddenSubmissionCount.toLocaleString() }} not shown
-              </button>
-            </div>
-          </template>
         </div>
         
-                <div class="table-section" v-if="profile.reviews.length" :class="{ 'is-collapsed': !isSectionOpen('reviews') }">
+        <div class="table-section panel-card" v-if="profile.reviews.length" :class="{ 'is-collapsed': !isSectionOpen('reviews') }">
           <button
             type="button"
             class="section-heading section-toggle"
             :aria-expanded="isSectionOpen('reviews') ? 'true' : 'false'"
             @click="toggleSection('reviews')"
           >
-            <div><h3>Reviews</h3></div>
+            <div>
+              <p class="section-kicker">Jury history</p>
+              <h2>Reviews</h2>
+            </div>
             <span class="section-meta">
+              <span v-if="reviewPills.length" class="contest-pills">
+                <span v-for="pill in reviewPills" :key="'rp-' + pill.label" :class="pill.cls">
+                  {{ pill.count.toLocaleString() }} {{ pill.label }}
+                </span>
+              </span>
               <span class="section-count">{{ profile.reviews.length }} reviews</span>
               <span class="section-chevron" aria-hidden="true">&#9662;</span>
             </span>
           </button>
+
           <template v-if="isSectionOpen('reviews')">
-          <div class="table-wrapper">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Article</th>
-                  <th>Decision</th>
-                  <th>Comment</th>
-                  <th>Reviewed At</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(rev, idx) in visibleReviews" :key="idx">
-                  <td>
-                    <a :href="'https://bn.wiktionary.org/wiki/' + encodeURIComponent(rev.article_title)" target="_blank" class="title-link">
-                      {{ rev.article_title }}
-                    </a>
-                  </td>
-                  <td>
-                    <span :class="['decision-badge', rev.decision]">{{ rev.decision }}</span>
-                  </td>
-                  <td class="comment-cell" :title="rev.comment">{{ rev.comment || '-' }}</td>
-                  <td>{{ formatDate(rev.reviewed_at) }}</td>
-                </tr>
-              </tbody>
-            </table>
-            <div v-if="hiddenReviewCount" class="rows-more-wrap">
-              <button type="button" class="rows-more-btn" @click="showMoreReviews">
-                Show 100 more - {{ hiddenReviewCount.toLocaleString() }} not shown
-              </button>
-            </div>
+          <cdx-table
+            class="profile-table"
+            caption="Reviews"
+            hide-caption
+            :columns="reviewColumns"
+            :data="visibleReviews"
+          >
+            <template #item-article_title="{ item }">
+              <a :href="'https://bn.wiktionary.org/wiki/' + encodeURIComponent(item)" target="_blank" class="title-link">{{ item }}</a>
+            </template>
+            <template #item-decision="{ item }">
+              <span :class="['decision-badge', item]">{{ item }}</span>
+            </template>
+            <template #item-comment="{ item }">
+              <span class="comment-cell" :title="item">{{ item || '—' }}</span>
+            </template>
+            <template #item-reviewed_at="{ item }">{{ formatDate(item) }}</template>
+            <template #empty-state>No reviews yet.</template>
+          </cdx-table>
+          <div v-if="hiddenReviewCount" class="rows-more-wrap">
+            <button type="button" class="rows-more-btn" @click="showMoreReviews">
+              Show 100 more - {{ hiddenReviewCount.toLocaleString() }} not shown
+            </button>
           </div>
           </template>
         </div>

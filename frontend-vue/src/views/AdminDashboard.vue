@@ -1,7 +1,11 @@
 <script setup>
 import { ref, inject, watch, computed } from 'vue';
 import { useRouter } from 'vue-router';
-import { CdxTextInput, CdxCheckbox } from '@wikimedia/codex';
+import { CdxTextInput, CdxCheckbox, CdxIcon } from '@wikimedia/codex';
+import {
+  cdxIconLinkExternal, cdxIconEdit, cdxIconCopy, cdxIconDownload, cdxIconTrash,
+  cdxIconAlert, cdxIconCheck, cdxIconBlock,
+} from '@wikimedia/codex-icons';
 import { contestTimeToUtcIso, utcToContestTimeParts, formatDate as fmtDate, windowStatus, windowProgress, formatDateTimeDayFirst, dayjs } from '../utils/datetime';
 
 const user = inject('user');
@@ -29,6 +33,23 @@ let statusInterval = null;
 const isLoadingContests = ref(false);
 const toastMessage = ref('');
 const toastIsError = ref(false);
+const contestColumns = [
+  { id: 'name', label: 'Contest Name & Rules', minWidth: '260px' },
+  { id: 'code', label: 'Code' },
+  { id: 'status', label: 'Status' },
+  { id: 'timeline', label: 'Timeline', minWidth: '190px' },
+  { id: 'submissions', label: 'Submissions', minWidth: '150px' },
+  { id: 'jury', label: 'Jury Roster' },
+  { id: 'actions', label: 'Actions', minWidth: '170px' },
+];
+
+const logColumns = [
+  { id: 'timestamp', label: 'Timestamp', minWidth: '150px' },
+  { id: 'level', label: 'Level' },
+  { id: 'source', label: 'Source' },
+  { id: 'message', label: 'Message', minWidth: '340px' },
+];
+
 const showToast = (msg, isError = false) => {
   toastMessage.value = msg;
   toastIsError.value = isError;
@@ -209,7 +230,7 @@ const handleCreate = async () => {
         body: JSON.stringify({ contest_code: created.code, wiki_usernames: createJuryTags.value })
       });
     }
-    showToast(`🎉 Contest created! ${createJuryTags.value.length > 0 ? createJuryTags.value.length + ' jury member(s) assigned.' : ''}`);
+    showToast(`Contest created! ${createJuryTags.value.length > 0 ? createJuryTags.value.length + ' jury member(s) assigned.' : ''}`);
     createJuryTags.value = [];
     resetCreateForm();
     activeTab.value = 'overview';
@@ -251,11 +272,11 @@ const handleCloneContest = (c) => {
   includeTalkHeader.value = c.include_talk_header ?? true;
   
   activeTab.value = 'create';
-  showToast(`📋 Cloned rules from "${c.name}" into form!`);
+  showToast(`Cloned rules from "${c.name}" into form!`);
 };
 const handleExportCSV = (code) => {
   window.open(`/api/admin/contests/${code}/export/csv`, '_blank');
-  showToast(`📥 Exporting CSV for contest ${code}...`);
+  showToast(`Exporting CSV for contest ${code}...`);
 };
 const handleDownloadDatabase = () => {
   window.location.href = '/api/admin/backup/download';
@@ -456,7 +477,7 @@ const handleAssignJury = async () => {
     });
     if (!res.ok) throw new Error("Failed");
     const data = await res.json();
-    showToast(`✅ Assigned ${data.added.length} jury member(s)!`);
+    showToast(`Assigned ${data.added.length} jury member(s)!`);
     juryTags.value = [];
     refreshData();
   } catch (e) {
@@ -503,14 +524,14 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
   <div class="admin-suite">
         <transition name="toast">
       <div v-if="toastMessage" class="toast-banner" :class="{ 'toast-error': toastIsError }">
-        <span class="toast-icon">{{ toastIsError ? '⚠️' : '✨' }}</span>
+        <cdx-icon class="toast-icon" :icon="toastIsError ? cdxIconAlert : cdxIconCheck" />
         <span>{{ toastMessage }}</span>
       </div>
     </transition>
 
         <div v-if="user && user.role !== 'owner'" class="unauthorized-banner">
       <div class="unauthorized-content">
-        <span class="icon">⛔</span>
+        <cdx-icon class="icon" :icon="cdxIconBlock" />
         <h2>Owner Portal Restricted</h2>
         <p>You are logged in as <strong>{{ user.wiki_username }}</strong> ({{ user.role }}). Administrative control panels are restricted to System Owners.</p>
       </div>
@@ -521,7 +542,7 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
         <div class="header-main">
           <div class="header-title-group">
             <div class="owner-badge">
-              <span class="star-icon">★</span> System Owner Portal
+              <span class="star-icon"></span>System Owner Portal
             </div>
             <h1 class="suite-title">Admin Management Suite</h1>
             <p class="suite-desc">Configure contest rules, govern juries, automate talk page templates, & export platform data.</p>
@@ -544,7 +565,7 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
 
                 <div class="kpi-grid">
           <div class="kpi-card indigo">
-            <div class="kpi-icon">🏆</div>
+            <div class="kpi-icon"></div>
             <div class="kpi-info">
               <span class="kpi-val">{{ stats.total_contests }}</span>
               <span class="kpi-lbl">Total Contests</span>
@@ -555,7 +576,7 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
           </div>
 
           <div class="kpi-card emerald">
-            <div class="kpi-icon">📝</div>
+            <div class="kpi-icon"></div>
             <div class="kpi-info">
               <span class="kpi-val">{{ stats.total_articles }}</span>
               <span class="kpi-lbl">Total Submissions</span>
@@ -566,7 +587,7 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
           </div>
 
           <div class="kpi-card violet">
-            <div class="kpi-icon">🛡️</div>
+            <div class="kpi-icon"></div>
             <div class="kpi-info">
               <span class="kpi-val">{{ stats.total_juries }}</span>
               <span class="kpi-lbl">Jury Assignments</span>
@@ -575,7 +596,7 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
           </div>
 
           <div class="kpi-card sky">
-            <div class="kpi-icon">👥</div>
+            <div class="kpi-icon"></div>
             <div class="kpi-info">
               <span class="kpi-val">{{ stats.total_users }}</span>
               <span class="kpi-lbl">Registered Editors</span>
@@ -584,7 +605,7 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
           </div>
           
           <div class="kpi-card rose">
-            <div class="kpi-icon">⚙️</div>
+            <div class="kpi-icon"></div>
             <div class="kpi-info">
               <span class="kpi-val">{{ systemStatus.cpu_percent }}%</span>
               <span class="kpi-lbl">Server CPU</span>
@@ -595,7 +616,7 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
           </div>
           
           <div class="kpi-card amber">
-            <div class="kpi-icon">💾</div>
+            <div class="kpi-icon"></div>
             <div class="kpi-info">
               <span class="kpi-val">{{ systemStatus.mem_percent }}%</span>
               <span class="kpi-lbl">Server RAM</span>
@@ -606,7 +627,7 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
           </div>
 
           <div class="kpi-card slate">
-            <div class="kpi-icon">🚷</div>
+            <div class="kpi-icon"></div>
             <div class="kpi-info">
               <span class="kpi-val">{{ stats.total_banned_users }}</span>
               <span class="kpi-lbl">Review Exclusions</span>
@@ -629,11 +650,11 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
         </button>
 
         <button class="nav-tab" :class="{ active: activeTab === 'jury' }" @click="activeTab = 'jury'">
-          <span class="icon">👥</span>
+          <span class="icon"></span>
           Jury Management
         </button>
         <button class="nav-tab" :class="{ active: activeTab === 'logs' }" @click="activeTab = 'logs'">
-          <span class="icon">📋</span>
+          <span class="icon"></span>
           System Logs
         </button>
       </div>
@@ -678,7 +699,7 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
             <h3 class="card-title">{{ c.name }}</h3>
 
             <div class="card-dates">
-              <span>📅 {{ formatDate(c.start_date) }}</span>
+              <span>{{ formatDate(c.start_date) }}</span>
               <span>→</span>
               <span>{{ formatDate(c.end_date) }}</span>
             </div>
@@ -691,14 +712,14 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
             </div>
 
                         <div class="card-rules-list">
-              <span v-if="c.rule_must_be_creator" class="rule-tag font-medium">👤 Must Be Creator</span>
-              <span v-if="c.min_bytes > 0" class="rule-tag amber">📐 Min {{ c.min_bytes }} B</span>
-              <span v-if="c.min_words > 0" class="rule-tag emerald">📝 Min {{ c.min_words }} words</span>
-              <span v-if="c.min_refs > 0" class="rule-tag sky">📚 Min {{ c.min_refs }} ref(s)</span>
-              <span v-if="c.rule_no_redirect" class="rule-tag violet">🚫 No Redirects</span>
-              <span v-if="c.rule_no_disambig" class="rule-tag rose">🔀 No Disambig</span>
-              <span v-if="c.rule_mainspace_only" class="rule-tag slate">📁 Mainspace Only</span>
-              <span v-if="c.add_talk_template" class="rule-tag indigo">💬 Talk Template</span>
+              <span v-if="c.rule_must_be_creator" class="rule-tag font-medium">Must Be Creator</span>
+              <span v-if="c.min_bytes > 0" class="rule-tag amber">Min {{ c.min_bytes }} B</span>
+              <span v-if="c.min_words > 0" class="rule-tag emerald">Min {{ c.min_words }} words</span>
+              <span v-if="c.min_refs > 0" class="rule-tag sky">Min {{ c.min_refs }} ref(s)</span>
+              <span v-if="c.rule_no_redirect" class="rule-tag violet">No Redirects</span>
+              <span v-if="c.rule_no_disambig" class="rule-tag rose">No Disambig</span>
+              <span v-if="c.rule_mainspace_only" class="rule-tag slate">Mainspace Only</span>
+              <span v-if="c.add_talk_template" class="rule-tag indigo">Talk Template</span>
             </div>
 
                         <div class="card-metrics-row">
@@ -712,15 +733,15 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
               </div>
               <div class="metric-item" @click="openJuryHubForContest(c.code)" style="cursor:pointer;" title="Click to manage jury">
                 <span class="m-val">{{ c.juries_count ?? 0 }}</span>
-                <span class="m-lbl">Jurors ⚙️</span>
+                <span class="m-lbl">Jurors </span>
               </div>
             </div>
 
                         <div class="card-actions-bar">
-              <router-link :to="'/' + c.code" class="card-btn secondary" title="View Contest Dashboard">↗ View</router-link>
-              <button class="card-btn primary" @click="openEditModal(c)" title="Edit Contest Rules & Settings">✏️ Edit</button>
-              <button class="card-btn secondary" @click="handleCloneContest(c)" title="Clone as new contest template">📋 Clone</button>
-              <button class="card-btn secondary" @click="handleExportCSV(c.code)" title="Export CSV Report">📥 CSV</button>
+              <router-link :to="'/' + c.code" class="card-btn secondary" title="View Contest Dashboard"><cdx-icon :icon="cdxIconLinkExternal" /> View</router-link>
+              <button class="card-btn primary" @click="openEditModal(c)" title="Edit Contest Rules & Settings"><cdx-icon :icon="cdxIconEdit" /> Edit</button>
+              <button class="card-btn secondary" @click="handleCloneContest(c)" title="Clone as new contest template">Clone</button>
+              <button class="card-btn secondary" @click="handleExportCSV(c.code)" title="Export CSV Report">CSV</button>
               <button class="card-btn danger" @click="handleDelete(c.code, c.name)" title="Delete Contest">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
               </button>
@@ -728,75 +749,75 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
           </div>
 
           <div v-if="!filteredContests.length" class="empty-card">
-            <span class="icon">🔍</span>
+            <cdx-icon class="icon" :icon="cdxIconSearch" />
             <p>No contests found matching your filters.</p>
           </div>
         </div>
 
-                <div v-else class="table-card">
-          <table class="wikitable-modern">
-            <thead>
-              <tr>
-                <th>Contest Name & Rules</th>
-                <th>Code</th>
-                <th>Status</th>
-                <th>Timeline</th>
-                <th>Submissions</th>
-                <th>Jury Roster</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="c in filteredContests" :key="c.code">
-                <td>
-                  <div class="table-name-cell">
-                    <span class="font-bold text-slate-100">{{ c.name }}</span>
-                    <div class="rule-badges">
-                      <span v-if="c.rule_must_be_creator" class="rule-badge">👤 Must Be Creator</span>
-                      <span v-if="c.min_bytes > 0" class="rule-badge amber">📐 Min {{ c.min_bytes }} B</span>
-                      <span v-if="c.min_words > 0" class="rule-badge emerald">📝 Min {{ c.min_words }} words</span>
-                      <span v-if="c.min_refs > 0" class="rule-badge sky">📚 Min {{ c.min_refs }} refs</span>
-                      <span v-if="c.add_talk_template" class="rule-badge indigo">💬 Talk Template: {{ c.talk_template_name }}</span>
-                    </div>
-                  </div>
-                </td>
-                <td><code>{{ c.code }}</code></td>
-                <td>
-                  <span class="card-status-badge mini" :class="getContestStatus(c)">
-                    {{ getContestStatus(c).toUpperCase() }}
-                  </span>
-                </td>
-                <td>
-                  <div class="timeline-cell">
-                    <span>{{ formatDate(c.start_date) }}</span>
-                    <span class="text-slate-500">to</span>
-                    <span>{{ formatDate(c.end_date) }}</span>
-                  </div>
-                </td>
-                <td>
-                  <div class="sub-cell">
-                    <span class="font-semibold">{{ c.articles_count ?? 0 }} total</span>
-                    <span class="text-emerald-400 text-xs">({{ c.accepted_count ?? 0 }} accepted)</span>
-                  </div>
-                </td>
-                <td>
-                  <button class="jury-pill-btn" @click="openJuryHubForContest(c.code)">
-                    🛡️ {{ c.juries_count ?? 0 }} Juror(s)
-                  </button>
-                </td>
-                <td class="action-cell">
-                  <router-link :to="'/' + c.code" class="icon-action-btn" title="View Contest">↗</router-link>
-                  <button class="icon-action-btn" @click="openEditModal(c)" title="Edit Rules">✏️</button>
-                  <button class="icon-action-btn" @click="handleCloneContest(c)" title="Clone Contest">📋</button>
-                  <button class="icon-action-btn" @click="handleExportCSV(c.code)" title="Export CSV">📥</button>
-                  <button class="icon-action-btn danger" @click="handleDelete(c.code, c.name)" title="Delete">🗑️</button>
-                </td>
-              </tr>
-              <tr v-if="!filteredContests.length">
-                <td colspan="7" class="text-center py-8 text-slate-400">No contests found matching criteria.</td>
-              </tr>
-            </tbody>
-          </table>
+                <div v-else>
+          <cdx-table
+            caption="Contests"
+            hide-caption
+            :columns="contestColumns"
+            :data="filteredContests"
+          >
+            <template #item-name="{ row }">
+              <div class="table-name-cell">
+                <span class="font-bold">{{ row.name }}</span>
+                <div class="rule-badges">
+                  <span v-if="row.rule_must_be_creator" class="rule-badge">Must Be Creator</span>
+                  <span v-if="row.min_bytes > 0" class="rule-badge amber">Min {{ row.min_bytes }} B</span>
+                  <span v-if="row.min_words > 0" class="rule-badge emerald">Min {{ row.min_words }} words</span>
+                  <span v-if="row.min_refs > 0" class="rule-badge sky">Min {{ row.min_refs }} refs</span>
+                  <span v-if="row.add_talk_template" class="rule-badge indigo">Talk Template: {{ row.talk_template_name }}</span>
+                </div>
+              </div>
+            </template>
+            <template #item-code="{ item }"><code>{{ item }}</code></template>
+            <template #item-status="{ row }">
+              <span class="card-status-badge mini" :class="getContestStatus(row)">
+                {{ getContestStatus(row).toUpperCase() }}
+              </span>
+            </template>
+            <template #item-timeline="{ row }">
+              <div class="timeline-cell">
+                <span>{{ formatDate(row.start_date) }}</span>
+                <span class="timeline-sep">to</span>
+                <span>{{ formatDate(row.end_date) }}</span>
+              </div>
+            </template>
+            <template #item-submissions="{ row }">
+              <div class="sub-cell">
+                <span class="font-semibold">{{ row.articles_count ?? 0 }} total</span>
+                <span class="sub-accepted">({{ row.accepted_count ?? 0 }} accepted)</span>
+              </div>
+            </template>
+            <template #item-jury="{ row }">
+              <button class="jury-pill-btn" @click="openJuryHubForContest(row.code)">
+                {{ row.juries_count ?? 0 }} Juror(s)
+              </button>
+            </template>
+            <template #item-actions="{ row }">
+              <div class="action-cell">
+                <router-link :to="'/' + row.code" class="icon-action-btn" title="View Contest">
+                  <cdx-icon :icon="cdxIconLinkExternal" icon-label="View contest" />
+                </router-link>
+                <button class="icon-action-btn" @click="openEditModal(row)" title="Edit Rules">
+                  <cdx-icon :icon="cdxIconEdit" icon-label="Edit rules" />
+                </button>
+                <button class="icon-action-btn" @click="handleCloneContest(row)" title="Clone Contest">
+                  <cdx-icon :icon="cdxIconCopy" icon-label="Clone contest" />
+                </button>
+                <button class="icon-action-btn" @click="handleExportCSV(row.code)" title="Export CSV">
+                  <cdx-icon :icon="cdxIconDownload" icon-label="Export CSV" />
+                </button>
+                <button class="icon-action-btn danger" @click="handleDelete(row.code, row.name)" title="Delete">
+                  <cdx-icon :icon="cdxIconTrash" icon-label="Delete contest" />
+                </button>
+              </div>
+            </template>
+            <template #empty-state>No contests found matching criteria.</template>
+          </cdx-table>
         </div>
       </div>
 
@@ -821,16 +842,16 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
 
                     <div class="wizard-sub-tabs mb-6">
             <button class="w-tab" :class="{ active: formSubTab === 'basic' }" @click="formSubTab = 'basic'">
-              📌 1. Basic Info & Dates
+              1. Basic Info & Dates
             </button>
             <button class="w-tab" :class="{ active: formSubTab === 'rules' }" @click="formSubTab = 'rules'">
-              ⚙️ 2. Rules
+              2. Rules
             </button>
             <button class="w-tab" :class="{ active: formSubTab === 'talk' }" @click="formSubTab = 'talk'">
-              💬 3. Talk Page Template
+              3. Talk Page Template
             </button>
             <button class="w-tab" :class="{ active: formSubTab === 'governance' }" @click="formSubTab = 'governance'">
-              🛡️ 4. Governance & Jury
+              4. Governance & Jury
             </button>
           </div>
 
@@ -872,34 +893,34 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
             <div class="rules-config-grid">
                             <div class="rule-card-toggle">
                 <cdx-checkbox v-model="mustBeCreator">
-                  <strong class="text-slate-100">👤 Rule: Submitter MUST be original article creator</strong>
+                  <strong class="text-slate-100">Rule: Submitter MUST be original article creator</strong>
                   <p class="toggle-desc">MediaWiki API / MariaDB replica verifies that the submitter is the original author who created the page.</p>
                 </cdx-checkbox>
               </div>
 
                             <div class="rule-card-toggle">
                 <cdx-checkbox v-model="mainspaceOnly">
-                  <strong class="text-slate-100">📁 Rule: Mainspace Only (Namespace 0)</strong>
+                  <strong class="text-slate-100">Rule: Mainspace Only (Namespace 0)</strong>
                   <p class="toggle-desc">Blocks talk pages, user sandboxes, category pages, and template pages from submission.</p>
                 </cdx-checkbox>
               </div>
 
                             <div class="rule-card-toggle">
                 <cdx-checkbox v-model="noRedirect">
-                  <strong class="text-slate-100">🚫 Rule: Disallow Redirect Pages</strong>
+                  <strong class="text-slate-100">Rule: Disallow Redirect Pages</strong>
                   <p class="toggle-desc">Automatically rejects articles if they are hard or soft redirects to another entry.</p>
                 </cdx-checkbox>
               </div>
 
                             <div class="rule-card-toggle">
                 <cdx-checkbox v-model="noDisambig">
-                  <strong class="text-slate-100">🔀 Rule: Disallow Disambiguation Pages</strong>
+                  <strong class="text-slate-100">Rule: Disallow Disambiguation Pages</strong>
                   <p class="toggle-desc">Automatically rejects disambiguation / index pages (with {{disambig}} template).</p>
                 </cdx-checkbox>
               </div>
 
                             <div class="rule-input-card span-2">
-                <label class="field-label">📐 Minimum Article Size (Bytes)</label>
+                <label class="field-label">Minimum Article Size (Bytes)</label>
                 <div class="flex-input-row">
                   <cdx-text-input v-model.number="minBytes" type="number" placeholder="0 = No limit (e.g. 3500)" />
                   <div class="preset-chips">
@@ -913,7 +934,7 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
               </div>
 
                             <div class="rule-input-card">
-                <label class="field-label">📝 Minimum Word Count</label>
+                <label class="field-label">Minimum Word Count</label>
                 <div class="flex-input-row">
                   <cdx-text-input v-model.number="minWords" type="number" placeholder="0 = No limit" />
                   <div class="preset-chips">
@@ -926,7 +947,7 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
               </div>
 
                             <div class="rule-input-card">
-                <label class="field-label">📚 Minimum References / Citations</label>
+                <label class="field-label">Minimum References / Citations</label>
                 <div class="flex-input-row">
                   <cdx-text-input v-model.number="minRefs" type="number" placeholder="0 = No limit" />
                   <div class="preset-chips">
@@ -948,7 +969,7 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
                     <div v-if="formSubTab === 'talk'" class="sub-tab-content">
             <div class="rule-card-toggle">
               <cdx-checkbox v-model="addTalkTemplate">
-                <strong class="text-slate-100">💬 Feature: Auto-generate Talk Page Template (আলাপ পাতা)</strong>
+                <strong class="text-slate-100">Feature: Auto-generate Talk Page Template (আলাপ পাতা)</strong>
                 <p class="toggle-desc">Generates official wikitext templates for jury members to place on Wiktionary talk pages for accepted articles.</p>
               </cdx-checkbox>
 
@@ -983,13 +1004,13 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
                     <div v-if="formSubTab === 'governance'" class="sub-tab-content">
             <div class="rule-card-toggle">
               <cdx-checkbox v-model="allowSelfReview">
-                <strong class="text-slate-100">🛡️ Allow Jury Self-Review</strong>
+                <strong class="text-slate-100">Allow Jury Self-Review</strong>
                 <p class="toggle-desc">If checked, jury members may evaluate articles they submitted themselves. If unchecked (default), self-review is strictly blocked.</p>
               </cdx-checkbox>
             </div>
 
                         <div class="jury-section mt-6">
-              <h3 class="jury-section-title">👥 Add Jury Members</h3>
+              <h3 class="jury-section-title">Add Jury Members</h3>
               <p class="toggle-desc mb-3">Search and add jury members now. They will be assigned automatically when the contest is created.</p>
 
               <div class="jury-lookup-row" style="position:relative">
@@ -1023,7 +1044,7 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
 
             <div class="form-submit-row mt-8">
               <button class="submit-btn primary" :disabled="isCreating" @click="handleCreate">
-                {{ isCreating ? 'Creating Contest...' : '✨ Create Contest' }}
+                {{ isCreating ? 'Creating Contest...' : 'Create Contest' }}
               </button>
               <button class="submit-btn quiet" @click="activeTab = 'overview'">Cancel</button>
             </div>
@@ -1132,7 +1153,7 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
                 transition: 'all 0.15s'
               }"
             >
-              {{ src === 'all' ? '🗂 All' : src === 'talk_template' ? '💬 talk_template' : src === 'backup' ? '💾 backup' : src === 'frontend' ? '🌐 frontend' : src }}
+              {{ src === 'all' ? 'All' : src === 'talk_template' ? 'talk_template' : src === 'backup' ? '💾 backup' : src === 'frontend' ? '🌐 frontend' : src }}
               <span v-if="src !== 'all'" style="margin-left:4px; opacity:0.7">
                 ({{ systemLogs.filter(l => l.source === src).length }})
               </span>
@@ -1153,65 +1174,35 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
             </span>
           </div>
 
-          <div class="table-responsive">
-            <table class="w-full text-left" style="border-collapse: collapse;">
-              <thead>
-                <tr class="text-slate-400 border-b border-slate-700/50" style="font-size: 0.78rem; text-transform: uppercase;">
-                  <th style="padding:8px 12px; white-space:nowrap">Timestamp</th>
-                  <th style="padding:8px 12px">Level</th>
-                  <th style="padding:8px 12px">Source</th>
-                  <th style="padding:8px 12px">Message</th>
-                </tr>
-              </thead>
-              <tbody>
-                <template v-for="log in filteredLogs" :key="log.id">
-                  <tr
-                    @click="toggleLogExpand(log.id)"
-                    style="cursor:pointer; border-bottom: 1px solid rgba(255,255,255,0.06); transition: background 0.12s"
-                    :style="{ background: expandedLogId === log.id ? 'rgba(99,102,241,0.07)' : 'transparent' }"
-                    class="hover:bg-slate-800/30"
-                  >
-                    <td style="padding:10px 12px; color:#94a3b8; font-size:0.78rem; white-space:nowrap; vertical-align:top">
-                      {{ formatLogTimestamp(log.timestamp) }}
-                    </td>
-                    <td style="padding:10px 12px; vertical-align:top">
-                      <span
-                        style="padding:2px 9px; border-radius:999px; font-size:0.72rem; font-weight:700; border:1px solid"
-                        :style="log.level === 'error'
-                          ? 'background:rgba(239,68,68,0.15); color:#f87171; border-color:rgba(239,68,68,0.35)'
-                          : log.level === 'warning'
-                          ? 'background:rgba(245,158,11,0.12); color:#fbbf24; border-color:rgba(245,158,11,0.3)'
-                          : 'background:rgba(99,102,241,0.12); color:#a5b4fc; border-color:rgba(99,102,241,0.3)'"
-                      >{{ log.level.toUpperCase() }}</span>
-                    </td>
-                    <td style="padding:10px 12px; vertical-align:top">
-                      <span
-                        style="padding:2px 9px; border-radius:6px; font-size:0.72rem; font-weight:600"
-                        :style="log.source === 'talk_template'
-                          ? 'background:rgba(239,68,68,0.1); color:#fca5a5'
-                          : log.source === 'backup'
-                          ? 'background:rgba(34,197,94,0.1); color:#86efac'
-                          : 'background:rgba(255,255,255,0.07); color:#94a3b8'"
-                      >{{ log.source }}</span>
-                    </td>
-                    <td style="padding:10px 12px; color:#e2e8f0; font-size:0.83rem; max-width:420px; vertical-align:top">
-                      <span v-if="expandedLogId !== log.id" style="display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; word-break:break-word">
-                        {{ log.message }}
-                      </span>
-                      <span v-else style="white-space:pre-wrap; word-break:break-all; font-family:monospace; font-size:0.78rem; color:#e2e8f0">
-                        {{ log.message }}
-                      </span>
-                    </td>
-                  </tr>
-                </template>
-                <tr v-if="!filteredLogs.length">
-                  <td colspan="4" style="padding:40px; text-align:center; color:#4b5563; font-style:italic">
-                    {{ logsLoading ? 'Loading…' : 'No logs found for this filter.' }}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <cdx-table
+            caption="System logs"
+            hide-caption
+            :columns="logColumns"
+            :data="filteredLogs"
+          >
+            <template #item-timestamp="{ item }">
+              <span class="log-time">{{ formatLogTimestamp(item) }}</span>
+            </template>
+            <template #item-level="{ item }">
+              <span class="log-level" :class="`log-level--${item}`">{{ item.toUpperCase() }}</span>
+            </template>
+            <template #item-source="{ item }">
+              <span class="log-source" :class="`log-source--${item}`">{{ item }}</span>
+            </template>
+            <!-- The whole row used to be clickable to expand. CdxTable owns its
+                 rows, so the toggle lives on the message itself -- which is the
+                 only thing expanding anyway, and is now reachable by keyboard. -->
+            <template #item-message="{ row }">
+              <button
+                type="button"
+                class="log-message"
+                :class="{ 'log-message--open': expandedLogId === row.id }"
+                :aria-expanded="expandedLogId === row.id"
+                @click="toggleLogExpand(row.id)"
+              >{{ row.message }}</button>
+            </template>
+            <template #empty-state>{{ logsLoading ? 'Loading…' : 'No logs found for this filter.' }}</template>
+          </cdx-table>
         </div>
       </div>
     </template>
@@ -1226,16 +1217,16 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
         <div class="modal-body">
                     <div class="wizard-sub-tabs mb-4">
             <button class="w-tab" :class="{ active: editFormSubTab === 'basic' }" @click="editFormSubTab = 'basic'">
-              📌 Basic Info
+              Basic Info
             </button>
             <button class="w-tab" :class="{ active: editFormSubTab === 'rules' }" @click="editFormSubTab = 'rules'">
-              ⚙️ Rules
+              Rules
             </button>
             <button class="w-tab" :class="{ active: editFormSubTab === 'talk' }" @click="editFormSubTab = 'talk'">
-              💬 Talk Template
+              Talk Template
             </button>
             <button class="w-tab" :class="{ active: editFormSubTab === 'governance' }" @click="editFormSubTab = 'governance'">
-              🛡️ Governance
+              Governance
             </button>
           </div>
 
@@ -1267,34 +1258,34 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
                     <div v-if="editFormSubTab === 'rules'" class="rules-config-grid">
             <div class="rule-card-toggle">
               <cdx-checkbox v-model="editMustBeCreator">
-                <strong class="text-slate-100">👤 Rule: Submitter MUST be original article creator</strong>
+                <strong class="text-slate-100">Rule: Submitter MUST be original article creator</strong>
                 <p class="toggle-desc">MediaWiki API / MariaDB replica verifies that the submitter is the original author who created the page.</p>
               </cdx-checkbox>
             </div>
 
             <div class="rule-card-toggle">
               <cdx-checkbox v-model="editMainspaceOnly">
-                <strong class="text-slate-100">📁 Rule: Mainspace Only (Namespace 0)</strong>
+                <strong class="text-slate-100">Rule: Mainspace Only (Namespace 0)</strong>
                 <p class="toggle-desc">Blocks talk pages, user sandboxes, category pages, and template pages from submission.</p>
               </cdx-checkbox>
             </div>
 
             <div class="rule-card-toggle">
               <cdx-checkbox v-model="editNoRedirect">
-                <strong class="text-slate-100">🚫 Rule: Disallow Redirect Pages</strong>
+                <strong class="text-slate-100">Rule: Disallow Redirect Pages</strong>
                 <p class="toggle-desc">Automatically rejects articles if they are hard or soft redirects to another entry.</p>
               </cdx-checkbox>
             </div>
 
             <div class="rule-card-toggle">
               <cdx-checkbox v-model="editNoDisambig">
-                <strong class="text-slate-100">🔀 Rule: Disallow Disambiguation Pages</strong>
+                <strong class="text-slate-100">Rule: Disallow Disambiguation Pages</strong>
                 <p class="toggle-desc">Automatically rejects disambiguation / index pages (with {{disambig}} template).</p>
               </cdx-checkbox>
             </div>
 
             <div class="rule-input-card span-2">
-              <label class="field-label">📐 Minimum Article Size (Bytes)</label>
+              <label class="field-label">Minimum Article Size (Bytes)</label>
               <div class="flex-input-row">
                 <cdx-text-input v-model.number="editMinBytes" type="number" placeholder="0 = No limit (e.g. 3500)" />
                 <div class="preset-chips">
@@ -1308,7 +1299,7 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
             </div>
 
             <div class="rule-input-card">
-              <label class="field-label">📝 Minimum Word Count</label>
+              <label class="field-label">Minimum Word Count</label>
               <div class="flex-input-row">
                 <cdx-text-input v-model.number="editMinWords" type="number" placeholder="0 = No limit" />
                 <div class="preset-chips">
@@ -1321,7 +1312,7 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
             </div>
 
             <div class="rule-input-card">
-              <label class="field-label">📚 Minimum References / Citations</label>
+              <label class="field-label">Minimum References / Citations</label>
               <div class="flex-input-row">
                 <cdx-text-input v-model.number="editMinRefs" type="number" placeholder="0 = No limit" />
                 <div class="preset-chips">
@@ -1337,7 +1328,7 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
                     <div v-if="editFormSubTab === 'talk'">
             <div class="rule-card-toggle">
               <cdx-checkbox v-model="editAddTalkTemplate">
-                <strong class="text-slate-100">💬 Feature: Auto-generate Talk Page Template (আলাপ পাতা)</strong>
+                <strong class="text-slate-100">Feature: Auto-generate Talk Page Template (আলাপ পাতা)</strong>
                 <p class="toggle-desc">Generates official wikitext templates for jury members to place on Wiktionary talk pages for accepted articles.</p>
               </cdx-checkbox>
             </div>
@@ -1367,7 +1358,7 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
                     <div v-if="editFormSubTab === 'governance'">
             <div class="rule-card-toggle">
               <cdx-checkbox v-model="editAllowSelfReview">
-                <strong class="text-slate-100">🛡️ Governance: Allow Jury Self-Review</strong>
+                <strong class="text-slate-100">Governance: Allow Jury Self-Review</strong>
                 <p class="toggle-desc">If checked, jury members are permitted to evaluate articles they submitted themselves. If unchecked (default), self-review is strictly blocked by the backend API.</p>
               </cdx-checkbox>
             </div>

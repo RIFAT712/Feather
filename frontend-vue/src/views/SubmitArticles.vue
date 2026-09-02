@@ -1,13 +1,20 @@
 <script setup>
 import { ref, onMounted, watch, inject, computed } from 'vue';
 import { useRoute } from 'vue-router';
-import { CdxLookup } from '@wikimedia/codex';
+import { CdxTable, CdxIcon, CdxLookup } from '@wikimedia/codex';
+import { cdxIconCheck, cdxIconClose } from '@wikimedia/codex-icons';
 import { useQueryClient } from '@tanstack/vue-query';
 import { invalidateContestData } from '../composables/useContestData';
 import { formatDate, toDate } from '../utils/datetime';
 
 const props = defineProps(['contest']);
 const route = useRoute();
+
+const resultColumns = [
+  { id: 'title', label: 'Article Title', minWidth: '260px' },
+  { id: 'status', label: 'Status' },
+  { id: 'details', label: 'Details', minWidth: '260px' },
+];
 const user = inject('user');
 const queryClient = useQueryClient();
 const results = ref([]);
@@ -512,30 +519,24 @@ const targetDisplayName = computed(() =>
         </div>
       </div>
       <div class="card__body">
-        <div class="results-table-wrapper">
-          <table class="results-table">
-            <thead>
-              <tr>
-                <th>Article Title</th>
-                <th>Status</th>
-                <th>Details</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(result, idx) in results" :key="idx" :class="['result-row', result.is_valid ? 'result-row--ok' : 'result-row--err']">
-                <td class="result-title">{{ result.title }}</td>
-                <td>
-                  <span class="status-badge" :class="result.is_valid ? 'status-badge--ok' : 'status-badge--err'">
-                    <svg v-if="result.is_valid" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" /></svg>
-                    <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="12" height="12"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" /></svg>
-                    {{ result.is_valid ? 'Submitted' : 'Error' }}
-                  </span>
-                </td>
-                <td class="result-message">{{ result.is_valid ? 'Submitted successfully' : (result.error || '—') }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <cdx-table
+          caption="Submission results"
+          hide-caption
+          :columns="resultColumns"
+          :data="results"
+        >
+          <template #item-title="{ item }"><span class="result-title">{{ item }}</span></template>
+          <template #item-status="{ row }">
+            <span class="status-badge" :class="row.is_valid ? 'status-badge--ok' : 'status-badge--err'">
+              <cdx-icon :icon="row.is_valid ? cdxIconCheck : cdxIconClose" size="small" />
+              {{ row.is_valid ? 'Submitted' : 'Error' }}
+            </span>
+          </template>
+          <template #item-details="{ row }">
+            <span class="result-message">{{ row.is_valid ? 'Submitted successfully' : (row.error || '—') }}</span>
+          </template>
+          <template #empty-state>Nothing submitted yet.</template>
+        </cdx-table>
       </div>
     </div>
   </div>

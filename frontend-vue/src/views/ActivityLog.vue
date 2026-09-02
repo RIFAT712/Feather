@@ -1,8 +1,8 @@
 <script setup>
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useRoute } from 'vue-router';
-import { CdxIcon } from '@wikimedia/codex';
-import { cdxIconAlert } from '@wikimedia/codex-icons';
+import { CdxIcon, CdxTable } from '@wikimedia/codex';
+import { cdxIconAlert, cdxIconBlock, cdxIconSearch } from '@wikimedia/codex-icons';
 import { useContestStats, useContestLog, useContestSubmitters, useContestArticleSearch, SEARCH_MIN_LENGTH } from '../composables/useContestData';
 import { formatDateTimeDayFirst } from '../utils/datetime';
 import GlobalLoader from '../components/ui/GlobalLoader.vue';
@@ -22,6 +22,21 @@ const props = defineProps({
   embedded: { type: Boolean, default: false },
 });
 const route = useRoute();
+
+// The per-user drill-down and the expanded submitter group render exactly the
+// same six columns, so they share one definition. Reviewer and the two dates
+// are not fields on the row -- they come out of entry.reviews[0] -- so those
+// cells are filled from the #item-* slots rather than the row's own keys.
+const logColumns = [
+  { id: 'title', label: 'Article', minWidth: '220px' },
+  { id: 'status', label: 'Status' },
+  { id: 'reviewer', label: 'Reviewed by', minWidth: '130px' },
+  { id: 'comment', label: 'Jury Comment', minWidth: '240px' },
+  { id: 'submitted_at', label: 'Submitted', minWidth: '150px' },
+  { id: 'reviewed_at', label: 'Reviewed', minWidth: '150px' },
+];
+const firstReview = (entry) => (entry.reviews && entry.reviews.length ? entry.reviews[0] : null);
+
 const viewMode = ref('per-user');
 const openGroups = ref({});
 const isAuthorized = computed(() => props.roles.is_jury || props.roles.is_owner);
@@ -181,7 +196,7 @@ const reviewComments = (entry) => (entry.reviews || [])
 
     <div v-if="!isLoading && !isAuthorized" class="unauthorized-banner">
       <div class="unauthorized-content">
-        <span class="icon">⛔</span>
+        <cdx-icon class="icon" :icon="cdxIconBlock" />
         <h2>Access Denied</h2>
         <p>You are not authorized to view this page. This area is restricted to Contest Jury and Owners.</p>
       </div>
@@ -224,44 +239,34 @@ const reviewComments = (entry) => (entry.reviews || [])
           </div>
           <p v-else-if="embeddedUserArticles[s.username]?.error" class="embedded-more-note">{{ embeddedUserArticles[s.username].error }}</p>
           <template v-else-if="embeddedUserArticles[s.username]">
-            <table class="embedded-user-table">
-              <thead>
-                <tr>
-                  <th>Article</th>
-                  <th>Status</th>
-                  <th>Reviewed by</th>
-                  <th>Jury Comment</th>
-                  <th>Submitted</th>
-                  <th>Reviewed</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="(entry, idx) in embeddedUserArticles[s.username].items"
-                  :key="entry.article_id"
-                  :class="idx % 2 === 0 ? 'row-even' : 'row-odd'"
-                >
-                  <td class="td-article">
-                    <a :href="`https://bn.wiktionary.org/wiki/${encodeURIComponent(entry.title)}`" target="_blank" class="article-link">{{ entry.title }}</a>
-                    <div v-if="entry.validation_error" class="error-subtext">
-                      <CdxIcon :icon="cdxIconAlert" class="err-icon" /> {{ entry.validation_error }}
-                    </div>
-                  </td>
-                  <td><span :class="['badge', statusClass(entry.status)]">{{ statusLabel(entry.status) }}</span></td>
-                  <td class="td-reviewer">{{ entry.reviews && entry.reviews.length ? entry.reviews[0].reviewer : '—' }}</td>
-                  <td class="td-comment">
-                    <template v-if="reviewComments(entry).length">
-                      <div v-for="(review, reviewIndex) in reviewComments(entry)" :key="`${review.reviewer}-${reviewIndex}`" class="comment-item">
-                        {{ review.comment }}
-                      </div>
-                    </template>
-                    <span v-else>—</span>
-                  </td>
-                  <td class="td-date">{{ fmt(entry.submitted_at) }}</td>
-                  <td class="td-date">{{ entry.reviews && entry.reviews.length ? fmt(entry.reviews[0].reviewed_at) : '—' }}</td>
-                </tr>
-              </tbody>
-            </table>
+            <cdx-table
+              caption="Articles submitted by this user"
+              hide-caption
+              :columns="logColumns"
+              :data="embeddedUserArticles[s.username].items"
+            >
+              <template #item-title="{ row }">
+                <a :href="`https://bn.wiktionary.org/wiki/${encodeURIComponent(row.title)}`" target="_blank" class="article-link">{{ row.title }}</a>
+                <div v-if="row.validation_error" class="error-subtext">
+                  <CdxIcon :icon="cdxIconAlert" class="err-icon" /> {{ row.validation_error }}
+                </div>
+              </template>
+              <template #item-status="{ row }">
+                <span :class="['badge', statusClass(row.status)]">{{ statusLabel(row.status) }}</span>
+              </template>
+              <template #item-reviewer="{ row }">{{ firstReview(row)?.reviewer ?? '—' }}</template>
+              <template #item-comment="{ row }">
+                <template v-if="reviewComments(row).length">
+                  <div v-for="(review, reviewIndex) in reviewComments(row)" :key="`${review.reviewer}-${reviewIndex}`" class="comment-item">
+                    {{ review.comment }}
+                  </div>
+                </template>
+                <span v-else>—</span>
+              </template>
+              <template #item-submitted_at="{ row }">{{ fmt(row.submitted_at) }}</template>
+              <template #item-reviewed_at="{ row }">{{ firstReview(row) ? fmt(firstReview(row).reviewed_at) : '—' }}</template>
+              <template #empty-state>No articles from this user yet.</template>
+            </cdx-table>
             <p v-if="embeddedUserArticles[s.username].hasMore" class="embedded-more-note">
               Showing the {{ embeddedUserArticles[s.username].items.length }} most recent —
               <router-link :to="`/${route.params.code}/user/${encodeURIComponent(s.username)}`">view all on their profile</router-link>.
@@ -295,7 +300,7 @@ const reviewComments = (entry) => (entry.reviews || [])
         </div>
       </div>
       <div class="log-search-bar">
-        <span class="log-search-icon" aria-hidden="true">🔍</span>
+        <cdx-icon class="log-search-icon" :icon="cdxIconSearch" />
         <input
           v-model="searchInput"
           type="search"
@@ -364,51 +369,42 @@ const reviewComments = (entry) => (entry.reviews || [])
           </button>
 
                     <div v-if="openGroups[group.user]" class="user-table-wrap">
-            <table class="user-table">
-              <thead>
-                <tr>
-                  <th>Article</th>
-                  <th>Status</th>
-                  <th>Reviewed by</th>
-                  <th>Jury Comment</th>
-                  <th>Submitted</th>
-                  <th>Reviewed</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="(entry, idx) in visibleGroupEntries(group)"
-                  :key="entry.id || idx"
-                  :class="idx % 2 === 0 ? 'row-even' : 'row-odd'"
-                >
-                  <td class="td-article">
-                    <a :href="`https://bn.wiktionary.org/wiki/${encodeURIComponent(entry.title)}`" target="_blank" class="article-link">{{ entry.title }}</a>
-                    <div v-if="entry.validation_error" class="error-subtext">
-                      <CdxIcon :icon="cdxIconAlert" class="err-icon" /> {{ entry.validation_error }}
-                    </div>
-                  </td>
-                  <td><span :class="['badge', statusClass(entry.status)]">{{ statusLabel(entry.status) }}</span></td>
-                  <td class="td-reviewer">{{ entry.reviews && entry.reviews.length ? entry.reviews[0].reviewer : '—' }}</td>
-                  <td class="td-comment">
-                    <template v-if="reviewComments(entry).length">
-                      <div v-for="(review, reviewIndex) in reviewComments(entry)" :key="`${review.reviewer}-${reviewIndex}`" class="comment-item">
-                        {{ review.comment }}
-                      </div>
-                    </template>
-                    <span v-else>—</span>
-                  </td>
-                  <td class="td-date">{{ fmt(entry.submitted_at) }}</td>
-                  <td class="td-date">{{ entry.reviews && entry.reviews.length ? fmt(entry.reviews[0].reviewed_at) : '—' }}</td>
-                </tr>
-                <tr v-if="hiddenGroupCount(group)" class="log-more-row">
-                  <td colspan="6">
-                    <button type="button" class="log-more-btn" @click="showMoreInGroup(group)">
-                      Show 100 more — {{ hiddenGroupCount(group).toLocaleString() }} not shown
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <cdx-table
+              caption="Articles in this group"
+              hide-caption
+              :columns="logColumns"
+              :data="visibleGroupEntries(group)"
+            >
+              <template #item-title="{ row }">
+                <a :href="`https://bn.wiktionary.org/wiki/${encodeURIComponent(row.title)}`" target="_blank" class="article-link">{{ row.title }}</a>
+                <div v-if="row.validation_error" class="error-subtext">
+                  <CdxIcon :icon="cdxIconAlert" class="err-icon" /> {{ row.validation_error }}
+                </div>
+              </template>
+              <template #item-status="{ row }">
+                <span :class="['badge', statusClass(row.status)]">{{ statusLabel(row.status) }}</span>
+              </template>
+              <template #item-reviewer="{ row }">{{ firstReview(row)?.reviewer ?? '—' }}</template>
+              <template #item-comment="{ row }">
+                <template v-if="reviewComments(row).length">
+                  <div v-for="(review, reviewIndex) in reviewComments(row)" :key="`${review.reviewer}-${reviewIndex}`" class="comment-item">
+                    {{ review.comment }}
+                  </div>
+                </template>
+                <span v-else>—</span>
+              </template>
+              <template #item-submitted_at="{ row }">{{ fmt(row.submitted_at) }}</template>
+              <template #item-reviewed_at="{ row }">{{ firstReview(row) ? fmt(firstReview(row).reviewed_at) : '—' }}</template>
+              <template #empty-state>Nothing logged for this user yet.</template>
+            </cdx-table>
+            <!-- Moved out of the table: it was a colspan row pretending to be
+                 data, which CdxTable has no place for and a screen reader
+                 announced as a row. -->
+            <div v-if="hiddenGroupCount(group)" class="rows-more-wrap">
+              <button type="button" class="log-more-btn" @click="showMoreInGroup(group)">
+                Show 100 more — {{ hiddenGroupCount(group).toLocaleString() }} not shown
+              </button>
+            </div>
           </div>
         </div>
       </div>

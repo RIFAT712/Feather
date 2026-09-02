@@ -1,6 +1,7 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
+import { CdxTable } from '@wikimedia/codex';
 import GlobalLoader from '../components/ui/GlobalLoader.vue';
 
 const route = useRoute();
@@ -8,6 +9,31 @@ const results = ref(null);
 const isLoading = ref(true);
 const roles = ref({ is_jury: false, is_owner: false });
 const exportMode = ref('summary');
+
+// Both tables arrive pre-sorted from /results (submitters by accepted then
+// total, juries by review count), so the columns stay unsorted -- turning on
+// allowSort would offer a control that fights the ranking the page is about.
+const submitterColumns = [
+  { id: 'rank', label: 'Rank', width: '80px' },
+  { id: 'username', label: 'Username', minWidth: '160px' },
+  { id: 'total', label: 'Total Submitted', textAlign: 'number' },
+  { id: 'accepted', label: 'গৃহীত (Accepted)', textAlign: 'number' },
+  { id: 'rejected', label: 'প্রত্যাখ্যাত (Rejected)', textAlign: 'number' },
+  { id: 'pending', label: 'অপেক্ষমাণ (Pending)', textAlign: 'number' },
+];
+
+const juryColumns = [
+  { id: 'username', label: 'Jury Member', minWidth: '160px' },
+  { id: 'total', label: 'Total Reviews', textAlign: 'number' },
+  { id: 'accepted', label: 'Accepted Decisions', textAlign: 'number' },
+  { id: 'rejected', label: 'Rejected Decisions', textAlign: 'number' },
+];
+
+// CdxTable renders from a row object, so the rank that used to come from the
+// v-for index is materialised onto the row instead.
+const rankedSubmitters = computed(() =>
+  (results.value?.submitters || []).map((sub, index) => ({ ...sub, rank: index + 1 }))
+);
 
 const handleExportCSV = () => {
   window.open(`/api/admin/contests/${route.params.code}/export/csv?mode=${exportMode.value}`, '_blank');
@@ -63,69 +89,43 @@ onMounted(async () => {
     </div>
 
     <GlobalLoader v-if="isLoading" label="Loading results…" />
-    <div v-if="false" class="loading-state">
-      <div class="spinner"></div>
-      <p>Loading results...</p>
-    </div>
 
     <div v-else-if="results" class="results-container">
-      <div class="card leaderboard-card">
-        <h3>🏆 Submitter Leaderboard</h3>
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Rank</th>
-              <th>Username</th>
-              <th>Total Submitted</th>
-              <th>গৃহীত (Accepted)</th>
-              <th>প্রত্যাখ্যাত (Rejected)</th>
-              <th>অপেক্ষমাণ (Pending)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(sub, index) in results.submitters" :key="sub.username">
-              <td class="rank">#{{ index + 1 }}</td>
-              <td class="username">
-                <router-link :to="`/${route.params.code}/user/${sub.username}`">{{ sub.username }}</router-link>
-              </td>
-              <td>{{ sub.total }}</td>
-              <td class="accepted">{{ sub.accepted }}</td>
-              <td class="rejected">{{ sub.rejected }}</td>
-              <td class="pending">{{ sub.pending }}</td>
-            </tr>
-            <tr v-if="!results.submitters.length">
-              <td colspan="6" class="empty">No submissions yet.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <section class="table-section">
+        <h3>Submitter Leaderboard</h3>
+        <cdx-table
+          caption="Submitter leaderboard"
+          hide-caption
+          :columns="submitterColumns"
+          :data="rankedSubmitters"
+        >
+          <template #item-rank="{ item }"><span class="rank">#{{ item }}</span></template>
+          <template #item-username="{ item }">
+            <router-link :to="`/${route.params.code}/user/${item}`">{{ item }}</router-link>
+          </template>
+          <template #item-accepted="{ item }"><span class="accepted">{{ item }}</span></template>
+          <template #item-rejected="{ item }"><span class="rejected">{{ item }}</span></template>
+          <template #item-pending="{ item }"><span class="pending">{{ item }}</span></template>
+          <template #empty-state>No submissions yet.</template>
+        </cdx-table>
+      </section>
 
-      <div class="card jury-card mt-4">
-        <h3>⚖️ Jury Activity</h3>
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Jury Member</th>
-              <th>Total Reviews</th>
-              <th>Accepted Decisions</th>
-              <th>Rejected Decisions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="j in results.juries" :key="j.username">
-              <td class="username">
-                <router-link :to="`/${route.params.code}/user/${j.username}`">{{ j.username }}</router-link>
-              </td>
-              <td>{{ j.total }}</td>
-              <td class="accepted">{{ j.accepted }}</td>
-              <td class="rejected">{{ j.rejected }}</td>
-            </tr>
-            <tr v-if="!results.juries.length">
-              <td colspan="4" class="empty">No jury activity yet.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <section class="table-section">
+        <h3>Jury Activity</h3>
+        <cdx-table
+          caption="Jury activity"
+          hide-caption
+          :columns="juryColumns"
+          :data="results.juries"
+        >
+          <template #item-username="{ item }">
+            <router-link :to="`/${route.params.code}/user/${item}`">{{ item }}</router-link>
+          </template>
+          <template #item-accepted="{ item }"><span class="accepted">{{ item }}</span></template>
+          <template #item-rejected="{ item }"><span class="rejected">{{ item }}</span></template>
+          <template #empty-state>No jury activity yet.</template>
+        </cdx-table>
+      </section>
     </div>
   </div>
 </template>

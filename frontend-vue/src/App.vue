@@ -84,7 +84,7 @@ const declineCookies = () => {
 
   <div v-else class="app-layout">
     <div v-if="isOverloaded" class="overload-banner">
-      ⚠️ System is overloaded. Please do not submit articles right now.
+      System is overloaded. Please do not submit articles right now.
     </div>
     <header v-if="!isReviewPage" class="app-header">
       <div class="header-inner">

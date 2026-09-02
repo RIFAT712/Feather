@@ -1,7 +1,8 @@
 <script setup>
 import { ref, onMounted, onUnmounted, inject, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { CdxTextInput, CdxCheckbox } from '@wikimedia/codex';
+import { CdxTextInput, CdxCheckbox, CdxIcon, CdxTable } from '@wikimedia/codex';
+import { cdxIconAlert, cdxIconCheck, cdxIconBlock } from '@wikimedia/codex-icons';
 import { contestTimeToUtcIso, utcToContestTimeParts } from '../utils/datetime';
 import GlobalLoader from '../components/ui/GlobalLoader.vue';
 
@@ -28,6 +29,25 @@ const integrityScope = ref('accepted');
 const integrityReport = ref(null);
 const integrityError = ref('');
 const isCheckingIntegrity = ref(false);
+
+const failedJobColumns = [
+  { id: 'title', label: 'Article', minWidth: '220px' },
+  { id: 'submitted_by', label: 'Submitted by', minWidth: '140px' },
+  { id: 'attempts', label: 'Attempts', textAlign: 'number' },
+  { id: 'error', label: 'Error', minWidth: '260px' },
+];
+
+const integrityColumns = [
+  { id: 'title', label: 'Article', minWidth: '220px' },
+  { id: 'submitted_by', label: 'Submitted by', minWidth: '140px' },
+  { id: 'issue', label: 'Issue', minWidth: '160px' },
+  { id: 'detail', label: 'Detail', minWidth: '220px' },
+];
+
+const juryColumns = [
+  { id: 'username', label: 'Username', minWidth: '200px' },
+  { id: 'actions', label: 'Actions', width: '120px' },
+];
 
 const ISSUE_LABELS = {
   missing: 'No longer in mainspace',
@@ -225,6 +245,10 @@ watch(activeTab, (tab) => {
 
 onUnmounted(() => clearInterval(queuePollTimer));
 const juries = ref([]);
+// `juries` is a plain array of usernames; CdxTable renders row objects.
+// Declared here rather than beside juryColumns so it sits after the ref it
+// reads -- a computed above the declaration would work, but only by accident.
+const juryRows = computed(() => (juries.value || []).map(username => ({ username })));
 const jurySearchValue = ref('');
 const juryUsername = ref('');
 const juryMenuItems = ref([]);
@@ -368,7 +392,7 @@ const handleAssignJury = async () => {
     });
     if (!res.ok) throw new Error("Failed");
     const data = await res.json();
-    showToast(`✅ Assigned ${data.added.length} jury member(s)!`);
+    showToast(`Assigned ${data.added.length} jury member(s)!`);
     juryTags.value = [];
     fetchContest();
   } catch (e) {
@@ -480,7 +504,7 @@ const enabledRuleCount = computed(() => [
   <div class="config-page">
     <transition name="toast">
       <div v-if="toastMessage" class="toast-banner" :class="{ 'toast-error': toastIsError }">
-        <span class="toast-icon">{{ toastIsError ? '⚠️' : '✨' }}</span>
+        <cdx-icon class="toast-icon" :icon="toastIsError ? cdxIconAlert : cdxIconCheck" />
         <span>{{ toastMessage }}</span>
       </div>
     </transition>
@@ -489,7 +513,7 @@ const enabledRuleCount = computed(() => [
 
     <div v-else-if="!user || user.role !== 'owner'" class="unauthorized-banner">
       <div class="unauthorized-content">
-        <span class="icon">⛔</span>
+        <cdx-icon class="icon" :icon="cdxIconBlock" />
         <h2>Owner Portal Restricted</h2>
         <p>You are not authorized to view this page. Only system owners can access contest configuration.</p>
       </div>
@@ -705,28 +729,19 @@ const enabledRuleCount = computed(() => [
             </p>
 
             <template v-if="queue.failed.length">
-              <div class="integrity-table-wrap">
-                <table class="integrity-table">
-                  <thead>
-                    <tr>
-                      <th>Article</th>
-                      <th>Submitted by</th>
-                      <th>Attempts</th>
-                      <th>Error</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="job in queue.failed" :key="job.id">
-                      <td>
-                        <a :href="`https://bn.wiktionary.org/wiki/Talk:${encodeURIComponent(job.title)}`" target="_blank" rel="noopener">{{ job.title }}</a>
-                      </td>
-                      <td>{{ job.submitted_by || '—' }}</td>
-                      <td>{{ job.attempts }}</td>
-                      <td class="integrity-detail">{{ job.error }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              <cdx-table
+                caption="Failed talk page jobs"
+                hide-caption
+                :columns="failedJobColumns"
+                :data="queue.failed"
+              >
+                <template #item-title="{ item }">
+                  <a :href="`https://bn.wiktionary.org/wiki/Talk:${encodeURIComponent(item)}`" target="_blank" rel="noopener">{{ item }}</a>
+                </template>
+                <template #item-submitted_by="{ item }">{{ item || '—' }}</template>
+                <template #item-error="{ item }"><span class="integrity-detail">{{ item }}</span></template>
+                <template #empty-state>Nothing has failed.</template>
+              </cdx-table>
             </template>
           </div>
         </div>
@@ -792,28 +807,22 @@ const enabledRuleCount = computed(() => [
                 </li>
               </ul>
 
-              <div class="integrity-table-wrap">
-                <table class="integrity-table">
-                  <thead>
-                    <tr>
-                      <th>Article</th>
-                      <th>Submitted by</th>
-                      <th>Issue</th>
-                      <th>Detail</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="issue in integrityReport.issues" :key="issue.article_id">
-                      <td>
-                        <a :href="`https://bn.wiktionary.org/wiki/${encodeURIComponent(issue.title)}`" target="_blank" rel="noopener">{{ issue.title }}</a>
-                      </td>
-                      <td>{{ issue.submitted_by || '—' }}</td>
-                      <td><span class="integrity-badge" :class="`integrity-badge-${issue.issue}`">{{ issueLabel(issue.issue) }}</span></td>
-                      <td class="integrity-detail">{{ issue.detail }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              <cdx-table
+                caption="Integrity issues"
+                hide-caption
+                :columns="integrityColumns"
+                :data="integrityReport.issues"
+              >
+                <template #item-title="{ item }">
+                  <a :href="`https://bn.wiktionary.org/wiki/${encodeURIComponent(item)}`" target="_blank" rel="noopener">{{ item }}</a>
+                </template>
+                <template #item-submitted_by="{ item }">{{ item || '—' }}</template>
+                <template #item-issue="{ item }">
+                  <span class="integrity-badge" :class="`integrity-badge-${item}`">{{ issueLabel(item) }}</span>
+                </template>
+                <template #item-detail="{ item }"><span class="integrity-detail">{{ item }}</span></template>
+                <template #empty-state>No issues found.</template>
+              </cdx-table>
 
               <p v-if="integrityReport.truncated" class="integrity-note">
                 Showing the first {{ integrityReport.issues.length.toLocaleString() }} of
@@ -850,18 +859,17 @@ const enabledRuleCount = computed(() => [
 
         <div class="jury-list mt-4">
           <h3>Current Jury Members</h3>
-          <table class="jury-table">
-            <thead>
-              <tr><th>Username</th><th>Actions</th></tr>
-            </thead>
-            <tbody>
-              <tr v-for="j in juries" :key="j">
-                <td>{{ j }}</td>
-                <td><button class="remove-btn" @click="handleUnassignJury(j)">Remove</button></td>
-              </tr>
-              <tr v-if="!juries.length"><td colspan="2">No jury assigned.</td></tr>
-            </tbody>
-          </table>
+          <cdx-table
+            caption="Current jury members"
+            hide-caption
+            :columns="juryColumns"
+            :data="juryRows"
+          >
+            <template #item-actions="{ row }">
+              <button class="remove-btn" @click="handleUnassignJury(row.username)">Remove</button>
+            </template>
+            <template #empty-state>No jury assigned.</template>
+          </cdx-table>
         </div>
 
         <div class="jury-list mt-4 restriction-panel">

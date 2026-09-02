@@ -17,6 +17,9 @@ import {
   cdxIconSearch,
   cdxIconNext,
   cdxIconTrash,
+  cdxIconBlock,
+  cdxIconBright,
+  cdxIconMoon,
 } from '@wikimedia/codex-icons';
 import { formatDateDayFirst } from '../utils/datetime';
 import { fetchAllContestLogPages } from '../utils/contestLog';
@@ -1257,7 +1260,7 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
   <div class="rq-app" :class="`rq-theme-${theme}`">
     <div v-if="!isLoading && !isAuthorized" class="rq-center-state">
       <div class="rq-card-unauth">
-        <div class="rq-icon-large">⛔</div>
+        <cdx-icon class="rq-icon-large" :icon="cdxIconBlock" />
         <h2>Access Denied</h2>
         <p>This area is restricted to Contest Jury members and Owners.</p>
       </div>
@@ -1280,7 +1283,7 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
             </div>
             <div class="rq-header-actions">
               <button class="rq-theme-btn" type="button" @click="toggleTheme" :aria-label="theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'">
-                <span aria-hidden="true">{{ theme === 'dark' ? '☀' : '◐' }}</span>
+                <span aria-hidden="true"><cdx-icon :icon="theme === 'dark' ? cdxIconBright : cdxIconMoon" /></span>
                 {{ theme === 'dark' ? 'Light' : 'Dark' }}
               </button>
               <button class="rq-icon-btn rq-desktop-only" @click="sidebarCollapsed = true" title="Collapse Sidebar">

@@ -370,6 +370,41 @@ body .contest-layout:not(.review-layout) .nav-link--active { color: var(--feathe
 body .contest-layout:not(.review-layout) .contest-dates-chip,
 body .contest-layout:not(.review-layout) .nav-link { color: var(--feather-muted) !important; }
 
+/* CdxTable, wearing Feather's geometry.
+   Codex ships `border: 1px solid #a2a9b1` with `border-radius: 2px` and 12px
+   cells -- a hard grey box with square corners, which reads as rigid next to
+   this app's 8-14px radii, pale borders and soft shadows. Everything below is
+   spacing and colour only: the component, its markup, sorting and its
+   accessibility behaviour are untouched, so every table still behaves the same
+   way. Defined once here rather than per view, so a new table gets it free. */
+body:not(:has(.rq-app)) .cdx-table {
+  border-color: var(--feather-border);
+  border-radius: 12px;
+  background: var(--feather-surface);
+  box-shadow: 0 8px 24px rgba(32, 54, 77, .08);
+  overflow: hidden;            /* keeps the header's corners inside the radius */
+}
+body:not(:has(.rq-app)) .cdx-table__table th,
+body:not(:has(.rq-app)) .cdx-table__table td {
+  padding: 14px 18px;
+}
+/* Small caps headers, matching the table headers this app already used. */
+body:not(:has(.rq-app)) .cdx-table__table thead th {
+  color: var(--feather-muted);
+  border-bottom-color: var(--feather-border);
+  background: var(--feather-surface-alt);
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+body:not(:has(.rq-app)) .cdx-table__table tbody td {
+  border-top-color: var(--feather-border);
+}
+body:not(:has(.rq-app)) .cdx-table__table tbody tr:hover td {
+  background: var(--feather-surface-alt);
+}
+
 /* Toast banner — one definition for every route that raises one.
    AdminDashboard.css and ContestConfig.css each carried a near-copy: same
    markup, same class names, different corner, and only one of them defined the

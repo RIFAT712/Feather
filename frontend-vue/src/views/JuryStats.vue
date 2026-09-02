@@ -1,8 +1,8 @@
 <script setup>
 import { ref, computed, inject, onMounted, watch, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { CdxIcon } from '@wikimedia/codex';
-import { cdxIconArticleCheck, cdxIconTrash } from '@wikimedia/codex-icons';
+import { CdxIcon, CdxTable } from '@wikimedia/codex';
+import { cdxIconArticleCheck, cdxIconTrash, cdxIconBlock, cdxIconSearch } from '@wikimedia/codex-icons';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useContestStats, useContestErrorLog, useContestSubmitters, removeArticlesFromLogCache, useContestArticleSearch, SEARCH_MIN_LENGTH } from '../composables/useContestData';
 import { fetchAllContestLogPages } from '../utils/contestLog';
@@ -28,6 +28,22 @@ const props = defineProps({
   roles: { type: Object, default: () => ({ is_jury: false, is_owner: false }) },
 });
 const route = useRoute();
+
+const activityColumns = [
+  { id: 'name', label: 'Jury Member', minWidth: '200px' },
+  { id: 'total', label: 'Articles Judged', textAlign: 'number' },
+  { id: 'accepted', label: 'Accepted Articles', textAlign: 'number' },
+  { id: 'rejected', label: 'Rejected Articles', textAlign: 'number' },
+  { id: 'rate', label: 'Acceptance Rate', minWidth: '170px' },
+];
+
+const progressColumns = [
+  { id: 'name', label: 'Jury Member', minWidth: '200px' },
+  { id: 'assigned', label: 'Assigned', textAlign: 'number' },
+  { id: 'judged', label: 'Judged', textAlign: 'number' },
+  { id: 'remaining', label: 'Remaining', textAlign: 'number' },
+  { id: 'progress', label: 'Progress', minWidth: '190px' },
+];
 const router = useRouter();
 const user = inject('user');
 const queryClient = useQueryClient();
@@ -594,7 +610,7 @@ const handleExportWikitable = () => {
   <div class="stats-page">
     <div v-if="!isLoading && !isAuthorized" class="unauthorized-banner">
       <div class="unauthorized-content">
-        <span class="icon">⛔</span>
+        <cdx-icon class="icon" :icon="cdxIconBlock" />
         <h2>Access Denied</h2>
         <p>You are not authorized to view this page. This area is restricted to Contest Jury and Owners.</p>
       </div>
@@ -723,43 +739,33 @@ const handleExportWikitable = () => {
 
             <div class="jury-section">
         <div class="section-title">Jury Activity Breakdown</div>
-        <table class="jury-table">
-          <thead>
-            <tr>
-              <th>Jury Member</th>
-              <th>Articles Judged</th>
-              <th>Accepted Articles</th>
-              <th>Rejected Articles</th>
-              <th>Acceptance Rate</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="jury in juryStats" :key="jury.name">
-              <td>
-                <router-link :to="`/${route.params.code}/user/${encodeURIComponent(jury.name)}`" class="jury-name-link">
-                  <div class="jury-name-cell">
-                    <div class="jury-avatar">{{ jury.name[0].toUpperCase() }}</div>
-                    {{ jury.name }}
-                  </div>
-                </router-link>
-              </td>
-              <td><strong>{{ jury.total }}</strong></td>
-              <td class="text-green">{{ jury.accepted }}</td>
-              <td class="text-red">{{ jury.rejected }}</td>
-              <td>
-                <div class="mini-bar-wrap">
-                  <div class="mini-bar">
-                    <div class="mini-bar-fill" :style="{ width: jury.total ? `${Math.round((jury.accepted/jury.total)*100)}%` : '0%' }"></div>
-                  </div>
-                  <span class="mini-bar-pct">{{ jury.total ? Math.round((jury.accepted / jury.total) * 100) : 0 }}%</span>
-                </div>
-              </td>
-            </tr>
-            <tr v-if="juryStats.length === 0">
-              <td colspan="5" class="empty-state">No jury activity recorded yet.</td>
-            </tr>
-          </tbody>
-        </table>
+        <cdx-table
+          caption="Jury activity breakdown"
+          hide-caption
+          :columns="activityColumns"
+          :data="juryStats"
+        >
+          <template #item-name="{ item }">
+            <router-link :to="`/${route.params.code}/user/${encodeURIComponent(item)}`" class="jury-name-link">
+              <div class="jury-name-cell">
+                <div class="jury-avatar">{{ item[0].toUpperCase() }}</div>
+                {{ item }}
+              </div>
+            </router-link>
+          </template>
+          <template #item-total="{ item }"><strong>{{ item }}</strong></template>
+          <template #item-accepted="{ item }"><span class="text-green">{{ item }}</span></template>
+          <template #item-rejected="{ item }"><span class="text-red">{{ item }}</span></template>
+          <template #item-rate="{ row }">
+            <div class="mini-bar-wrap">
+              <div class="mini-bar">
+                <div class="mini-bar-fill" :style="{ width: row.total ? `${Math.round((row.accepted/row.total)*100)}%` : '0%' }"></div>
+              </div>
+              <span class="mini-bar-pct">{{ row.total ? Math.round((row.accepted / row.total) * 100) : 0 }}%</span>
+            </div>
+          </template>
+          <template #empty-state>No jury activity recorded yet.</template>
+        </cdx-table>
       </div>
       <div class="jury-section jury-progress-section">
         <div class="section-title section-title-row">
@@ -771,39 +777,28 @@ const handleExportWikitable = () => {
             </button>
           </div>
         </div>
-        <table class="jury-table">
-          <thead>
-            <tr>
-              <th>Jury Member</th>
-              <th>Assigned</th>
-              <th>Judged</th>
-              <th>Remaining</th>
-              <th>Progress</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="jury in juryProgressRows" :key="`progress-${jury.name}`">
-              <td>
-                <div class="jury-name-cell">
-                  <div class="jury-avatar">{{ jury.name[0].toUpperCase() }}</div>
-                  {{ jury.name }}
-                </div>
-              </td>
-              <td><strong>{{ jury.assigned }}</strong></td>
-              <td class="text-green">{{ jury.judged }}</td>
-              <td>{{ jury.remaining }}</td>
-              <td>
-                <div class="mini-bar-wrap">
-                  <div class="mini-bar"><div class="mini-bar-fill" :style="{ width: `${jury.progress}%` }"></div></div>
-                  <span class="jury-progress-count">{{ jury.judged.toLocaleString() }} / {{ jury.assigned.toLocaleString() }}</span>
-                </div>
-              </td>
-            </tr>
-            <tr v-if="juryProgressRows.length === 0">
-              <td colspan="5" class="empty-state">No jury assignment data available yet.</td>
-            </tr>
-          </tbody>
-        </table>
+        <cdx-table
+          caption="Jury progress"
+          hide-caption
+          :columns="progressColumns"
+          :data="juryProgressRows"
+        >
+          <template #item-name="{ item }">
+            <div class="jury-name-cell">
+              <div class="jury-avatar">{{ item[0].toUpperCase() }}</div>
+              {{ item }}
+            </div>
+          </template>
+          <template #item-assigned="{ item }"><strong>{{ item }}</strong></template>
+          <template #item-judged="{ item }"><span class="text-green">{{ item }}</span></template>
+          <template #item-progress="{ row }">
+            <div class="mini-bar-wrap">
+              <div class="mini-bar"><div class="mini-bar-fill" :style="{ width: `${row.progress}%` }"></div></div>
+              <span class="jury-progress-count">{{ row.judged.toLocaleString() }} / {{ row.assigned.toLocaleString() }}</span>
+            </div>
+          </template>
+          <template #empty-state>No jury assignment data available yet.</template>
+        </cdx-table>
       </div>
       </template>
 
@@ -845,7 +840,7 @@ const handleExportWikitable = () => {
               <span v-if="selectionLocked" class="selection-locked-note">Loading submitters…</span>
             </div>
             <div class="submission-search">
-              <span class="submission-search-icon" aria-hidden="true">🔍</span>
+              <cdx-icon class="submission-search-icon" :icon="cdxIconSearch" />
               <input
                 v-model="submissionSearch"
                 type="search"
