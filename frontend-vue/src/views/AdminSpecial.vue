@@ -30,7 +30,6 @@ const total = ref(0);
 const error = ref('');
 const isSubmitting = ref(false);
 const notice = ref('');
-const comment = ref('');
 // No sorting on this table, so CdxTable reports selection as row indexes.
 const selectedRows = ref([]);
 const selectedIds = computed(() => selectedRows.value.map(i => items.value[i]?.article_id).filter(Boolean));
@@ -81,9 +80,10 @@ const declineSelected = async () => {
   if (isSubmitting.value || !selectedIds.value.length) return;
   isSubmitting.value = true;
   notice.value = '';
+  // No comment on this path, by request: the decline reason is the whole point
+  // of the screen and the reviewer is not writing anything per article.
   const { succeeded, failed } = await postBulkInChunks('/api/articles/bulk-review', selectedIds.value, {
     decision: 'rejected',
-    comment: comment.value.trim() || 'নিবন্ধে ===ব্যুৎপত্তি=== ও ===উচ্চারণ=== অনুচ্ছেদ নেই।',
   });
   notice.value = `Declined ${succeeded.length}${failed.length ? `, ${failed.length} failed (${failed[0].detail})` : ''}.`;
   // Drop the declined rows in place. Re-running load() would re-read every
@@ -109,7 +109,7 @@ onMounted(() => {
           <h2 class="as-title">Missing sections</h2>
           <p class="as-sub">
             Pending articles assigned to {{ user?.wiki_username }} without
-            <code>===ব্যুৎপত্তি===</code> or <code>===উচ্চারণ===</code>.
+            <code>=== ব্যুৎপত্তি ===</code> or <code>=== উচ্চারণ ===</code>.
           </p>
         </div>
         <button type="button" class="as-btn" :disabled="isLoading || isScanning" @click="load">Refresh</button>
@@ -126,7 +126,6 @@ onMounted(() => {
         <div v-if="notice" class="as-notice">{{ notice }}</div>
 
         <div v-if="items.length" class="as-actions">
-          <input v-model="comment" class="as-input" placeholder="Decline comment (optional)" />
           <button type="button" class="as-btn as-btn-danger" :disabled="!selectedIds.length || isSubmitting" @click="declineSelected">
             Decline {{ selectedIds.length || '' }} selected
           </button>

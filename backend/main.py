@@ -2556,10 +2556,41 @@ SPECIAL_REQUIRED_SECTIONS = ("ব্যুৎপত্তি", "উচ্চা�
 # Higher than BACKFILL_READ_CONCURRENCY: that one paces a background worker
 # with all day, this one runs while the owner waits on a page.
 SPECIAL_READ_CONCURRENCY = 6
+
+
+def fold_khanda_ta(text: str) -> str:
+    """Fold ত + hasant (U+09A4 U+09CD) into ৎ (U+09CE).
+
+    They are two spellings of the same sound and bn.wiktionary uses both in its
+    section headings -- `=== ব্যুত্পত্তি ===` and `=== ব্যুৎপত্তি ===` are the
+    same section. Matching only the khanda-ta form reported hundreds of entries
+    that plainly have the section as missing it.
+
+    Applied to a whole page this also rewrites unrelated conjuncts
+    (তথ্যসূত্র -> তথ্যসূৎর), which is harmless: folded text is only ever
+    matched against equally folded section names. NFC first, because the same
+    string arrives decomposed or composed depending on who typed it.
+    """
+    return unicodedata.normalize("NFC", text or "").replace("\u09a4\u09cd", "\u09ce")
+
+
 SPECIAL_SECTION_PATTERNS = {
-    name: re.compile(rf"^[ \t]*={{2,6}}[ \t]*{re.escape(name)}[ \t]*={{2,6}}[ \t]*$", re.MULTILINE)
+    name: re.compile(
+        # Trailing number optional: bn.wiktionary splits a repeated section as
+        # `=== ব্যুৎপত্তি ১ ===` / `=== ব্যুৎপত্তি ২ ===` (Bengali or ASCII
+        # digits). Those *are* the section, so they must not read as missing.
+        rf"^[ \t]*={{2,6}}[ \t]*{re.escape(fold_khanda_ta(name))}"
+        rf"(?:[ \t]*[0-9০-৯]+)?[ \t]*={{2,6}}[ \t]*$",
+        re.MULTILINE,
+    )
     for name in SPECIAL_REQUIRED_SECTIONS
 }
+
+
+def missing_sections(wikitext: str) -> list:
+    """Which required sections this page does not have."""
+    folded = fold_khanda_ta(wikitext)
+    return [name for name, pattern in SPECIAL_SECTION_PATTERNS.items() if not pattern.search(folded)]
 
 
 async def _fetch_wikitext(titles: list) -> dict:
@@ -2656,7 +2687,7 @@ async def get_admin_special_articles(
         text = texts.get(title)
         if text is None:
             continue
-        missing = [name for name, pattern in SPECIAL_SECTION_PATTERNS.items() if not pattern.search(text)]
+        missing = missing_sections(text)
         if missing:
             items.append({
                 "article_id": article_id,
