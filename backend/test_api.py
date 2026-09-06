@@ -48,6 +48,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/contests/{code}/submitters"),
     ("GET", "/api/contests/{code}/user-created-articles"),
     ("GET", "/api/contests/{code}/users/{username}"),
+    ("GET", "/api/jury-panel/contests/{code}/admin-special"),
     ("GET", "/api/jury-panel/contests/{code}/articles/page"),
     ("GET", "/api/jury-panel/contests/{code}/progress"),
     ("GET", "/api/jury-panel/contests/{code}/queue-stats"),
@@ -79,7 +80,8 @@ EXPECTED_ROUTES = {
 
 # Hits the Wikimedia replica / MediaWiki API, which a clean checkout has no
 # credentials for. Registration is still asserted above.
-NEEDS_WIKI = {"/api/contests/{code}/user-created-articles"}
+NEEDS_WIKI = {"/api/contests/{code}/user-created-articles",
+              "/api/jury-panel/contests/{code}/admin-special"}
 # Writes a database snapshot to disk as a side effect.
 HAS_SIDE_EFFECTS = {"/api/admin/backup/download"}
 # Not callable without a real OAuth round trip.

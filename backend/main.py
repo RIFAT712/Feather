@@ -2548,6 +2548,134 @@ def get_jury_panel_queue_stats(
     )
     return {"total": total, "status_counts": status_counts, "signature": signature}
 
+# Owner-only sweep: entries on the owner's own queue that are missing one of
+# the section headings every contest entry is expected to carry. Matched with a
+# regex rather than a literal "===X===" so "== X ==" and level-4 variants of
+# the same heading still count as present.
+SPECIAL_REQUIRED_SECTIONS = ("ব্যুৎপত্তি", "উচ্চারণ")
+# Higher than BACKFILL_READ_CONCURRENCY: that one paces a background worker
+# with all day, this one runs while the owner waits on a page.
+SPECIAL_READ_CONCURRENCY = 6
+SPECIAL_SECTION_PATTERNS = {
+    name: re.compile(rf"^[ \t]*={{2,6}}[ \t]*{re.escape(name)}[ \t]*={{2,6}}[ \t]*$", re.MULTILINE)
+    for name in SPECIAL_REQUIRED_SECTIONS
+}
+
+
+async def _fetch_wikitext(titles: list) -> dict:
+    """{title: wikitext} for the titles that exist. Titles that are missing on
+    the wiki, or whose chunk failed, are simply absent -- the caller must not
+    treat "no text" as "no sections", or a network blip becomes a mass reject.
+
+    Content is only readable through the API: the replica has no `text` table.
+    """
+    client = get_http_client()
+    sem = asyncio.Semaphore(SPECIAL_READ_CONCURRENCY)
+
+    async def read_chunk(chunk: list) -> dict:
+        async with sem:
+            response = await wiki_api_request(
+                "POST", MEDIAWIKI_API_URL, client=client,
+                data={
+                    "action": "query",
+                    "prop": "revisions",
+                    "titles": "|".join(chunk),
+                    "rvprop": "content",
+                    "rvslots": "main",
+                    "format": "json",
+                    "formatversion": 2,
+                },
+                headers={"User-Agent": WIKI_USER_AGENT},
+            )
+        query = response.json().get("query", {})
+        # The API normalizes what it echoes back ("a_b" -> "a b"), so map the
+        # returned title to the one we asked about before keying on it.
+        asked = {n["to"]: n["from"] for n in query.get("normalized", [])}
+        out = {}
+        for page in query.get("pages", []):
+            if page.get("missing") or not page.get("revisions"):
+                continue
+            title = page.get("title", "")
+            out[asked.get(title, title)] = (
+                page["revisions"][0].get("slots", {}).get("main", {}).get("content", "") or ""
+            )
+        return out
+
+    chunks = [titles[i:i + BACKFILL_TITLES_PER_QUERY]
+              for i in range(0, len(titles), BACKFILL_TITLES_PER_QUERY)]
+    texts = {}
+    for result in await asyncio.gather(*(read_chunk(c) for c in chunks), return_exceptions=True):
+        if isinstance(result, dict):
+            texts.update(result)
+        else:
+            print(f"[admin-special] Chunk read failed: {result}")
+    return texts
+
+
+@app.get("/api/jury-panel/contests/{code}/admin-special")
+async def get_admin_special_articles(
+    code: str,
+    after_id: Optional[int] = Query(default=None),
+    page_size: int = Query(default=500, ge=50, le=1000),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """One page of the owner's own pending queue, filtered down to the articles
+    missing a required section, ready to be mass-declined via
+    /api/articles/bulk-review.
+
+    Keyset-paginated like the rest of the jury panel, and for the same reason
+    plus one more: a page costs `page_size / 50` MediaWiki content reads, so
+    sweeping a 2,000-article queue in a single request would hold one HTTP
+    connection open for the whole run with nothing on screen until it ended.
+    The caller walks `next_after_id` and shows results as they arrive.
+    """
+    if current_user.role != models.RoleEnum.owner:
+        raise HTTPException(status_code=403, detail="Owner only")
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+
+    mine = [
+        *_jury_panel_filters(contest),
+        models.Article.assigned_to_id == current_user.id,
+        models.Article.status == models.ArticleStatus.pending,
+    ]
+    page = db.query(
+        models.Article.id, models.Article.title, models.User.wiki_username
+    ).outerjoin(
+        models.User, models.User.id == models.Article.submitter_id
+    ).filter(*mine)
+    if after_id is not None:
+        page = page.filter(models.Article.id > after_id)
+    rows = page.order_by(models.Article.id.asc()).limit(page_size).all()
+
+    texts = await _fetch_wikitext([title for _, title, _ in rows])
+    items = []
+    for article_id, title, submitter in rows:
+        text = texts.get(title)
+        if text is None:
+            continue
+        missing = [name for name, pattern in SPECIAL_SECTION_PATTERNS.items() if not pattern.search(text)]
+        if missing:
+            items.append({
+                "article_id": article_id,
+                "title": title,
+                "submitter": submitter or "Unknown user",
+                "missing": missing,
+            })
+    return {
+        "items": items,
+        "checked": len(rows),
+        "unread": len(rows) - len(texts),
+        # Only the first page pays for the count; later pages carry it forward.
+        "total": db.query(func.count(models.Article.id)).filter(*mine).scalar() if after_id is None else None,
+        "next_after_id": rows[-1][0] if rows else None,
+        "has_more": len(rows) == page_size,
+        "required_sections": list(SPECIAL_REQUIRED_SECTIONS),
+    }
+
+
 @app.get("/api/jury-panel/contests/{code}/progress")
 def get_jury_panel_progress(code: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Return assigned, judged, and remaining counts for this contest's jury members."""

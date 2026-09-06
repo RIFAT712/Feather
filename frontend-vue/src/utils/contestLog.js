@@ -7,17 +7,24 @@
 // page/offset pagination silently skips or re-shuffles rows as the underlying
 // result set shifts underneath it. Cursoring on the last-seen article id is
 // immune to that.
-export async function fetchAllContestLogPages(code, { pageSize = 10000, signal, onPage, includeReviews = true, status = null, submittedBy = null } = {}) {
+// `firstPageSize` exists because `onPage` fires after every page, so the view
+// can paint as soon as the first one lands -- but a 10,000-row first page is
+// 2.6MB raw / 177KB gzipped on the 11,436-article contest, against 75KB / 5KB
+// for 250, so nothing painted until effectively everything had arrived. Small
+// first page, then the cap for the rest, which still finishes in a few
+// requests. Callers that want the old behaviour can pass the same value twice.
+export async function fetchAllContestLogPages(code, { pageSize = 10000, firstPageSize = 250, signal, onPage, includeReviews = true, status = null, submittedBy = null } = {}) {
   const items = [];
   let beforeId = null;
   for (;;) {
     const cursor = beforeId !== null ? `&before_id=${beforeId}` : '';
+    const size = beforeId === null ? Math.min(firstPageSize, pageSize) : pageSize;
     const reviewsParam = includeReviews ? '' : '&include_reviews=false';
     const statusParam = status ? `&status=${encodeURIComponent(status)}` : '';
     // Scoped to one submitter, this crawls that user's articles only -- bounded
     // by their own submission count (typically tens), not the whole contest.
     const submitterParam = submittedBy ? `&submitted_by=${encodeURIComponent(submittedBy)}` : '';
-    const res = await fetch(`/api/contests/${code}/log?page_size=${pageSize}${cursor}${reviewsParam}${statusParam}${submitterParam}`, { signal });
+    const res = await fetch(`/api/contests/${code}/log?page_size=${size}${cursor}${reviewsParam}${statusParam}${submitterParam}`, { signal });
     if (!res.ok) throw new Error('Failed to load activity log');
     const payload = await res.json();
     items.push(...payload.items);

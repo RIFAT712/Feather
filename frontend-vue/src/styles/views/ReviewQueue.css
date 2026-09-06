@@ -956,3 +956,13 @@ button { cursor: pointer; }
   font-weight: 700;
   line-height: 1;
 }
+
+.rq-owner-special-link {
+  padding: 4px 10px;
+  border: 1px solid var(--rq-border);
+  border-radius: 6px;
+  color: var(--rq-accent);
+  font-size: .8rem;
+  text-decoration: none;
+  white-space: nowrap;
+}

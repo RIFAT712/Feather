@@ -28,6 +28,7 @@ const routes = [
       { path: 'result', component: () => import('./views/ContestResult.vue') },
       { path: 'user/:username', component: UserProfile },
       { path: 'config', component: () => import('./views/ContestConfig.vue') },
+      { path: 'admin-special', component: () => import('./views/AdminSpecial.vue') },
       // Without this, an unknown sub-path (a typo, a stale bookmark, a renamed
       // route) matched ContestLayout with nothing in its <router-view> and
       // rendered the nav bar over a blank page -- indistinguishable from a

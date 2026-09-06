@@ -23,6 +23,7 @@ import {
 } from '@wikimedia/codex-icons';
 import { formatDateDayFirst } from '../utils/datetime';
 import { fetchAllContestLogPages } from '../utils/contestLog';
+import { postBulkInChunks } from '../utils/bulkReview';
 import GlobalLoader from '../components/ui/GlobalLoader.vue';
 
 const props = defineProps(['contest', 'assignedQueue']);
@@ -400,12 +401,18 @@ watch(theme, () => {
 // a promise that settles once the *first* page is in `articles.value`, so the
 // panel is reviewable before the walk finishes.
 //
-// `page_size=10000` (the endpoint's cap) rather than the old 250. The cost here
-// was never the database -- serving a 5000-row page costs the backend ~80ms of
-// ORM hydration against an index-covered query -- it was doing thirty of these
-// round-trips back to back, each paying full request latency, to fetch a queue
-// that fits in two. Later pages still resolve into the same reactive array, so
-// the sidebar groups and local fallback counts fill in as they land.
+// Page sizes are deliberately asymmetric. Fetching the whole queue in pages of
+// 250 meant thirty round trips back to back, each paying full request latency,
+// so it was raised to the endpoint's 10,000 cap -- which fixed total load time
+// and quietly broke first paint, because the "first page" this walk hands back
+// to make the panel usable *was* the entire queue. Measured on the 11,436
+// article contest: 10,000 rows is 2.9MB raw / 182KB gzipped, against 80KB /
+// 6KB for 250. So: a small first page the reviewer can act on immediately,
+// then the endpoint's cap for the rest, which still lands in two or three
+// requests. The stats strip is unaffected either way -- `total` and
+// `status_counts` are aggregates over the whole queue, not over the page.
+const FIRST_PAGE_SIZE = 250;
+const BACKGROUND_PAGE_SIZE = 10000;
 const isBackgroundLoading = ref(false);
 
 const walkAssignedQueue = (signal, { startCursor = null, replaceFirstPage = true } = {}) => {
@@ -419,7 +426,8 @@ const walkAssignedQueue = (signal, { startCursor = null, replaceFirstPage = true
     let shouldFetchMore = true;
     while (shouldFetchMore) {
       const cursorQuery = cursor === null ? '' : `&after_id=${cursor}`;
-      const endpoint = `/api/jury-panel/contests/${route.params.code}/articles/page?page_size=10000${cursorQuery}${ownerViewQuery()}`;
+      const pageSize = sawFirstPage ? BACKGROUND_PAGE_SIZE : FIRST_PAGE_SIZE;
+      const endpoint = `/api/jury-panel/contests/${route.params.code}/articles/page?page_size=${pageSize}${cursorQuery}${ownerViewQuery()}`;
       const response = await fetch(endpoint, { signal });
       if (!response.ok) throw new Error(`Queue fetch failed (${response.status})`);
       const payload = await response.json();
@@ -1155,34 +1163,6 @@ const toggleBulkSelection = (article_id, e) => {
   if (selectedForBulk.value.length < 2) bulkComment.value = '';
 };
 
-// Both bulk endpoints cap a single request at 500 ids and now reject anything
-// larger outright instead of silently dropping the overflow, so send the
-// selection in chunks and merge the per-chunk results.
-const BULK_CHUNK = 200;
-
-const postBulkInChunks = async (url, ids, extraBody = {}) => {
-  const succeeded = [];
-  const failed = [];
-  for (let start = 0; start < ids.length; start += BULK_CHUNK) {
-    const chunk = ids.slice(start, start + BULK_CHUNK);
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...extraBody, article_ids: chunk }),
-      });
-      const result = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(result.detail || `Request failed (${res.status})`);
-      succeeded.push(...(result.succeeded || []));
-      failed.push(...(result.failed || []));
-    } catch (err) {
-      // Keep the chunks that already committed rather than losing the run.
-      failed.push(...chunk.map(id => ({ article_id: id, detail: err.message || 'Request failed' })));
-    }
-  }
-  return { succeeded, failed };
-};
-
 const handleBulkDecision = async (decision) => {
   if (isSubmitting.value || !selectedForBulk.value.length) return;
   isSubmitting.value = true;
@@ -1301,6 +1281,12 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
             <select v-if="ownerViewMode === 'judge'" v-model="selectedJudge" class="rq-owner-judge-select" aria-label="Choose jury member">
               <option v-for="jury in (props.contest?.juries || [])" :key="jury" :value="jury">{{ jury }}</option>
             </select>
+            <!-- Owner viewing their own queue: jump to the missing-section sweep. -->
+            <router-link
+              v-if="ownerViewMode === 'judge' && selectedJudge === user?.wiki_username"
+              :to="`/${props.contest?.code}/admin-special`"
+              class="rq-owner-special-link"
+            >Missing sections</router-link>
           </div>
           
           <div class="rq-stats-strip">
