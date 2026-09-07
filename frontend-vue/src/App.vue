@@ -7,6 +7,12 @@ import GlobalLoader from './components/ui/GlobalLoader.vue';
 const user = ref(null);
 const route = useRoute();
 const isReviewPage = computed(() => route.path.endsWith('/jury/review') || route.path.endsWith('/jury/review-v2'));
+// Everything else (home, contest dashboard, results, profiles) is readable
+// logged out -- those endpoints have no auth dependency on the backend, and
+// a visitor should be able to see a contest's dates, counts and jury before
+// deciding to sign in. Only the routes that actually act on data ask for it.
+const needsAuth = computed(() => route.path === '/admin'
+  || /\/(submit|jury|config|admin-special)(\/|$)/.test(route.path));
 const isLoading = ref(true);
 const isOverloaded = ref(false);
 const showCookieBanner = ref(false);
@@ -62,7 +68,7 @@ const declineCookies = () => {
 <template>
   <GlobalLoader v-if="isLoading" fullscreen label="Loading Feather…" />
 
-  <div v-else-if="!user" class="login-state">
+  <div v-else-if="!user && needsAuth" class="login-state">
     <div class="login-card">
       <div class="login-card-topline">
         <span class="login-context">bn.wiktionary</span>
@@ -97,12 +103,10 @@ const declineCookies = () => {
               <span class="brand-name">Feather</span>
             </div>
           </router-link>
-          <nav class="header-nav">
-            <router-link to="/" class="nav-item">Home</router-link>
-          </nav>
         </div>
         <div class="header-right">
-          <router-link :to="'/user/' + user.wiki_username" class="user-pill-link">
+          <cdx-button v-if="!user" action="progressive" weight="primary" @click="handleLogin">Log in</cdx-button>
+          <router-link v-if="user" :to="'/user/' + user.wiki_username" class="user-pill-link">
             <div class="user-pill">
               <div class="user-avatar">{{ user.wiki_username[0].toUpperCase() }}</div>
               <div class="user-info">
@@ -111,7 +115,7 @@ const declineCookies = () => {
               </div>
             </div>
           </router-link>
-          <button class="logout-btn" @click="handleLogout">
+          <button v-if="user" class="logout-btn" @click="handleLogout">
             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
             Sign out
           </button>

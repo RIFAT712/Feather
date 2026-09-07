@@ -17,9 +17,9 @@ const submitterColumns = [
   { id: 'rank', label: 'Rank', width: '80px' },
   { id: 'username', label: 'Username', minWidth: '160px' },
   { id: 'total', label: 'Total Submitted', textAlign: 'number' },
-  { id: 'accepted', label: 'গৃহীত (Accepted)', textAlign: 'number' },
-  { id: 'rejected', label: 'প্রত্যাখ্যাত (Rejected)', textAlign: 'number' },
-  { id: 'pending', label: 'অপেক্ষমাণ (Pending)', textAlign: 'number' },
+  { id: 'accepted', label: 'Accepted', textAlign: 'number' },
+  { id: 'rejected', label: 'Rejected', textAlign: 'number' },
+  { id: 'pending', label: 'Pending', textAlign: 'number' },
 ];
 
 const juryColumns = [

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, inject, computed } from 'vue';
 import { useRouter } from 'vue-router';
-import { formatDate as fmtDate, isWithinWindow } from '../utils/datetime';
+import { formatDate as fmtDate, windowStatus } from '../utils/datetime';
 import GlobalLoader from '../components/ui/GlobalLoader.vue';
 
 const user = inject('user');
@@ -38,7 +38,10 @@ const accentPalette = [
 
 const getAccent = (i) => accentPalette[i % accentPalette.length];
 
-const isContestActive = (contest) => isWithinWindow(contest.start_date, contest.end_date);
+// A contest that has not started yet read as "Ended" on these cards.
+const STATUS_LABEL = { active: 'Active', upcoming: 'Upcoming', ended: 'Ended' };
+const contestStatus = (contest) => windowStatus(contest.start_date, contest.end_date);
+const isContestActive = (contest) => contestStatus(contest) === 'active';
 
 const formatDate = (iso) => fmtDate(iso);
 
@@ -62,10 +65,12 @@ const greeting = computed(() => {
         <div class="hero-left">
           <div class="hero-greeting-row">
             <span class="greeting-dot"></span>
-            <span class="greeting-text">{{ greeting }}</span>
+            <span class="greeting-text">{{ user ? greeting : 'bn.wiktionary' }}</span>
           </div>
-          <h1 class="hero-name">{{ user?.wiki_username || user?.username || 'Guest' }}</h1>
-          <p class="hero-tagline">Your Feather writing contest hub. Browse active contests below and start contributing.</p>
+          <h1 class="hero-name">{{ user?.wiki_username || user?.username || 'Feather' }}</h1>
+          <p class="hero-tagline">{{ user
+            ? 'Your Feather writing contest hub. Browse active contests below and start contributing.'
+            : 'Writing contests on Bengali Wiktionary. Open a contest to see its dates, submissions and jury. Log in to take part.' }}</p>
           <div class="hero-stats">
             <div class="stat-pill">
               <span class="stat-pill__num">{{ contests.length }}</span>
@@ -133,9 +138,9 @@ const greeting = computed(() => {
           >
                         <div class="card-top-bar"></div>
 
-                        <div class="card-status-badge" :class="isContestActive(contest) ? 'badge--active' : 'badge--ended'">
+                        <div class="card-status-badge" :class="`badge--${contestStatus(contest)}`">
               <span class="badge-dot"></span>
-              {{ isContestActive(contest) ? 'Active' : 'Ended' }}
+              {{ STATUS_LABEL[contestStatus(contest)] }}
             </div>
 
                         <div class="card-content">

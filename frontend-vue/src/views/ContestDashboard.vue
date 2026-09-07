@@ -1,9 +1,10 @@
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, inject } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ActivityLog from './ActivityLog.vue';
+import { CdxTable } from '@wikimedia/codex';
 import { useContestStats } from '../composables/useContestData';
-import { formatDateLong, isWithinWindow, toDate } from '../utils/datetime';
+import { formatDateLong, windowStatus, toDate } from '../utils/datetime';
 
 // roles comes from ContestLayout (the shared parent for every contest route),
 // which already fetches /my-role once -- available synchronously here since
@@ -15,11 +16,20 @@ const props = defineProps({
 });
 const route = useRoute();
 const router = useRouter();
+// "Submissions by User" is open to any signed-in user, not just the jury: the
+// endpoints behind it (/submitters and /log?submitted_by=) have no auth
+// dependency, and a participant wants to see where their own entries sit.
+// Anonymous visitors still get the counts and the jury tally, not this crawl.
+const user = inject('user', null);
 
 // The contest window arrives as naive UTC. Parsing it with a bare `new Date()`
 // read it as local time, so the Active badge and the countdown below flipped
 // six hours off from the dates shown in the same banner.
-const isActive = computed(() => isWithinWindow(props.contest.start_date, props.contest.end_date));
+// Three states, not two: a contest that has not opened yet is "Upcoming", not
+// "Inactive". Same vocabulary and class names AdminDashboard already uses.
+const STATUS_LABEL = { active: 'Active', upcoming: 'Upcoming', ended: 'Ended' };
+const status = computed(() => windowStatus(props.contest.start_date, props.contest.end_date));
+const isActive = computed(() => status.value === 'active');
 
 const timerText = ref("");
 let timerInterval;
@@ -29,10 +39,27 @@ let timerInterval;
 // re-fetch what another view just loaded seconds ago. refetchInterval keeps
 // polling every 5s while this view is mounted and authorized -- previously a
 // manual setInterval, now the query's own job.
+// Public: /api/contests/{code}/stats needs no auth, and the counts + jury
+// tally are what a logged-out visitor comes to a contest page for. Only the
+// jury/owner view keeps polling -- an anonymous reader gets one fetch.
 const statsQuery = useContestStats(() => route.params.code, {
-  enabled: computed(() => props.roles.is_jury || props.roles.is_owner),
-  refetchInterval: 5000,
+  refetchInterval: computed(() => (props.roles.is_jury || props.roles.is_owner) ? 5000 : false),
 });
+const juryColumns = [
+  { id: 'name', label: 'Jury Member', minWidth: '180px' },
+  { id: 'total', label: 'Reviewed', textAlign: 'number' },
+  { id: 'accepted', label: 'Accepted', textAlign: 'number' },
+  { id: 'rejected', label: 'Rejected', textAlign: 'number' },
+];
+// Every jury member, not just the ones who have already decided something --
+// a juror with no reviews yet still belongs in the list of who is judging.
+const juryRows = computed(() => {
+  const tally = Object.fromEntries((statsQuery.data.value?.jury_stats || []).map(j => [j.name, j]));
+  return (props.contest?.juries || []).map(name => tally[name] || { name, total: 0, accepted: 0, rejected: 0 })
+    .sort((a, b) => b.total - a.total);
+});
+const reviewedCount = computed(() => stats.value.accepted + stats.value.rejected);
+
 const stats = computed(() => {
   const counts = statsQuery.data.value?.status_counts;
   return counts
@@ -48,16 +75,16 @@ const updateTimer = () => {
 
   if (now < start) {
     const diffDays = Math.ceil((start - now) / (1000 * 60 * 60 * 24));
-    timerText.value = `প্রতিযোগিতা শুরু হতে ${diffDays} দিন বাকি`;
+    timerText.value = `Starts in ${diffDays} ${diffDays === 1 ? 'day' : 'days'}`;
   } else if (now > end) {
-    timerText.value = "প্রতিযোগিতা শেষ";
+    timerText.value = "Contest ended";
   } else {
     const diffMs = end - now;
     const d = Math.floor(diffMs / (1000 * 60 * 60 * 24));
     const h = Math.floor((diffMs / (1000 * 60 * 60)) % 24);
     const m = Math.floor((diffMs / 1000 / 60) % 60);
     const s = Math.floor((diffMs / 1000) % 60);
-    timerText.value = `${d} দিন ${h} ঘণ্টা ${m} মিনিট ${s} সেকেন্ড সময় বাকি`;
+    timerText.value = `${d}d ${h}h ${m}m ${s}s left`;
   }
 };
 
@@ -76,10 +103,10 @@ onUnmounted(() => {
     <div class="hero-banner">
       <div class="hero-content">
         <div class="hero-main">
-        <div class="contest-status-badge" :class="isActive ? 'active' : 'inactive'">
+        <div class="contest-status-badge" :class="status">
           <svg v-if="isActive" viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><circle cx="8" cy="8" r="8"/></svg>
           <svg v-else viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="3" y="2" width="4" height="12"/><rect x="9" y="2" width="4" height="12"/></svg>
-          {{ isActive ? 'Active' : 'Inactive' }}
+          {{ STATUS_LABEL[status] }}
         </div>
         <h1 class="hero-title">{{ contest.name }}</h1>
         <p class="hero-dates">
@@ -117,26 +144,41 @@ onUnmounted(() => {
       </div>
     </div>
 
-        <div v-if="(roles.is_jury || roles.is_owner) && stats.total > 0" class="stats-row">
+        <div v-if="stats.total > 0" class="stats-row">
       <div class="stat-card">
         <div class="stat-number">{{ stats.total }}</div>
         <div class="stat-label">Total Submitted</div>
       </div>
       <div class="stat-card accent-green">
         <div class="stat-number">{{ stats.accepted }}</div>
-        <div class="stat-label">গৃহীত (Accepted)</div>
+        <div class="stat-label">Accepted</div>
       </div>
       <div class="stat-card accent-red">
         <div class="stat-number">{{ stats.rejected }}</div>
-        <div class="stat-label">প্রত্যাখ্যাত (Rejected)</div>
+        <div class="stat-label">Rejected</div>
       </div>
       <div class="stat-card accent-amber">
         <div class="stat-number">{{ stats.pending }}</div>
-        <div class="stat-label">অপেক্ষমাণ (Pending)</div>
+        <div class="stat-label">Pending</div>
       </div>
     </div>
 
-        <div v-if="(roles.is_jury || roles.is_owner)" class="log-section">
+        <section v-if="juryRows.length" class="jury-tally">
+      <div class="jury-tally-head">
+        <h2>Jury tally</h2>
+        <p>{{ reviewedCount }} of {{ stats.total }} submissions reviewed</p>
+      </div>
+      <cdx-table caption="Jury tally" hide-caption :columns="juryColumns" :data="juryRows">
+        <template #item-name="{ item }">
+          <router-link :to="`/${contest.code}/user/${encodeURIComponent(item)}`" class="jury-tally-name">{{ item }}</router-link>
+        </template>
+        <template #item-accepted="{ item }"><span :class="item ? 'tally-accepted' : 'tally-zero'">{{ item }}</span></template>
+        <template #item-rejected="{ item }"><span :class="item ? 'tally-rejected' : 'tally-zero'">{{ item }}</span></template>
+        <template #empty-state>No reviews yet.</template>
+      </cdx-table>
+    </section>
+
+        <div v-if="user" class="log-section">
       <ActivityLog :contest="contest" :roles="roles" embedded />
     </div>
   </div>

@@ -469,6 +469,7 @@
 .card-status-badge { margin-top: 14px; }
 .badge--active { background: #eef9f1; color: #21613a; border-color: #b7ddc6; }
 .badge--ended { background: #f0f4f7; color: #607b91; border-color: #d1dbe4; }
+.badge--upcoming { background: #fff6df; color: #8a5a00; border-color: #ead49a; }
 .card-content { padding: 15px 18px 16px; }
 .card-title { color: #20364d; }
 .card-code, .card-dates { color: #6b8499; }

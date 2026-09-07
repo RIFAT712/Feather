@@ -228,6 +228,12 @@ body:not(:has(.rq-app)) .cdx-text-input__progress-bar::after {
   background: var(--feather-accent) !important;
   background-image: none !important;
 }
+/* Codex's buttons are 2px-cornered; every hand-rolled button in this app is
+   8-9px (STYLE_GUIDE: 8-14px radii for controls), so a Codex button read as
+   sharp-edged next to them. One radius for all of them. */
+body:not(:has(.rq-app)) .cdx-button {
+  border-radius: 8px;
+}
 body:not(:has(.rq-app)) .cdx-button:not(.cdx-button--weight-primary) {
   min-height: 32px;
   border-color: var(--feather-border) !important;
@@ -238,9 +244,24 @@ body:not(:has(.rq-app)) .cdx-button:not(.cdx-button--weight-primary):hover {
   background: #e7f0f7 !important;
   color: var(--feather-text) !important;
 }
+/* Codex ships primary buttons in Wikimedia blue (#3366cc). This layer used to
+   set only the text colour, so both login buttons rendered in that blue next to
+   the app's own navy actions. Primary = --feather-accent on white text
+   (STYLE_GUIDE "Component rules"); destructive keeps Codex's red. */
 body:not(:has(.rq-app)) .cdx-button--weight-primary {
   color: #ffffff !important;
   -webkit-text-fill-color: #ffffff !important;
+}
+body:not(:has(.rq-app)) .cdx-button--weight-primary:not(.cdx-button--action-destructive) {
+  border-color: var(--feather-accent) !important;
+  background: var(--feather-accent) !important;
+}
+body:not(:has(.rq-app)) .cdx-button--weight-primary:not(.cdx-button--action-destructive):hover {
+  border-color: #274d70 !important;
+  background: #274d70 !important;
+}
+body:not(:has(.rq-app)) .cdx-button--weight-primary:not(.cdx-button--action-destructive):active {
+  background: #1f3e5b !important;
 }
 body:not(:has(.rq-app)) .cdx-checkbox__input:enabled + .cdx-checkbox__icon {
   background: #ffffff !important;
