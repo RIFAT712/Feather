@@ -10,13 +10,14 @@ import {
   Filler,
   CategoryScale,
   LinearScale,
+  LogarithmicScale,
   Tooltip,
 } from 'chart.js';
 import { useContestStats } from '../composables/useContestData';
 import { formatDate, formatDateLong } from '../utils/datetime';
 import GlobalLoader from '../components/ui/GlobalLoader.vue';
 
-ChartJS.register(LineElement, PointElement, Filler, CategoryScale, LinearScale, Tooltip);
+ChartJS.register(LineElement, PointElement, Filler, CategoryScale, LinearScale, LogarithmicScale, Tooltip);
 
 // Public page. Both sources are open: /stats serves counts and the daily curve
 // to anyone (it withholds only the per-jury tallies), and /results serves the
@@ -46,10 +47,21 @@ const summary = computed(() => [
 // accent rather than a categorical hue: nothing here is identified by colour,
 // the x position carries the meaning.
 const ACCENT = '#355b80';
+// One bulk-import day can hold most of a contest's submissions, which flattens
+// every other day onto the axis. A log scale is the honest way to read both at
+// once -- but only while it is labelled as one, so the control stays on screen
+// rather than being an invisible default.
+const scaleType = ref('linear');
+// A log axis has no zero, and on a quiet contest most days are zero: plotted
+// literally they fall outside the scale and chart.js drops those segments,
+// leaving disconnected dots instead of a curve. Quiet days are pinned to the
+// axis floor so the line stays continuous -- the tooltip below still reports
+// the real count.
+const LOG_FLOOR = 0.9;
 const chartData = computed(() => ({
   labels: daily.value.map(d => d.date),
   datasets: [{
-    data: daily.value.map(d => d.count),
+    data: daily.value.map(d => (scaleType.value === 'logarithmic' ? (d.count || LOG_FLOOR) : d.count)),
     borderColor: ACCENT,
     borderWidth: 2,
     // Monotone rather than a plain tension: cubic smoothing overshoots around
@@ -73,7 +85,7 @@ const chartData = computed(() => ({
   }],
 }));
 
-const chartOptions = {
+const chartOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
   // Follows the cursor across the whole column rather than needing a hit on
@@ -91,7 +103,11 @@ const chartOptions = {
       displayColors: false,
       callbacks: {
         title: items => formatDateLong(items[0].label),
-        label: ctx => `${ctx.parsed.y.toLocaleString()} ${ctx.parsed.y === 1 ? 'submission' : 'submissions'}`,
+        // The real count, never the floor the log scale plots quiet days at.
+        label: (ctx) => {
+          const n = daily.value[ctx.dataIndex]?.count ?? 0;
+          return `${n.toLocaleString()} ${n === 1 ? 'submission' : 'submissions'}`;
+        },
       },
     },
   },
@@ -107,14 +123,26 @@ const chartOptions = {
         callback(value) { return formatDate(this.getLabelForValue(value)); },
       },
     },
-    y: {
-      beginAtZero: true,
-      grid: { color: '#eef4f8' },
-      border: { display: false },
-      ticks: { color: '#47637c', font: { size: 11 }, precision: 0 },
-    },
+    y: scaleType.value === 'logarithmic'
+      ? {
+          type: 'logarithmic',
+          min: LOG_FLOOR,
+          grid: { color: '#eef4f8' },
+          border: { display: false },
+          ticks: {
+            color: '#47637c',
+            font: { size: 11 },
+            callback: v => ([1, 10, 100, 1000, 10000, 100000].includes(v) ? v.toLocaleString() : ''),
+          },
+        }
+      : {
+          beginAtZero: true,
+          grid: { color: '#eef4f8' },
+          border: { display: false },
+          ticks: { color: '#47637c', font: { size: 11 }, precision: 0 },
+        },
   },
-};
+}));
 
 // Standings come from /api/contests/{code}/results, same as the Results page.
 // Sorted here for the same reason it sorts there: the endpoint returns rows
@@ -168,9 +196,15 @@ onMounted(async () => {
       <section class="chart-panel">
         <div class="chart-head">
           <h2>Submissions per day</h2>
-          <p v-if="busiest">
-            Busiest day: {{ formatDate(busiest.date) }}, {{ busiest.count.toLocaleString() }} articles
-          </p>
+          <div class="chart-head-right">
+            <p v-if="busiest">
+              Busiest day: {{ formatDate(busiest.date) }}, {{ busiest.count.toLocaleString() }} articles
+            </p>
+            <div class="scale-switch" role="group" aria-label="Vertical scale">
+              <button type="button" :class="{ 'is-active': scaleType === 'linear' }" @click="scaleType = 'linear'">Linear</button>
+              <button type="button" :class="{ 'is-active': scaleType === 'logarithmic' }" @click="scaleType = 'logarithmic'">Log</button>
+            </div>
+          </div>
         </div>
         <div v-if="daily.length" class="chart-frame">
           <Line :data="chartData" :options="chartOptions" aria-label="Articles submitted per day" />
