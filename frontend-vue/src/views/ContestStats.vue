@@ -1,24 +1,27 @@
 <script setup>
-import { computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { CdxTable } from '@wikimedia/codex';
-import { Bar } from 'vue-chartjs';
+import { Line } from 'vue-chartjs';
 import {
   Chart as ChartJS,
-  BarElement,
+  LineElement,
+  PointElement,
+  Filler,
   CategoryScale,
   LinearScale,
   Tooltip,
 } from 'chart.js';
 import { useContestStats } from '../composables/useContestData';
-import { formatDate, formatDateLong, parseApiDate } from '../utils/datetime';
+import { formatDate, formatDateLong } from '../utils/datetime';
 import GlobalLoader from '../components/ui/GlobalLoader.vue';
 
-ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip);
+ChartJS.register(LineElement, PointElement, Filler, CategoryScale, LinearScale, Tooltip);
 
-// Public page: everything here comes from /api/contests/{code}/stats, which
-// serves counts and the daily curve to anyone and withholds the per-jury
-// tallies unless the caller is the owner or one of this contest's jury.
+// Public page. Both sources are open: /stats serves counts and the daily curve
+// to anyone (it withholds only the per-jury tallies), and /results serves the
+// submitter standings -- the same endpoint the Results page uses, rather than a
+// second public-only route returning the same rows.
 const props = defineProps({
   contest: { type: Object, default: null },
 });
@@ -39,33 +42,56 @@ const summary = computed(() => [
   { label: 'Pending', value: counts.value.pending || 0, tone: 'amber' },
 ]);
 
-// One series, so no legend -- the heading names it. The bar colour is the
-// app's accent rather than a categorical hue: nothing here is identified by
-// colour, the x position carries the meaning.
+// One series, so no legend -- the heading names it. The line is the app's
+// accent rather than a categorical hue: nothing here is identified by colour,
+// the x position carries the meaning.
+const ACCENT = '#355b80';
 const chartData = computed(() => ({
-  labels: daily.value.map(d => formatDate(d.date)),
+  labels: daily.value.map(d => d.date),
   datasets: [{
     data: daily.value.map(d => d.count),
-    backgroundColor: '#355b80',
-    hoverBackgroundColor: '#274d70',
-    borderRadius: 4,
-    borderSkipped: false,
-    categoryPercentage: 0.9,
-    barPercentage: 0.86,
+    borderColor: ACCENT,
+    borderWidth: 2,
+    // Monotone rather than a plain tension: cubic smoothing overshoots around
+    // a spike and draws the curve below zero between two real points, which
+    // for a count is a value that never happened.
+    cubicInterpolationMode: 'monotone',
+    fill: true,
+    backgroundColor: (ctx) => {
+      const { ctx: canvas, chartArea } = ctx.chart;
+      if (!chartArea) return 'rgba(53,91,128,.10)';
+      const gradient = canvas.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+      gradient.addColorStop(0, 'rgba(53,91,128,.22)');
+      gradient.addColorStop(1, 'rgba(53,91,128,.02)');
+      return gradient;
+    },
+    pointRadius: 2.5,
+    pointHoverRadius: 5,
+    pointBackgroundColor: ACCENT,
+    pointBorderColor: '#ffffff',
+    pointBorderWidth: 1.5,
   }],
 }));
 
 const chartOptions = {
   responsive: true,
   maintainAspectRatio: false,
+  // Follows the cursor across the whole column rather than needing a hit on
+  // the 2.5px dot itself.
+  interaction: { mode: 'index', intersect: false },
   plugins: {
     legend: { display: false },
     tooltip: {
-      backgroundColor: '#20364d',
+      backgroundColor: '#ffffff',
+      titleColor: '#20364d',
+      bodyColor: '#47637c',
+      borderColor: '#c7d6e3',
+      borderWidth: 1,
       padding: 10,
       displayColors: false,
       callbacks: {
-        label: ctx => `${ctx.parsed.y.toLocaleString()} submitted`,
+        title: items => formatDateLong(items[0].label),
+        label: ctx => `${ctx.parsed.y.toLocaleString()} ${ctx.parsed.y === 1 ? 'submission' : 'submissions'}`,
       },
     },
   },
@@ -73,7 +99,13 @@ const chartOptions = {
     x: {
       grid: { display: false },
       border: { color: '#c7d6e3' },
-      ticks: { color: '#47637c', font: { size: 11 }, maxRotation: 0, autoSkipPadding: 18 },
+      ticks: {
+        color: '#47637c',
+        font: { size: 11 },
+        maxRotation: 0,
+        autoSkipPadding: 24,
+        callback(value) { return formatDate(this.getLabelForValue(value)); },
+      },
     },
     y: {
       beginAtZero: true,
@@ -84,14 +116,31 @@ const chartOptions = {
   },
 };
 
-const dayColumns = [
-  { id: 'date', label: 'Day', minWidth: '160px' },
-  { id: 'count', label: 'Submitted', textAlign: 'number' },
+// Standings come from /api/contests/{code}/results, same as the Results page.
+// Sorted here for the same reason it sorts there: the endpoint returns rows
+// grouped by submitter, not ranked.
+const submitters = ref([]);
+const submitterColumns = [
+  { id: 'rank', label: 'Rank', width: '70px' },
+  { id: 'username', label: 'Username', minWidth: '160px' },
+  { id: 'total', label: 'Submitted', textAlign: 'number' },
+  { id: 'accepted', label: 'Accepted', textAlign: 'number' },
+  { id: 'rejected', label: 'Rejected', textAlign: 'number' },
+  { id: 'pending', label: 'Pending', textAlign: 'number' },
 ];
-const dayRows = computed(() => daily.value.map(d => ({
-  date: parseApiDate(d.date)?.format('ddd, MMM D, YYYY') || d.date,
-  count: d.count.toLocaleString(),
-})));
+const rankedSubmitters = computed(() => submitters.value.map((s, i) => ({ ...s, rank: i + 1 })));
+
+onMounted(async () => {
+  try {
+    const res = await fetch(`/api/contests/${route.params.code}/results`);
+    if (!res.ok) return;
+    const data = await res.json();
+    submitters.value = (data.submitters || []).sort((a, b) =>
+      (b.accepted !== a.accepted ? b.accepted - a.accepted : b.total - a.total));
+  } catch (err) {
+    console.error('Failed to load results', err);
+  }
+});
 </script>
 
 <template>
@@ -124,15 +173,30 @@ const dayRows = computed(() => daily.value.map(d => ({
           </p>
         </div>
         <div v-if="daily.length" class="chart-frame">
-          <Bar :data="chartData" :options="chartOptions" aria-label="Articles submitted per day" />
+          <Line :data="chartData" :options="chartOptions" aria-label="Articles submitted per day" />
         </div>
         <p v-else class="chart-empty">No submissions yet.</p>
       </section>
 
-      <details v-if="daily.length" class="day-table">
-        <summary>View the daily numbers as a table</summary>
-        <cdx-table caption="Submissions per day" hide-caption :columns="dayColumns" :data="dayRows" />
-      </details>
+      <section class="standings">
+        <div class="standings-head">
+          <h2>Results</h2>
+          <router-link :to="`/${route.params.code}/result`">Full results page</router-link>
+        </div>
+        <cdx-table
+          caption="Submitter standings"
+          hide-caption
+          :columns="submitterColumns"
+          :data="rankedSubmitters"
+        >
+          <template #item-username="{ item }">
+            <router-link :to="`/${route.params.code}/user/${encodeURIComponent(item)}`">{{ item }}</router-link>
+          </template>
+          <template #item-accepted="{ item }"><span :class="item ? 'tone-accepted' : 'tone-zero'">{{ item.toLocaleString() }}</span></template>
+          <template #item-rejected="{ item }"><span :class="item ? 'tone-rejected' : 'tone-zero'">{{ item.toLocaleString() }}</span></template>
+          <template #empty-state>No submissions yet.</template>
+        </cdx-table>
+      </section>
     </template>
   </div>
 </template>

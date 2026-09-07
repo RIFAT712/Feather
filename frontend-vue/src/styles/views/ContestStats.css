@@ -74,19 +74,22 @@
 .chart-frame { height: 320px; padding: 18px 16px 8px; }
 .chart-empty { margin: 0; padding: 40px 20px; color: #47637c; font-size: .88rem; text-align: center; }
 
-.day-table > summary {
-  width: fit-content;
-  padding: 8px 12px;
-  border: 1px solid #c7d6e3;
-  border-radius: 8px;
-  background: #fff;
-  color: #355b80;
-  font-size: .82rem;
-  font-weight: 650;
-  cursor: pointer;
+/* The standings table draws its own surface (light-theme.css), so the heading
+   sits on the page canvas above it rather than in a wrapper card. */
+.standings-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 16px;
+  margin-bottom: 12px;
 }
-.day-table > summary:hover { background: #eef4f8; }
-.day-table[open] > summary { margin-bottom: 12px; }
+.standings-head h2 { margin: 0; color: #20364d; font-size: .95rem; font-weight: 800; }
+.standings-head a { color: #355b80; font-size: .82rem; font-weight: 650; text-decoration: none; }
+.standings-head a:hover { text-decoration: underline; }
+.tone-accepted { color: #216e3a; font-weight: 700; }
+.tone-rejected { color: #a33a3a; font-weight: 700; }
+.tone-zero { color: #86a2b8; }
 
 @media (max-width: 860px) {
   .summary-strip { grid-template-columns: repeat(3, 1fr); }
