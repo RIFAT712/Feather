@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, onBeforeUnmount, inject } from 'vue';
 import { useRoute } from 'vue-router';
 import { CdxIcon, CdxTable } from '@wikimedia/codex';
 import { cdxIconAlert, cdxIconBlock, cdxIconSearch } from '@wikimedia/codex-icons';
@@ -39,7 +39,15 @@ const firstReview = (entry) => (entry.reviews && entry.reviews.length ? entry.re
 
 const viewMode = ref('per-user');
 const openGroups = ref({});
-const isAuthorized = computed(() => props.roles.is_jury || props.roles.is_owner);
+// Two different things wear this component. Embedded on the contest dashboard
+// it is the "Submissions by User" panel -- public-ish data, open to any signed-in
+// user. Standalone at /{code}/log it is the full timeline with review history,
+// which stays jury/owner. Gating both on the jury role put an Access Denied
+// banner in the middle of an ordinary participant's dashboard.
+const user = inject('user', null);
+const isAuthorized = computed(() => (props.embedded
+  ? !!user?.value
+  : props.roles.is_jury || props.roles.is_owner));
 
 // Embedded mode: just the per-submitter counts, not the full crawl.
 const submittersQuery = useContestSubmitters(() => route.params.code, { enabled: computed(() => props.embedded) });
