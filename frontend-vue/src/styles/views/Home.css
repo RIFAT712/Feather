@@ -443,14 +443,14 @@
 .hero::before { display: none; }
 .hero-inner { max-width: 1180px; padding-bottom: 52px; align-items: center; }
 .greeting-dot { background: #4b8ab3; box-shadow: 0 0 10px rgba(75,138,179,.4); }
-.greeting-text { color: #527995; }
+.greeting-text { color: var(--feather-muted); }
 .hero-name { color: #20364d; background: none; -webkit-text-fill-color: #20364d; }
 .hero-tagline { color: #47637c; max-width: 540px; }
 .stat-pill { background: rgba(255,255,255,.78); border-color: #c7d6e3; box-shadow: 0 4px 14px rgba(32,54,77,.07); }
 .stat-pill.accent-green { background: #eef9f1; border-color: #b7ddc6; }
 .stat-pill__num { color: #20364d; }
 .stat-pill.accent-green .stat-pill__num { color: #21613a; }
-.stat-pill__label { color: #607b91; }
+.stat-pill__label { color: var(--feather-muted); }
 .stat-pill.accent-green .stat-pill__label { color: #32704a; }
 .hero-right { align-items: center; }
 .wiki-badge { background: linear-gradient(135deg, #5f88a8 0%, #355b80 100%); box-shadow: 0 10px 25px rgba(53,91,128,.22); }
@@ -460,7 +460,7 @@
 .contests-section { background: transparent !important; padding-bottom: 56px; }
 .section-inner { max-width: 1180px; }
 .section-header { margin-bottom: 18px; border: 0; background: transparent !important; box-shadow: none !important; }
-.section-label { color: #52718a; }
+.section-label { color: var(--feather-muted); }
 .section-label__dot { background: #4b8ab3; }
 .contest-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .contest-card { background: #fff !important; border: 1px solid #c7d6e3; border-radius: 14px; box-shadow: 0 8px 22px rgba(32,54,77,.07); }
@@ -468,11 +468,11 @@
 .card-top-bar { background: linear-gradient(90deg, var(--accent, #4b8ab3), transparent); }
 .card-status-badge { margin-top: 14px; }
 .badge--active { background: #eef9f1; color: #21613a; border-color: #b7ddc6; }
-.badge--ended { background: #f0f4f7; color: #607b91; border-color: #d1dbe4; }
+.badge--ended { background: #f0f4f7; color: #4c6478; border-color: #d1dbe4; }
 .badge--upcoming { background: #fff6df; color: #8a5a00; border-color: #ead49a; }
 .card-content { padding: 15px 18px 16px; }
 .card-title { color: #20364d; }
-.card-code, .card-dates { color: #6b8499; }
+.card-code, .card-dates { color: var(--feather-muted); }
 .card-footer { border-top-color: #e0e8ef; padding: 13px 18px 16px; }
 .card-cta { color: #355b80; }
 .card-hover-glow { background: radial-gradient(ellipse at 50% 0%, rgba(104,151,190,.12) 0%, transparent 70%); }

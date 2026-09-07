@@ -48,7 +48,7 @@
 }
 .summary-item:first-child { border-left: 0; }
 .summary-value { color: #20364d; font-size: 1.6rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
-.summary-label { color: #6b8499; font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.summary-label { color: var(--feather-muted); font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .tone-green .summary-value { color: #216e3a; }
 .tone-red .summary-value { color: #a33a3a; }
 .tone-amber .summary-value { color: #8a5a00; }
@@ -89,7 +89,7 @@
 .standings-head a:hover { text-decoration: underline; }
 .tone-accepted { color: #216e3a; font-weight: 700; }
 .tone-rejected { color: #a33a3a; font-weight: 700; }
-.tone-zero { color: #86a2b8; }
+.tone-zero { color: var(--feather-muted); }
 
 @media (max-width: 860px) {
   .summary-strip { grid-template-columns: repeat(3, 1fr); }
