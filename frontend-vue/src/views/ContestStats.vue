@@ -58,6 +58,7 @@ const scaleType = ref('logarithmic');
 // axis floor so the line stays continuous -- the tooltip below still reports
 // the real count.
 const LOG_FLOOR = 0.9;
+const DECADES = [1, 10, 100, 1000, 10000, 100000, 1000000];
 const chartData = computed(() => ({
   labels: daily.value.map(d => d.date),
   datasets: [{
@@ -68,10 +69,7 @@ const chartData = computed(() => ({
     // a spike and draws the curve below zero between two real points, which
     // for a count is a value that never happened.
     cubicInterpolationMode: 'monotone',
-    // Fill on the linear scale only. Under a log axis the shaded area is not
-    // proportional to anything -- it is the area under log(count) -- so it
-    // reads as a grey wash over most of the panel and encodes nothing.
-    fill: scaleType.value === 'linear',
+    fill: true,
     backgroundColor: (ctx) => {
       const { ctx: canvas, chartArea } = ctx.chart;
       if (!chartArea) return 'rgba(53,91,128,.10)';
@@ -130,12 +128,17 @@ const chartOptions = computed(() => ({
       ? {
           type: 'logarithmic',
           min: LOG_FLOOR,
-          grid: { color: '#eef4f8' },
+          // A log scale ticks at 2,3,4…9 between every decade, and drawing a
+          // gridline for each of them striped the panel with bands of doubled
+          // lines. Only the decades get a line; the rest are labelled off too.
+          grid: {
+            color: ctx => (DECADES.includes(ctx.tick?.value) ? '#eef4f8' : 'transparent'),
+          },
           border: { display: false },
           ticks: {
             color: '#47637c',
             font: { size: 11 },
-            callback: v => ([1, 10, 100, 1000, 10000, 100000].includes(v) ? v.toLocaleString() : ''),
+            callback: v => (DECADES.includes(v) ? v.toLocaleString() : ''),
           },
         }
       : {
