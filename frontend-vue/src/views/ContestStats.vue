@@ -51,7 +51,7 @@ const ACCENT = '#355b80';
 // every other day onto the axis. A log scale is the honest way to read both at
 // once -- but only while it is labelled as one, so the control stays on screen
 // rather than being an invisible default.
-const scaleType = ref('linear');
+const scaleType = ref('logarithmic');
 // A log axis has no zero, and on a quiet contest most days are zero: plotted
 // literally they fall outside the scale and chart.js drops those segments,
 // leaving disconnected dots instead of a curve. Quiet days are pinned to the
@@ -68,7 +68,10 @@ const chartData = computed(() => ({
     // a spike and draws the curve below zero between two real points, which
     // for a count is a value that never happened.
     cubicInterpolationMode: 'monotone',
-    fill: true,
+    // Fill on the linear scale only. Under a log axis the shaded area is not
+    // proportional to anything -- it is the area under log(count) -- so it
+    // reads as a grey wash over most of the panel and encodes nothing.
+    fill: scaleType.value === 'linear',
     backgroundColor: (ctx) => {
       const { ctx: canvas, chartArea } = ctx.chart;
       if (!chartArea) return 'rgba(53,91,128,.10)';
