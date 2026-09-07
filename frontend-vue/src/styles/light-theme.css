@@ -27,10 +27,10 @@ body:not(:has(.rq-app)) select:focus-visible {
   outline: 3px solid rgba(53,91,128,.22) !important;
   outline-offset: 2px;
 }
-body:not(:has(.rq-app)) .app-header,
-body:not(:has(.rq-app)) .contest-header,
-body:not(:has(.rq-app)) .contest-content,
-body:not(:has(.rq-app)) .contest-layout,
+/* .app-header, .contest-header, .contest-content and .contest-layout are not
+   listed here any more: App.css and ContestLayout.css define those surfaces in
+   light tokens themselves, and these !important rules were still overriding
+   them (the navbar's own rgba(255,255,255,.94) lost to a .96 declared here). */
 body:not(:has(.rq-app)) .home-root,
 body:not(:has(.rq-app)) .admin-suite,
 body:not(:has(.rq-app)) .config-page,
@@ -43,12 +43,6 @@ body:not(:has(.rq-app)) .user-profile,
 body:not(:has(.rq-app)) .log-root {
   background: var(--feather-bg) !important;
   color: var(--feather-text) !important;
-}
-body:not(:has(.rq-app)) .app-header,
-body:not(:has(.rq-app)) .contest-header {
-  background: rgba(255,255,255,.96) !important;
-  border-color: var(--feather-border) !important;
-  box-shadow: 0 1px 12px rgba(32,54,77,.08) !important;
 }
 body:not(:has(.rq-app)) .app-layout,
 body:not(:has(.rq-app)) .app-main {
@@ -99,7 +93,7 @@ body:not(:has(.rq-app)) :where(
 
 body:not(:has(.rq-app)) :where(
   h1, h2, h3, h4, h5, h6, .suite-title, .section-title,
-  .card-title, .card-code, .contest-name, .result-title,
+  .card-title, .card-code, .result-title,
   .profile-name, .article-item__title, .table-title
 ) { color: var(--feather-text) !important; }
 body:not(:has(.rq-app)) :where(
@@ -122,7 +116,7 @@ body:not(:has(.rq-app)) :where(
   .field-hint, .toggle-desc, .restriction-help, .restriction-empty,
   .loading-state, .no-jurors-notice, .empty-card p, .empty-state,
   .card-dates, .card-meta, .timeline-meta, .td-reviewer, .td-date,
-  .muted-cell, .date-cell, .spinner-label, .search-icon, .home-icon,
+  .muted-cell, .date-cell, .spinner-label, .search-icon,
   .filter-label, .kpi-lbl, .kpi-sub, .chip-lbl, .text-slate-400,
   .text-slate-500, .text-gray-500, .text-gray-400
 ) {
@@ -299,21 +293,6 @@ body:not(:has(.rq-app)) ::-webkit-scrollbar-track { background: #edf3f7 !importa
 body:not(:has(.rq-app)) ::-webkit-scrollbar-thumb { background: #91a7ba !important; border-color: #edf3f7 !important; }
 body:not(:has(.rq-app)) * { scrollbar-color: #91a7ba #edf3f7; }
 
-/* The normal contest shell gets a direct override even if :has() is not
-   available in an older browser. */
-body .contest-layout:not(.review-layout) {
-  background: var(--feather-bg) !important;
-  color: var(--feather-text) !important;
-}
-body .contest-layout:not(.review-layout) .contest-header,
-body .contest-layout:not(.review-layout) .contest-header {
-  background: var(--feather-surface) !important;
-  border-color: var(--feather-border) !important;
-}
-body .contest-layout:not(.review-layout) .contest-content {
-  background: var(--feather-bg) !important;
-  border-color: var(--feather-border) !important;
-}
 
 /* Legacy normal-page panels: keep background and foreground tokens paired. */
 body:not(:has(.rq-app)) :where(
@@ -389,11 +368,6 @@ body:not(:has(.rq-app)) .toggle-bar .segmented-control .seg-btn.active {
   color: #ffffff !important;
   -webkit-text-fill-color: #ffffff !important;
 }
-/* .nav-link/.nav-link--active are no longer listed here: ContestLayout.css
-   defines them in light tokens directly, and repainting only their colour from
-   this layer was what flattened the active tab into the inactive ones. */
-body .contest-layout:not(.review-layout) .contest-name { color: var(--feather-text) !important; }
-body .contest-layout:not(.review-layout) .contest-dates-chip { color: var(--feather-muted) !important; }
 
 /* CdxTable, wearing Feather's geometry.
    Codex ships `border: 1px solid #a2a9b1` with `border-radius: 2px` and 12px

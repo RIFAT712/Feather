@@ -1,5 +1,19 @@
-.loading-wrap { padding: 32px; color: #4b5563; font-size: 0.9rem; }
-.error-state { color: #ffffff; font-weight: bold; padding: 32px; }
+/* This file is light-theme only, except the review topbar below, which
+   STYLE_GUIDE exempts. It used to declare the dark shell and let
+   light-theme.css repaint it with !important; both halves are now one
+   definition here. (.loading-wrap went with that pass -- no template used it.) */
+
+/* Was `color: #ffffff` from the dark theme -- white text on the light canvas,
+   so "Contest not found" rendered invisible. */
+.error-state {
+  margin: 24px;
+  padding: 16px 20px;
+  border: 1px solid #e6bcbc;
+  border-radius: 12px;
+  background: #fff0f0;
+  color: #a33a3a;
+  font-weight: 600;
+}
 
 .contest-loading {
   display: flex;
@@ -23,8 +37,12 @@
   min-width: 0;
   min-height: calc(100dvh - var(--app-header-height, 64px));
   overflow: visible;
-  background: #0a0a0a;
+  background: var(--feather-bg);
 }
+/* The review workspace paints its own shell over this one (ReviewQueue.css),
+   and did so over a dark canvas before -- keep that, so no light seam shows
+   through at the edges of its dark theme. */
+.contest-layout.review-layout { background: #0a0a0a; }
 /* On /jury/review the app-header is hidden, so use full viewport */
 .review-layout {
   height: 100dvh;
@@ -118,8 +136,9 @@
   position: sticky;
   top: var(--app-header-height, 64px);
   z-index: 90;
-  background: #0f0f0f;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  background: var(--feather-surface);
+  border-bottom: 1px solid var(--feather-border);
+  box-shadow: 0 1px 12px rgba(32,54,77,.08);
 }
 .contest-header-inner {
   display: flex;
@@ -143,13 +162,13 @@
   max-width: 100%;
 }
 .contest-title-link:hover { opacity: 0.7; }
-.home-icon { color: #4b5563; flex-shrink: 0; }
+.home-icon { color: var(--feather-muted); flex-shrink: 0; }
 .contest-title-info { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
-.contest-name { font-weight: 600; font-size: 0.9rem; color: #d1d5db; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.contest-name { font-weight: 650; font-size: 0.9rem; color: var(--feather-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .contest-dates-chip {
-  font-size: 0.7rem; color: #4b5563;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.06);
+  font-size: 0.7rem; color: var(--feather-muted);
+  background: var(--feather-surface-alt);
+  border: 1px solid var(--feather-border);
   border-radius: 20px; padding: 2px 8px; font-weight: 500;
   white-space: nowrap;
 }
