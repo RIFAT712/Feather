@@ -39,8 +39,7 @@ body:not(:has(.rq-app)) .result-page,
 body:not(:has(.rq-app)) .gp-page,
 body:not(:has(.rq-app)) .stats-page,
 body:not(:has(.rq-app)) .submit-page,
-body:not(:has(.rq-app)) .user-profile,
-body:not(:has(.rq-app)) .log-root {
+body:not(:has(.rq-app)) .user-profile {
   background: var(--feather-bg) !important;
   color: var(--feather-text) !important;
 }
@@ -73,7 +72,7 @@ body:not(:has(.rq-app)) :where(
   .wikitext-preview-card, .jury-hub-card, .jury-add-card, .jury-list,
   .stat-card, .leaderboard-card, .jury-card, .hero-card, .event-card,
   .chart-card, .chart-card-wide, .submissions-panel, .submissions-table-wrap,
-  .user-card, .timeline-card, .table-wrapper, .results-card,
+  .table-wrapper, .results-card,
   .results-table-wrapper, .modal-card, .search-box, .chip-filter,
   .view-switch, .card-metrics-row, .rule-card-toggle, .restriction-panel,
   .restriction-list, .restriction-row, .article-section, .article-list,
@@ -99,8 +98,8 @@ body:not(:has(.rq-app)) :where(
 body:not(:has(.rq-app)) :where(
   p, small, .suite-desc, .field-hint, .card-desc, .card-meta,
   .card-dates, .filter-label, .kpi-lbl, .kpi-sub, .muted,
-  .article-item__meta, .empty-msg, .result-message, .td-reviewer,
-  .td-date, .timeline-meta, .event-meta
+  .article-item__meta, .empty-msg, .result-message,
+  .timeline-meta, .event-meta
 ) { color: var(--feather-muted) !important; }
 /* `a:not(.nav-link)`: the contest tabs are anchors too, and this blanket
    `!important` was repainting active and inactive alike in the accent,
@@ -115,7 +114,7 @@ body:not(:has(.rq-app)) :where(
   .suite-desc, .header p, .page-header p, .form-pane-header p,
   .field-hint, .toggle-desc, .restriction-help, .restriction-empty,
   .loading-state, .no-jurors-notice, .empty-card p, .empty-state,
-  .card-dates, .card-meta, .timeline-meta, .td-reviewer, .td-date,
+  .card-dates, .card-meta, .timeline-meta,
   .muted-cell, .date-cell, .spinner-label, .search-icon,
   .filter-label, .kpi-lbl, .kpi-sub, .chip-lbl, .text-slate-400,
   .text-slate-500, .text-gray-500, .text-gray-400
@@ -125,12 +124,10 @@ body:not(:has(.rq-app)) :where(
 body:not(:has(.rq-app)) :where(.text-slate-400, .text-gray-400) {
   color: #47637c !important;
 }
-body:not(:has(.rq-app)) .count-badge {
-  background: #dce9f2 !important;
-  color: #20364d !important;
-  border: 1px solid #b7ccdc !important;
-}
-body:not(:has(.rq-app)) button:not(.cdx-button--weight-primary):not(.action-btn.primary):not(.card-btn.primary):not(.submit-btn.primary):not(.save-btn):not(.admin-btn):not(.primary-action):not(.judge-hero-btn):not(.export-btn) {
+/* `:not(.seg-btn.active)`: the segmented control's selected pill is white on
+   the accent, and this blanket `!important` was forcing navy text onto it
+   (1.74:1) once ActivityLog.css took ownership of the control. */
+body:not(:has(.rq-app)) button:not(.cdx-button--weight-primary):not(.action-btn.primary):not(.card-btn.primary):not(.submit-btn.primary):not(.save-btn):not(.admin-btn):not(.primary-action):not(.judge-hero-btn):not(.export-btn):not(.seg-btn.active) {
   color: var(--feather-text) !important;
 }
 body:not(:has(.rq-app)) :where(
@@ -157,22 +154,6 @@ body:not(:has(.rq-app)) .preset-chip.active {
   background: var(--feather-accent) !important;
   border-color: var(--feather-accent) !important;
   color: #ffffff !important;
-}
-body:not(:has(.rq-app)) .segmented-control {
-  background: #e4eef5 !important;
-  border: 1px solid var(--feather-border) !important;
-}
-body:not(:has(.rq-app)) .seg-btn {
-  color: var(--feather-muted) !important;
-}
-body:not(:has(.rq-app)) .seg-btn.active {
-  background: var(--feather-accent) !important;
-  color: #ffffff !important;
-  box-shadow: 0 2px 7px rgba(53,91,128,.22) !important;
-}
-body:not(:has(.rq-app)) .seg-btn:not(.active):hover {
-  background: #d6e5ef !important;
-  color: var(--feather-text) !important;
 }
 
 body:not(:has(.rq-app)) :where(
@@ -296,15 +277,14 @@ body:not(:has(.rq-app)) * { scrollbar-color: #91a7ba #edf3f7; }
 
 /* Legacy normal-page panels: keep background and foreground tokens paired. */
 body:not(:has(.rq-app)) :where(
-  .log-root, .stats-page, .submit-page, .user-profile, .result-page,
+  .stats-page, .submit-page, .user-profile, .result-page,
   .admin-suite, .config-page, .home-root, .dashboard
 ) { background: var(--feather-bg) !important; color: var(--feather-text) !important; }
 body:not(:has(.rq-app)) :where(
-  .stats-bar, .user-header, .user-table-wrap, .timeline-card,
-  .error-box, .wikitext-preview-card, .talk-options-expanded,
+  .wikitext-preview-card, .talk-options-expanded,
   .assigned-jurors-grid, .tag-input-wrapper, .jury-suggest-dropdown,
   .suggestions, .preview-box, .unauthorized-content, .toast-banner,
-  .user-table, .data-table, .submissions-table,
+  .data-table, .submissions-table,
   .inner-table, .article-list, .article-item
 ) {
   background: #ffffff !important;
@@ -322,51 +302,6 @@ body:not(:has(.rq-app)) :where(
 body:not(:has(.rq-app)) :where(.wikitext-preview-card, .preview-box) pre,
 body:not(:has(.rq-app)) :where(.wikitext-preview-card, .preview-box) code {
   color: var(--feather-text) !important;
-}
-body:not(:has(.rq-app)) .toggle-bar {
-  background: transparent !important;
-  border: 0 !important;
-  box-shadow: none !important;
-}
-body:not(:has(.rq-app)) .toggle-bar .segmented-control {
-  background: #e4eef5 !important;
-  border: 1px solid var(--feather-border) !important;
-  box-shadow: none !important;
-}
-body:not(:has(.rq-app)) .stats-bar {
-  background: transparent !important;
-  border: 0 !important;
-  box-shadow: none !important;
-}
-body:not(:has(.rq-app)) .stats-bar .stat-chip {
-  border: 1px solid transparent !important;
-  box-shadow: none !important;
-}
-body:not(:has(.rq-app)) .stats-bar .chip-total {
-  background: #e4eef5 !important;
-  border-color: #bfd1df !important;
-  color: #294963 !important;
-}
-body:not(:has(.rq-app)) .stats-bar .chip-accepted {
-  background: #eaf7ef !important;
-  border-color: #b9dfc5 !important;
-  color: #216e3a !important;
-}
-body:not(:has(.rq-app)) .stats-bar .chip-rejected,
-body:not(:has(.rq-app)) .stats-bar .chip-failed {
-  background: #fff0f0 !important;
-  border-color: #e6bcbc !important;
-  color: #a33a3a !important;
-}
-body:not(:has(.rq-app)) .stats-bar .chip-pending {
-  background: #fff6df !important;
-  border-color: #ead49a !important;
-  color: #8a5a00 !important;
-}
-body:not(:has(.rq-app)) .toggle-bar .segmented-control .seg-btn.active {
-  background: var(--feather-accent) !important;
-  color: #ffffff !important;
-  -webkit-text-fill-color: #ffffff !important;
 }
 
 /* CdxTable, wearing Feather's geometry.
