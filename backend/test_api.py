@@ -18,6 +18,8 @@ rebalance_pending_articles(), which the jury-panel reads call themselves.
 Runs against whatever backend/.env points at (SQLite locally).
 """
 import sys
+import csv
+import io
 
 import main
 from fastapi.testclient import TestClient
@@ -179,11 +181,33 @@ def check_exports(client, code):
             res = client.get("/api/admin/contests/%s/export/%s?mode=%s" % (code, fmt, mode))
             assert res.status_code == 200, (fmt, mode, res.status_code)
             assert marker in res.text, (fmt, mode, res.text[:200])
+    # Exports stream now -- rows are encoded in 64KB chunks as they come off a
+    # yield_per cursor instead of being built whole in memory. Truncating or
+    # dropping a batch would still return 200 with plausible-looking output, so
+    # pin the counts against the database.
+    db = next(get_db())
+    contest = db.query(main.models.Contest).filter_by(code=code).first()
+    article_count = db.query(main.models.Article).filter_by(contest_id=contest.id).count()
+    submitter_count = db.query(main.models.Article.submitter_id).filter_by(
+        contest_id=contest.id).distinct().count()
+
     detailed = client.get("/api/admin/contests/%s/export/json?mode=detailed" % code).json()
-    assert detailed["articles"], "detailed json export has no articles"
+    assert len(detailed["articles"]) == article_count, (
+        "detailed json: %d articles exported, %d in the contest"
+        % (len(detailed["articles"]), article_count))
+
+    csv_text = client.get("/api/admin/contests/%s/export/csv?mode=detailed" % code).text
+    csv_rows = list(csv.reader(io.StringIO(csv_text.lstrip("﻿"))))
+    assert len(csv_rows) == article_count + 1, (
+        "detailed csv: %d rows for %d articles + header" % (len(csv_rows), article_count))
+
     summary = client.get("/api/admin/contests/%s/export/json?mode=summary" % code).json()
-    assert summary["submitter_stats"], "summary json export has no submitter stats"
-    print("  exports: csv + json + wikitable, summary + detailed")
+    assert len(summary["submitter_stats"]) == submitter_count, (
+        "summary json: %d submitters, %d distinct in the contest"
+        % (len(summary["submitter_stats"]), submitter_count))
+    assert sum(s["total"] for s in summary["submitter_stats"]) == article_count,         "summary totals do not add up to the contest's article count"
+    print("  exports: csv + json + wikitable, summary + detailed; "
+          "%d articles, %d submitters, counts match" % (article_count, submitter_count))
 
 
 def demo():

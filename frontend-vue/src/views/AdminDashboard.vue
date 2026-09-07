@@ -278,8 +278,19 @@ const handleExportCSV = (code) => {
   window.open(`/api/admin/contests/${code}/export/csv`, '_blank');
   showToast(`Exporting CSV for contest ${code}...`);
 };
+// Writing the dump is the heaviest thing the webservice does, and the backend
+// now refuses a second one while the first is running (429). A double-click
+// would surface that as a page full of JSON, since a 429 has no attachment
+// header to keep the browser on this page -- so hold the button instead. The
+// cooldown is time-based because a download started this way reports nothing
+// back when it finishes.
+const isBackupRunning = ref(false);
 const handleDownloadDatabase = () => {
+  if (isBackupRunning.value) return;
+  isBackupRunning.value = true;
+  showToast('Preparing the database backup. This can take a while on a large contest.');
   window.location.href = '/api/admin/backup/download';
+  setTimeout(() => { isBackupRunning.value = false; }, 15000);
 };
 
 const handleDelete = async (code, cName) => {
@@ -556,9 +567,9 @@ const formatLogTimestamp = (iso) => formatDateTimeDayFirst(iso);
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
               Refresh
             </button>
-            <button class="action-btn secondary" @click="handleDownloadDatabase" title="Download a database backup">
+            <button class="action-btn secondary" :disabled="isBackupRunning" @click="handleDownloadDatabase" title="Download a database backup">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
-              Download Backup
+              {{ isBackupRunning ? 'Preparing…' : 'Download Backup' }}
             </button>
           </div>
         </div>

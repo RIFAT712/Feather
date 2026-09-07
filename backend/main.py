@@ -3,6 +3,9 @@ import jwt
 import asyncio
 import uuid
 import csv
+import json
+from starlette.background import BackgroundTask
+from collections import namedtuple
 import io
 import re
 import unicodedata
@@ -1209,6 +1212,29 @@ def get_admin_stats(_: models.User = Depends(get_owner_user), db: Session = Depe
         ,"total_banned_users": total_banned_users
     }
 
+# One dump at a time. Writing a full MariaDB dump is the heaviest thing this
+# webservice does, and nothing stopped two clicks (or a double-click) from
+# starting two of them at once on a container this size.
+_backup_lock = threading.Lock()
+
+
+def _discard_after_send(path: Path):
+    """Delete a dump once it has been streamed to the browser.
+
+    A download used to leave a full copy of the database in
+    backup/pre_migration/ every time it was clicked, which on a Toolforge quota
+    is its own outage. Pruning by age was the other option and it is worse:
+    that directory also holds genuine pre-migration snapshots, and a few
+    downloads would quietly push the real safety net out of it.
+    """
+    def cleanup():
+        try:
+            path.unlink()
+        except OSError:
+            pass
+    return BackgroundTask(cleanup)
+
+
 @app.get("/api/admin/backup/download")
 def download_database_backup(_: models.User = Depends(get_owner_user)):
     """Download a restorable copy of the application database.
@@ -1223,14 +1249,22 @@ def download_database_backup(_: models.User = Depends(get_owner_user)):
     fails, so the media type is still chosen from the real suffix.
     """
     if "mysql" in str(engine.url):
-        backup_path = _pre_migration_backup(engine)
-        if backup_path.suffix == ".sql":
-            media_type = "application/sql"
-        else:
-            media_type = "application/json"
+        if not _backup_lock.acquire(blocking=False):
+            raise HTTPException(
+                status_code=429,
+                detail="A backup is already being written. Try again in a moment.",
+            )
+        try:
+            backup_path = _pre_migration_backup(engine)
+        finally:
+            # Released once the file exists; FileResponse streams it from disk
+            # afterwards and holds no database work open.
+            _backup_lock.release()
+        media_type = "application/sql" if backup_path.suffix == ".sql" else "application/json"
         return FileResponse(
             str(backup_path), media_type=media_type,
-            filename=f"feather_database_backup{backup_path.suffix}"
+            filename=f"feather_database_backup{backup_path.suffix}",
+            background=_discard_after_send(backup_path),
         )
 
     database_path = Path(engine.url.database or "app.db")
@@ -3718,211 +3752,269 @@ def translate_status(s):
     return _STATUS_BN.get(s, s)
 
 
-def _export_articles(code: str, db: Session):
-    """The contest and its articles, with submitters and reviewers eager-loaded.
+EXPORT_BATCH = 500
 
-    Both exports open with exactly this: a lazy load per article would be one
-    query per row on a 12k-article contest.
-    """
+
+def _export_contest(code: str, db: Session) -> models.Contest:
     contest = db.query(models.Contest).filter_by(code=code).first()
     if not contest:
         raise HTTPException(status_code=404, detail="Contest not found")
-    articles = db.query(models.Article).options(
-        joinedload(models.Article.submitter),
-        selectinload(models.Article.reviews).joinedload(models.Review.reviewer)
-    ).filter_by(contest_id=contest.id).order_by(models.Article.submitted_at.desc()).all()
-    return contest, articles
+    return contest
+
+
+def _export_summary(contest, db: Session):
+    """Submitter and jury tallies, grouped in SQL.
+
+    Summary exports used to go through _export_articles(): every article of the
+    contest loaded with its reviews and both users attached, then counted in
+    Python. On a 12k-article contest that is the whole dataset resident before
+    a single byte is written, and it is what took the Toolforge webservice down
+    when someone pressed Export on the results page -- summary is the default
+    mode there. Nothing in a summary needs an article row.
+    """
+    submitters = [
+        {"username": u, "total": int(t or 0), "accepted": int(a or 0), "rejected": int(r or 0)}
+        for u, t, a, r in db.query(
+            models.User.wiki_username,
+            func.count(models.Article.id),
+            func.sum(case((models.Article.status == models.ArticleStatus.accepted, 1), else_=0)),
+            func.sum(case((models.Article.status == models.ArticleStatus.rejected, 1), else_=0)),
+        ).join(models.Article, models.Article.submitter_id == models.User.id)
+         .filter(models.Article.contest_id == contest.id)
+         .group_by(models.User.wiki_username).all()
+    ]
+    juries = [
+        {"username": u, "total": int(t or 0), "accepted": int(a or 0), "rejected": int(r or 0)}
+        for u, t, a, r in db.query(
+            models.User.wiki_username,
+            func.count(models.Review.id),
+            func.sum(case((models.Review.status == models.ReviewStatus.accepted, 1), else_=0)),
+            func.sum(case((models.Review.status == models.ReviewStatus.rejected, 1), else_=0)),
+        ).join(models.Article, models.Article.id == models.Review.article_id)
+         .join(models.User, models.User.id == models.Review.reviewer_id)
+         .filter(models.Article.contest_id == contest.id)
+         .group_by(models.User.wiki_username).all()
+    ]
+    return submitters, juries
+
+
+ExportRow = namedtuple("ExportRow", [
+    "id", "title", "submitter", "status", "validation_error", "wiki_creator",
+    "wiki_creation_date", "submitted_at", "review_count",
+    "last_decision", "last_reviewer", "last_comment",
+])
+
+
+def _iter_export_articles(contest, db: Session):
+    """Stream a contest's articles as flat rows, one batch at a time.
+
+    Columns rather than ORM objects: a detailed export reads each field once
+    and never writes, so mapped instances only buy an identity map that grows
+    with the contest. yield_per then holds one batch instead of all of it --
+    which is the whole point, and why the review data cannot be an eager-loaded
+    collection (a collection load cannot stream, and joined eager loading is
+    refused outright alongside yield_per).
+    """
+    names = dict(db.query(models.User.id, models.User.wiki_username).all())
+    counts = dict(
+        db.query(models.Review.article_id, func.count(models.Review.id))
+          .join(models.Article, models.Article.id == models.Review.article_id)
+          .filter(models.Article.contest_id == contest.id)
+          .group_by(models.Review.article_id).all()
+    )
+    latest_ids = (
+        db.query(func.max(models.Review.id).label("rid"))
+          .join(models.Article, models.Article.id == models.Review.article_id)
+          .filter(models.Article.contest_id == contest.id)
+          .group_by(models.Review.article_id).subquery()
+    )
+    latest = {
+        r.article_id: r
+        for r in db.query(
+            models.Review.article_id, models.Review.status,
+            models.Review.reviewer_id, models.Review.comment,
+        ).join(latest_ids, models.Review.id == latest_ids.c.rid)
+    }
+
+    articles = (
+        db.query(
+            models.Article.id, models.Article.title, models.Article.submitter_id,
+            models.Article.status, models.Article.validation_error,
+            models.Article.wiki_creator, models.Article.wiki_creation_date,
+            models.Article.submitted_at,
+        )
+        .filter(models.Article.contest_id == contest.id)
+        .order_by(models.Article.submitted_at.desc())
+        .execution_options(yield_per=EXPORT_BATCH)
+    )
+    for a in articles:
+        last = latest.get(a.id)
+        yield ExportRow(
+            id=a.id, title=a.title, submitter=names.get(a.submitter_id, ""),
+            status=a.status, validation_error=a.validation_error,
+            wiki_creator=a.wiki_creator, wiki_creation_date=a.wiki_creation_date,
+            submitted_at=a.submitted_at, review_count=counts.get(a.id, 0),
+            last_decision=last.status if last else None,
+            last_reviewer=names.get(last.reviewer_id, "") if last else "",
+            last_comment=(last.comment or "") if last else "",
+        )
+
+
+def _text_chunks(pieces, bom: bool = False):
+    """Encode an iterable of strings into ~64KB chunks as they are produced.
+
+    The exports used to build the entire file in a StringIO and then copy it
+    into a BytesIO, so peak memory held two complete copies on top of the ORM
+    graph they were built from.
+    """
+    buffer = []
+    size = 0
+    prefix = "﻿" if bom else ""
+    for piece in pieces:
+        buffer.append(piece)
+        size += len(piece)
+        if size >= 64 * 1024:
+            yield (prefix + "".join(buffer)).encode("utf-8")
+            prefix, buffer, size = "", [], 0
+    if buffer or prefix:
+        yield (prefix + "".join(buffer)).encode("utf-8")
+
+
+def _csv_chunks(rows, bom: bool = True):
+    """Encode CSV rows into ~64KB chunks, reusing one buffer and one writer.
+
+    A writer per row costs more than the streaming saves -- this keeps the
+    memory win and the original speed.
+    """
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    if bom:
+        buffer.write("﻿")
+    for row in rows:
+        writer.writerow(row)
+        if buffer.tell() >= 64 * 1024:
+            yield buffer.getvalue().encode("utf-8")
+            buffer.seek(0)
+            buffer.truncate(0)
+    if buffer.tell():
+        yield buffer.getvalue().encode("utf-8")
+
+
+def _download(chunks, filename: str, media_type: str) -> StreamingResponse:
+    return StreamingResponse(
+        chunks, media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @app.get("/api/admin/contests/{code}/export/csv")
 def export_contest_csv(code: str, mode: str = "summary", _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
-    contest, articles = _export_articles(code, db)
+    contest = _export_contest(code, db)
 
-    output = io.StringIO()
-    writer = csv.writer(output)
-    
-    if mode == "detailed":
-        writer.writerow([
-            "Article ID", "Title", "Submitter", "Status", "Validation Error",
-            "Wiki Creator", "Wiki Creation Date", "Submitted At", "Reviews Count", "Last Review Decision", "Last Reviewer", "Last Review Comment"
-        ])
-        for a in articles:
-            reviews = sorted(a.reviews, key=lambda r: r.timestamp or datetime.min)
-            last_rev = reviews[-1] if reviews else None
-            writer.writerow([
-                a.id, a.title, a.submitter.wiki_username if a.submitter else "",
-                translate_status(a.status.value), a.validation_error or "",
-                a.wiki_creator or "", a.wiki_creation_date.isoformat() if a.wiki_creation_date else "",
-                a.submitted_at.isoformat() if a.submitted_at else "", len(reviews),
-                translate_status(last_rev.status.value) if last_rev else "",
-                last_rev.reviewer.wiki_username if last_rev and last_rev.reviewer else "",
-                last_rev.comment or "" if last_rev else ""
-            ])
-    else:
-        submitters = {}
-        juries = {}
-        
-        for a in articles:
-            if a.submitter:
-                u = a.submitter.wiki_username
-                if u not in submitters:
-                    submitters[u] = {"accepted": 0, "rejected": 0, "total": 0}
-                submitters[u]["total"] += 1
-                if a.status.value == "accepted": submitters[u]["accepted"] += 1
-                elif a.status.value == "rejected": submitters[u]["rejected"] += 1
-                
-            for r in a.reviews:
-                if r.reviewer:
-                    j = r.reviewer.wiki_username
-                    if j not in juries:
-                        juries[j] = {"accepted": 0, "rejected": 0, "total": 0}
-                    juries[j]["total"] += 1
-                    if r.status.value == "accepted": juries[j]["accepted"] += 1
-                    elif r.status.value == "rejected": juries[j]["rejected"] += 1
-                    
-        writer.writerow(["ব্যবহারকারী (Submitter)", "মোট জমা (Total)", "গৃহীত (Accepted)", "প্রত্যাখ্যাত (Rejected)"])
-        for u, stats in submitters.items():
-            writer.writerow([u, stats["total"], stats["accepted"], stats["rejected"]])
-            
-        writer.writerow([])
-        writer.writerow(["বিচারক (Jury)", "মোট পর্যালোচনা (Total)", "গৃহীত (Accepted)", "প্রত্যাখ্যাত (Rejected)"])
-        for j, stats in juries.items():
-            writer.writerow([j, stats["total"], stats["accepted"], stats["rejected"]])
-        
-    output.seek(0)
-    filename = f"contest_{code}_export.csv"
-    return StreamingResponse(
-        io.BytesIO(output.getvalue().encode('utf-8-sig')),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
+    def rows():
+        if mode == "detailed":
+            yield [
+                "Article ID", "Title", "Submitter", "Status", "Validation Error",
+                "Wiki Creator", "Wiki Creation Date", "Submitted At",
+                "Reviews Count", "Last Review Decision", "Last Reviewer", "Last Review Comment",
+            ]
+            for a in _iter_export_articles(contest, db):
+                yield [
+                    a.id, a.title, a.submitter,
+                    translate_status(a.status.value), a.validation_error or "",
+                    a.wiki_creator or "", a.wiki_creation_date.isoformat() if a.wiki_creation_date else "",
+                    a.submitted_at.isoformat() if a.submitted_at else "", a.review_count,
+                    translate_status(a.last_decision.value) if a.last_decision else "",
+                    a.last_reviewer, a.last_comment,
+                ]
+            return
+        submitters, juries = _export_summary(contest, db)
+        yield ["ব্যবহারকারী (Submitter)", "মোট জমা (Total)", "গৃহীত (Accepted)", "প্রত্যাখ্যাত (Rejected)"]
+        for s in submitters:
+            yield [s["username"], s["total"], s["accepted"], s["rejected"]]
+        yield []
+        yield ["বিচারক (Jury)", "মোট পর্যালোচনা (Total)", "গৃহীত (Accepted)", "প্রত্যাখ্যাত (Rejected)"]
+        for j in juries:
+            yield [j["username"], j["total"], j["accepted"], j["rejected"]]
+
+    return _download(_csv_chunks(rows()), f"contest_{code}_export.csv", "text/csv")
+
 
 @app.get("/api/admin/contests/{code}/export/json")
 def export_contest_json(code: str, mode: str = "summary", _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
-    contest, articles = _export_articles(code, db)
-
-    if mode == "detailed":
-        return {
-            "contest_name": contest.name,
-            "contest_code": contest.code,
-            "exported_at": utcnow().isoformat(),
-            "articles": [
-                {
-                    "id": a.id, "title": a.title, "submitter": a.submitter.wiki_username if a.submitter else None,
-                    "status": translate_status(a.status.value), "validation_error": a.validation_error,
-                    "wiki_creator": a.wiki_creator, "wiki_creation_date": a.wiki_creation_date.isoformat() if a.wiki_creation_date else None,
-                    "submitted_at": a.submitted_at.isoformat() if a.submitted_at else None,
-                    "reviews": [
-                        {
-                            "reviewer": r.reviewer.wiki_username if r.reviewer else None,
-                            "decision": translate_status(r.status.value),
-                            "comment": r.comment,
-                            "timestamp": r.timestamp.isoformat() if r.timestamp else None
-                        } for r in a.reviews
-                    ]
-                } for a in articles
-            ]
-        }
-
-    submitters = {}
-    juries = {}
-    for a in articles:
-        if a.submitter:
-            u = a.submitter.wiki_username
-            if u not in submitters:
-                submitters[u] = {"accepted": 0, "rejected": 0, "total": 0}
-            submitters[u]["total"] += 1
-            if a.status.value == "accepted": submitters[u]["accepted"] += 1
-            elif a.status.value == "rejected": submitters[u]["rejected"] += 1
-
-        for r in a.reviews:
-            if r.reviewer:
-                j = r.reviewer.wiki_username
-                if j not in juries:
-                    juries[j] = {"accepted": 0, "rejected": 0, "total": 0}
-                juries[j]["total"] += 1
-                if r.status.value == "accepted": juries[j]["accepted"] += 1
-                elif r.status.value == "rejected": juries[j]["rejected"] += 1
-
-    return {
+    contest = _export_contest(code, db)
+    head = {
         "contest_name": contest.name,
         "contest_code": contest.code,
         "exported_at": utcnow().isoformat(),
-        "submitter_stats": [{"username": u, **stats} for u, stats in submitters.items()],
-        "jury_stats": [{"username": j, **stats} for j, stats in juries.items()],
     }
+
+    if mode != "detailed":
+        submitters, juries = _export_summary(contest, db)
+        return {**head, "submitter_stats": submitters, "jury_stats": juries}
+
+    def pieces():
+        # Written incrementally rather than returned as one dict: a detailed
+        # export of a large contest is the biggest payload the app produces,
+        # and FastAPI would hold the object graph and its serialised form at
+        # the same time.
+        yield json.dumps(head, ensure_ascii=False)[:-1] + ', "articles": ['
+        first = True
+        for a in _iter_export_articles(contest, db):
+            record = {
+                "id": a.id, "title": a.title,
+                "submitter": a.submitter or None,
+                "status": translate_status(a.status.value),
+                "validation_error": a.validation_error,
+                "wiki_creator": a.wiki_creator,
+                "wiki_creation_date": a.wiki_creation_date.isoformat() if a.wiki_creation_date else None,
+                "submitted_at": a.submitted_at.isoformat() if a.submitted_at else None,
+                "last_review": None if not a.last_decision else {
+                    "reviewer": a.last_reviewer or None,
+                    "decision": translate_status(a.last_decision.value),
+                    "comment": a.last_comment or None,
+                },
+                "review_count": a.review_count,
+            }
+            yield ("" if first else ",") + json.dumps(record, ensure_ascii=False)
+            first = False
+        yield "]}"
+
+    return _download(_text_chunks(pieces()), f"contest_{code}_export.json", "application/json")
+
 
 @app.get("/api/admin/contests/{code}/export/wikitable")
 def export_contest_wikitable(code: str, mode: str = "summary", _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
-    contest, articles = _export_articles(code, db)
+    contest = _export_contest(code, db)
 
-    lines = []
-    
-    if mode == "detailed":
-        lines.append('{| class="wikitable sortable"')
-        lines.append('|+ প্রতিযোগিতার ফলাফল: ' + contest.name)
-        lines.append('|-')
-        lines.append('! নিবন্ধের নাম !! জমাদানকারী !! অবস্থা !! পর্যালোচনাকারী !! মন্তব্য')
-        
-        for a in articles:
-            reviews = sorted(a.reviews, key=lambda r: r.timestamp or datetime.min)
-            last_rev = reviews[-1] if reviews else None
-            status_bn = translate_status(a.status.value)
-            reviewer = last_rev.reviewer.wiki_username if last_rev and last_rev.reviewer else ""
-            comment = last_rev.comment or "" if last_rev else ""
-            
-            lines.append('|-')
-            lines.append(f'| [[{a.title}]] || {a.submitter.wiki_username if a.submitter else ""} || {status_bn} || {reviewer} || {comment}')
-        
-        lines.append('|}')
-    else:
-        submitters = {}
-        juries = {}
-        
-        for a in articles:
-            if a.submitter:
-                u = a.submitter.wiki_username
-                if u not in submitters:
-                    submitters[u] = {"accepted": 0, "rejected": 0, "total": 0}
-                submitters[u]["total"] += 1
-                if a.status.value == "accepted": submitters[u]["accepted"] += 1
-                elif a.status.value == "rejected": submitters[u]["rejected"] += 1
-                
-            for r in a.reviews:
-                if r.reviewer:
-                    j = r.reviewer.wiki_username
-                    if j not in juries:
-                        juries[j] = {"accepted": 0, "rejected": 0, "total": 0}
-                    juries[j]["total"] += 1
-                    if r.status.value == "accepted": juries[j]["accepted"] += 1
-                    elif r.status.value == "rejected": juries[j]["rejected"] += 1
-        lines.append('{| class="wikitable sortable"')
-        lines.append('|+ জমাদানকারীর পরিসংখ্যান: ' + contest.name)
-        lines.append('|-')
-        lines.append('! ব্যবহারকারী !! মোট জমা !! গৃহীত !! প্রত্যাখ্যাত')
-        
-        for u, stats in submitters.items():
-            lines.append('|-')
-            lines.append(f'| [[ব্যবহারকারী:{u}|{u}]] || {stats["total"]} || {stats["accepted"]} || {stats["rejected"]}')
-        lines.append('|}')
-        lines.append('')
-        lines.append('{| class="wikitable sortable"')
-        lines.append('|+ বিচারকের পরিসংখ্যান: ' + contest.name)
-        lines.append('|-')
-        lines.append('! বিচারক !! মোট পর্যালোচনা !! গৃহীত !! প্রত্যাখ্যাত')
-        
-        for j, stats in juries.items():
-            lines.append('|-')
-            lines.append(f'| [[ব্যবহারকারী:{j}|{j}]] || {stats["total"]} || {stats["accepted"]} || {stats["rejected"]}')
-        lines.append('|}')
-        
-    output = "\n".join(lines)
-    filename = f"contest_{code}_export.txt"
-    return StreamingResponse(
-        io.BytesIO(output.encode('utf-8')),
-        media_type="text/plain",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
+    def pieces():
+        if mode == "detailed":
+            yield '{| class="wikitable sortable"\n'
+            yield f'|+ প্রতিযোগিতার ফলাফল: {contest.name}\n|-\n'
+            yield '! নিবন্ধের নাম !! জমাদানকারী !! অবস্থা !! পর্যালোচনাকারী !! মন্তব্য\n'
+            for a in _iter_export_articles(contest, db):
+                yield (f'|-\n| [[{a.title}]] || {a.submitter} || '
+                       f'{translate_status(a.status.value)} || {a.last_reviewer} || {a.last_comment}\n')
+            yield '|}'
+            return
+
+        submitters, juries = _export_summary(contest, db)
+        yield '{| class="wikitable sortable"\n'
+        yield f'|+ জমাদানকারীর পরিসংখ্যান: {contest.name}\n|-\n'
+        yield '! ব্যবহারকারী !! মোট জমা !! গৃহীত !! প্রত্যাখ্যাত\n'
+        for s in submitters:
+            yield (f'|-\n| [[ব্যবহারকারী:{s["username"]}|{s["username"]}]] || '
+                   f'{s["total"]} || {s["accepted"]} || {s["rejected"]}\n')
+        yield '|}\n\n'
+        yield '{| class="wikitable sortable"\n'
+        yield f'|+ বিচারকের পরিসংখ্যান: {contest.name}\n|-\n'
+        yield '! বিচারক !! মোট পর্যালোচনা !! গৃহীত !! প্রত্যাখ্যাত\n'
+        for j in juries:
+            yield (f'|-\n| [[ব্যবহারকারী:{j["username"]}|{j["username"]}]] || '
+                   f'{j["total"]} || {j["accepted"]} || {j["rejected"]}\n')
+        yield '|}'
+
+    return _download(_text_chunks(pieces()), f"contest_{code}_export.txt", "text/plain")
 
 DIST_DIR = Path(__file__).resolve().parent.parent / "frontend-vue" / "dist"
 dist_dir = str(DIST_DIR)
