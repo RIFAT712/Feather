@@ -32,7 +32,6 @@ body:not(:has(.rq-app)) select:focus-visible {
    light tokens themselves, and these !important rules were still overriding
    them (the navbar's own rgba(255,255,255,.94) lost to a .96 declared here). */
 body:not(:has(.rq-app)) .home-root,
-body:not(:has(.rq-app)) .admin-suite,
 body:not(:has(.rq-app)) .config-page,
 body:not(:has(.rq-app)) .dashboard,
 body:not(:has(.rq-app)) .result-page,
@@ -67,17 +66,15 @@ body:not(:has(.rq-app)) .cookie-btn--decline:hover {
 }
 
 body:not(:has(.rq-app)) :where(
-  .card, .contest-card, .admin-header-card, .kpi-card, .controls-card,
-  .empty-card, .table-card, .form-pane-card, .rule-input-card,
+  .card, .contest-card, .kpi-card, .form-pane-card, .rule-input-card,
   .wikitext-preview-card, .jury-hub-card, .jury-add-card, .jury-list,
   .stat-card, .leaderboard-card, .jury-card, .hero-card, .event-card,
   .chart-card, .chart-card-wide, .submissions-panel, .submissions-table-wrap,
   .table-wrapper, .results-card,
-  .results-table-wrapper, .modal-card, .search-box, .chip-filter,
-  .view-switch, .card-metrics-row, .rule-card-toggle, .restriction-panel,
+  .results-table-wrapper, .rule-card-toggle, .restriction-panel,
   .restriction-list, .restriction-row, .article-section, .article-list,
   .article-item, .article-item__box, .article-search, .preview-box,
-  .code-box, .inner-table, .empty-state
+  .inner-table, .empty-state
 ) {
   background: var(--feather-surface) !important;
   border-color: var(--feather-border) !important;
@@ -86,37 +83,36 @@ body:not(:has(.rq-app)) :where(
 }
 body:not(:has(.rq-app)) :where(
   .card-top-bar, .section-header, .article-section__header,
-  .submissions-header, .submission-toolbar, .modal-header, .modal-footer,
-  .filter-group, .jury-section-title, .table-header
+  .submissions-header, .submission-toolbar, .jury-section-title, .table-header
 ) { background: var(--feather-surface-alt) !important; }
 
 body:not(:has(.rq-app)) :where(
-  h1, h2, h3, h4, h5, h6, .suite-title, .section-title,
+  h1, h2, h3, h4, h5, h6, .section-title,
   .card-title, .card-code, .result-title,
   .profile-name, .article-item__title, .table-title
 ) { color: var(--feather-text) !important; }
 body:not(:has(.rq-app)) :where(
-  p, small, .suite-desc, .field-hint, .card-desc, .card-meta,
-  .card-dates, .filter-label, .kpi-lbl, .kpi-sub, .muted,
+  p, small, .field-hint, .card-desc, .card-meta,
+  .card-dates, .muted,
   .article-item__meta, .empty-msg, .result-message,
   .timeline-meta, .event-meta
 ) { color: var(--feather-muted) !important; }
 /* `a:not(.nav-link)`: the contest tabs are anchors too, and this blanket
    `!important` was repainting active and inactive alike in the accent,
    flattening the distinction ContestLayout.css draws between them. */
-body:not(:has(.rq-app)) :where(a:not(.nav-link), .nav-tab, .link-btn, .article-link) {
+body:not(:has(.rq-app)) :where(a:not(.nav-link), .link-btn, .article-link) {
   color: var(--feather-accent) !important;
 }
 
 /* Keep supporting copy readable on the light canvas. Some view styles still
    carry legacy gray values, so normalize their common text roles here. */
 body:not(:has(.rq-app)) :where(
-  .suite-desc, .header p, .page-header p, .form-pane-header p,
+  .header p, .page-header p, .form-pane-header p,
   .field-hint, .toggle-desc, .restriction-help, .restriction-empty,
-  .loading-state, .no-jurors-notice, .empty-card p, .empty-state,
+  .loading-state, .no-jurors-notice, .empty-state,
   .card-dates, .card-meta, .timeline-meta,
   .muted-cell, .date-cell, .spinner-label, .search-icon,
-  .filter-label, .kpi-lbl, .kpi-sub, .chip-lbl, .text-slate-400,
+  .text-slate-400,
   .text-slate-500, .text-gray-500, .text-gray-400
 ) {
   color: var(--feather-muted) !important;
@@ -262,8 +258,7 @@ body:not(:has(.rq-app)) :where(
 }
 body:not(:has(.rq-app)) :where(
   .nav-tab:hover, .link-btn:hover,
-  .action-btn.secondary:hover, .card-btn.secondary:hover,
-  .view-switch button:hover, .chip-filter button:hover
+  .action-btn.secondary:hover, .card-btn.secondary:hover button:hover button:hover
 ) { background: #e7f0f7 !important; color: var(--feather-text) !important; }
 body:not(:has(.rq-app)) table,
 body:not(:has(.rq-app)) th,
@@ -274,11 +269,10 @@ body:not(:has(.rq-app)) ::-webkit-scrollbar-track { background: #edf3f7 !importa
 body:not(:has(.rq-app)) ::-webkit-scrollbar-thumb { background: #91a7ba !important; border-color: #edf3f7 !important; }
 body:not(:has(.rq-app)) * { scrollbar-color: #91a7ba #edf3f7; }
 
-
 /* Legacy normal-page panels: keep background and foreground tokens paired. */
 body:not(:has(.rq-app)) :where(
   .stats-page, .submit-page, .user-profile, .result-page,
-  .admin-suite, .config-page, .home-root, .dashboard
+  .config-page, .home-root, .dashboard
 ) { background: var(--feather-bg) !important; color: var(--feather-text) !important; }
 body:not(:has(.rq-app)) :where(
   .wikitext-preview-card, .talk-options-expanded,
@@ -294,7 +288,7 @@ body:not(:has(.rq-app)) :where(
 }
 body:not(:has(.rq-app)) :where(
   .log-root, .stats-page, .submit-page, .user-profile, .result-page,
-  .admin-suite, .config-page
+  .config-page
 ) :where(.text-slate-100, .text-slate-200, .text-gray-100, .text-gray-200,
   .card-title, .section-title, .page-title, .article-title, .user-name) {
   color: var(--feather-text) !important;
