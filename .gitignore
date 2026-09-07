@@ -1,5 +1,10 @@
 backend/__pycache__/
 backend/app.db
+# ...and the stray copy that lands in the repo root when the server is
+# started from there rather than from backend/.
+app.db
+app.db-shm
+app.db-wal
 backend/app.db-shm
 backend/app.db-wal
 backup/
