@@ -11,7 +11,7 @@ import threading
 import heapq
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from pathlib import Path
 from collections import defaultdict
 from typing import List, Optional
@@ -595,6 +595,30 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Session expired, please log in again")
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+def get_optional_user(request: Request, db: Session = Depends(get_db)):
+    """get_current_user, but None instead of 401 for an anonymous caller.
+
+    Lets one endpoint serve both the public summary and the fuller payload a
+    jury member gets, rather than forking into a second near-identical route.
+    """
+    try:
+        return get_current_user(request, db)
+    except HTTPException:
+        return None
+
+def viewer_sees_jury_stats(viewer, contest, db) -> bool:
+    """Per-jury accepted/rejected tallies are not public: they name who judged
+    what, which is the contest's internal business. Owner and the contest's own
+    jury see them; everyone else -- signed in or not -- gets an empty list.
+    """
+    if viewer is None:
+        return False
+    if viewer.role == models.RoleEnum.owner:
+        return True
+    return db.query(models.ContestJury).filter_by(
+        contest_id=contest.id, user_id=viewer.id
+    ).first() is not None
 
 def get_owner_user(current_user: models.User = Depends(get_current_user)):
     if current_user.role != models.RoleEnum.owner:
@@ -2110,7 +2134,8 @@ async def submit_bulk(
     return results
 
 @app.get("/api/contests/{code}/results")
-def get_contest_results(code: str, db: Session = Depends(get_db)):
+def get_contest_results(code: str, db: Session = Depends(get_db),
+                        viewer: Optional[models.User] = Depends(get_optional_user)):
     contest = db.query(models.Contest).filter_by(code=code).first()
     if not contest:
         raise HTTPException(status_code=404, detail="Contest not found")
@@ -2127,6 +2152,7 @@ def get_contest_results(code: str, db: Session = Depends(get_db)):
      .filter(models.Article.contest_id == contest.id) \
      .group_by(models.User.wiki_username).all()
 
+    show_jury = viewer_sees_jury_stats(viewer, contest, db)
     jury_rows = db.query(
         models.User.wiki_username,
         func.count(models.Review.id),
@@ -2135,7 +2161,7 @@ def get_contest_results(code: str, db: Session = Depends(get_db)):
     ).join(models.Article, models.Article.id == models.Review.article_id) \
      .join(models.User, models.User.id == models.Review.reviewer_id) \
      .filter(models.Article.contest_id == contest.id) \
-     .group_by(models.User.wiki_username).all()
+     .group_by(models.User.wiki_username).all() if show_jury else []
 
     return {
         "contest": {"name": contest.name, "code": contest.code},
@@ -2143,6 +2169,7 @@ def get_contest_results(code: str, db: Session = Depends(get_db)):
             {"username": u, "total": int(t or 0), "accepted": int(a or 0), "rejected": int(r or 0), "pending": int(p or 0)}
             for u, t, a, r, p in submitter_rows
         ],
+        # Submitter standings are the public result; who judged what is not.
         "juries": [
             {"username": u, "total": int(t or 0), "accepted": int(a or 0), "rejected": int(r or 0)}
             for u, t, a, r in jury_rows
@@ -2150,7 +2177,8 @@ def get_contest_results(code: str, db: Session = Depends(get_db)):
     }
 
 @app.get("/api/contests/{code}/stats")
-def get_contest_stats(code: str, db: Session = Depends(get_db)):
+def get_contest_stats(code: str, db: Session = Depends(get_db),
+                      viewer: Optional[models.User] = Depends(get_optional_user)):
     """Grouped-count summary for dashboards/polling that only need totals, not every
     article/review row. Also carries a cheap change signature so pollers can skip
     re-fetching the full /log payload when nothing actually changed."""
@@ -2181,20 +2209,50 @@ def get_contest_stats(code: str, db: Session = Depends(get_db)):
              models.Review.status != models.ReviewStatus.skipped) \
      .group_by(models.Review.article_id, models.Review.reviewer_id).subquery()
 
+    # Per-jury tallies name who judged what, which is the contest's internal
+    # business -- owner and the contest's own jury only. For everyone else the
+    # grouped review query does not even run.
     jury_map = {}
-    for username, decision, count in db.query(
+    jury_rows = db.query(
         models.User.wiki_username, models.Review.status, func.count(models.Review.id)
     ).join(latest_review, models.Review.id == latest_review.c.latest_id) \
      .join(models.Article, models.Article.id == models.Review.article_id) \
      .join(models.User, models.User.id == models.Review.reviewer_id) \
      .filter(models.Article.contest_id == contest.id) \
-     .group_by(models.User.wiki_username, models.Review.status).all():
+     .group_by(models.User.wiki_username, models.Review.status).all() if viewer_sees_jury_stats(viewer, contest, db) else []
+    for username, decision, count in jury_rows:
         entry = jury_map.setdefault(username, {"name": username, "total": 0, "accepted": 0, "rejected": 0})
         entry["total"] += int(count)
         if decision == models.ReviewStatus.accepted:
             entry["accepted"] += int(count)
         elif decision == models.ReviewStatus.rejected:
             entry["rejected"] += int(count)
+
+    # Submissions per day, for the public stats page's chart. Grouped in SQL --
+    # func.date() is the one date-truncation both SQLite and MariaDB spell the
+    # same way -- and gap-filled here so a day nobody submitted plots as zero
+    # instead of vanishing and squashing the time axis.
+    # ponytail: buckets are UTC days, not Asia/Dhaka ones, so a submission
+    # between 00:00 and 06:00 local counts to the previous day. Shifting the
+    # column before truncating needs dialect-specific interval syntax; do that
+    # if the day boundary ever matters more than the shape of the curve.
+    daily_rows = db.query(
+        func.date(models.Article.submitted_at), func.count(models.Article.id)
+    ).filter(models.Article.contest_id == contest.id,
+             models.Article.submitted_at.isnot(None))      .group_by(func.date(models.Article.submitted_at)).all()
+    counts = {}
+    for day, count in daily_rows:
+        if day is None:
+            continue
+        key = day.isoformat() if hasattr(day, "isoformat") else str(day)[:10]
+        counts[key] = counts.get(key, 0) + int(count)
+    daily = []
+    if counts:
+        first = date.fromisoformat(min(counts))
+        last = date.fromisoformat(max(counts))
+        for offset in range((last - first).days + 1):
+            day = (first + timedelta(days=offset)).isoformat()
+            daily.append({"date": day, "count": counts.get(day, 0)})
 
     latest_article_id = db.query(func.max(models.Article.id)).filter_by(contest_id=contest.id).scalar() or 0
     latest_review_id = db.query(func.max(models.Review.id)) \
@@ -2204,6 +2262,7 @@ def get_contest_stats(code: str, db: Session = Depends(get_db)):
     return {
         "status_counts": status_counts,
         "jury_stats": sorted(jury_map.values(), key=lambda j: j["total"], reverse=True),
+        "daily": daily,
         "signature": f"{total}:{latest_article_id}:{latest_review_id}",
     }
 

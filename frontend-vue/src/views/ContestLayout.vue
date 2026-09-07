@@ -64,6 +64,7 @@ onMounted(async () => {
         <nav class="contest-nav" v-if="!isLoading">
           <router-link :to="`/${contest.code}`" class="nav-link" exact-active-class="nav-link--active">Dashboard</router-link>
           <router-link :to="`/${contest.code}/submit`" class="nav-link" active-class="nav-link--active">Submit</router-link>
+          <router-link :to="`/${contest.code}/stats`" class="nav-link" active-class="nav-link--active">Stats</router-link>
           <router-link :to="`/${contest.code}/result`" class="nav-link" active-class="nav-link--active">Results</router-link>
           <router-link v-if="roles.is_jury || roles.is_owner" :to="`/${contest.code}/jury`" class="nav-link" active-class="nav-link--active">Jury</router-link>
         </nav>

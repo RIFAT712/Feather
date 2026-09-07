@@ -1,0 +1,104 @@
+.stats-page {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  max-width: 1120px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 26px 24px 40px;
+  box-sizing: border-box;
+}
+
+.stats-head h1 {
+  margin: 0;
+  color: #20364d;
+  font-family: 'Linux Libertine', Georgia, Times, serif;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -.02em;
+}
+.stats-head p { margin: 6px 0 0; color: #47637c; font-size: .9rem; }
+
+.stats-error {
+  padding: 18px 20px;
+  border: 1px solid #e6bcbc;
+  border-radius: 12px;
+  background: #fff0f0;
+  color: #a33a3a;
+  font-size: .88rem;
+}
+
+/* One strip rather than five separate cards -- these are five readings of the
+   same pool, and boxing each one implies they are five unrelated things. */
+.summary-strip {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  overflow: hidden;
+  border: 1px solid #c7d6e3;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(32,54,77,.08);
+}
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 18px 20px;
+  border-left: 1px solid #e3ecf3;
+}
+.summary-item:first-child { border-left: 0; }
+.summary-value { color: #20364d; font-size: 1.6rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.summary-label { color: #6b8499; font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.tone-green .summary-value { color: #216e3a; }
+.tone-red .summary-value { color: #a33a3a; }
+.tone-amber .summary-value { color: #8a5a00; }
+
+.chart-panel {
+  overflow: hidden;
+  border: 1px solid #c7d6e3;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(32,54,77,.08);
+}
+.chart-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e3ecf3;
+}
+.chart-head h2 { margin: 0; color: #20364d; font-size: .95rem; font-weight: 800; }
+.chart-head p { margin: 0; color: #47637c; font-size: .82rem; }
+.chart-frame { height: 320px; padding: 18px 16px 8px; }
+.chart-empty { margin: 0; padding: 40px 20px; color: #47637c; font-size: .88rem; text-align: center; }
+
+.day-table > summary {
+  width: fit-content;
+  padding: 8px 12px;
+  border: 1px solid #c7d6e3;
+  border-radius: 8px;
+  background: #fff;
+  color: #355b80;
+  font-size: .82rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.day-table > summary:hover { background: #eef4f8; }
+.day-table[open] > summary { margin-bottom: 12px; }
+
+@media (max-width: 860px) {
+  .summary-strip { grid-template-columns: repeat(3, 1fr); }
+  .summary-item:nth-child(4) { border-left: 0; }
+  .summary-item:nth-child(n+4) { border-top: 1px solid #e3ecf3; }
+}
+@media (max-width: 560px) {
+  .stats-page { padding: 18px 12px 32px; gap: 16px; }
+  .stats-head h1 { font-size: 1.6rem; }
+  .summary-strip { grid-template-columns: repeat(2, 1fr); }
+  .summary-item { padding: 14px 16px; }
+  .summary-item:nth-child(odd) { border-left: 0; }
+  .summary-item:nth-child(n+3) { border-top: 1px solid #e3ecf3; }
+  .chart-frame { height: 260px; padding: 12px 6px 4px; }
+}

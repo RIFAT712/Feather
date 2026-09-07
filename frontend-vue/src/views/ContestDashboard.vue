@@ -163,7 +163,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-        <section v-if="juryRows.length" class="jury-tally">
+        <section v-if="(roles.is_jury || roles.is_owner) && juryRows.length" class="jury-tally">
       <div class="jury-tally-head">
         <h2>Jury tally</h2>
         <p>{{ reviewedCount }} of {{ stats.total }} submissions reviewed</p>

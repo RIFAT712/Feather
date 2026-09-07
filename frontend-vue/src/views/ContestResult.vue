@@ -110,7 +110,10 @@ onMounted(async () => {
         </cdx-table>
       </section>
 
-      <section class="table-section">
+      <!-- Empty for anyone who is not the owner or this contest's jury: the
+           backend withholds the rows, so the whole section stays out of the
+           public results page rather than rendering an empty table. -->
+      <section v-if="results.juries?.length" class="table-section">
         <h3>Jury Activity</h3>
         <cdx-table
           caption="Jury activity"

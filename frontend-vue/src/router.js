@@ -25,6 +25,7 @@ const routes = [
       { path: 'jury', component: JuryStats },
       { path: 'progress', component: JuryStats },
       { path: 'log', component: ActivityLog },
+      { path: 'stats', component: () => import('./views/ContestStats.vue') },
       { path: 'result', component: () => import('./views/ContestResult.vue') },
       { path: 'user/:username', component: UserProfile },
       { path: 'config', component: () => import('./views/ContestConfig.vue') },
