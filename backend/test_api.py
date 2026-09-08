@@ -20,6 +20,7 @@ Runs against whatever backend/.env points at (SQLite locally).
 import sys
 import csv
 import io
+from datetime import date
 
 import main
 from fastapi.testclient import TestClient
@@ -164,6 +165,47 @@ def check_review_queue(client, code):
           % (body["total"], len(body["items"])))
 
 
+def check_stats_daily(client, code):
+    """The two series behind /{code}/stats' chart, pinned against the database.
+
+    Both are gap-filled in Python over the union of their date ranges, which is
+    exactly the kind of code that can silently drop the first or last day, or
+    lose the judgments whose review day falls outside the submission window --
+    and still return a plausible curve. Totals and contiguity catch that.
+    """
+    body = client.get("/api/contests/%s/stats" % code).json()
+    daily = body["daily"]
+    assert daily, "no daily series -- the chart would render empty"
+    for key in ("date", "count", "judged"):
+        assert key in daily[0], "missing %r in %s" % (key, sorted(daily[0]))
+
+    db = next(get_db())
+    contest = db.query(main.models.Contest).filter_by(code=code).first()
+    submitted = db.query(main.models.Article).filter(
+        main.models.Article.contest_id == contest.id,
+        main.models.Article.submitted_at.isnot(None)).count()
+    judged = db.query(main.models.Review).join(
+        main.models.Article, main.models.Article.id == main.models.Review.article_id).filter(
+        main.models.Article.contest_id == contest.id,
+        main.models.Review.status != main.models.ReviewStatus.skipped,
+        main.models.Review.timestamp.isnot(None)).count()
+
+    assert sum(d["count"] for d in daily) == submitted, (
+        "daily submissions sum to %d, %d in the contest"
+        % (sum(d["count"] for d in daily), submitted))
+    assert sum(d["judged"] for d in daily) == judged, (
+        "daily judgments sum to %d, %d non-skipped reviews in the contest"
+        % (sum(d["judged"] for d in daily), judged))
+
+    first = date.fromisoformat(daily[0]["date"])
+    last = date.fromisoformat(daily[-1]["date"])
+    assert len(daily) == (last - first).days + 1, (
+        "%d points spanning %d days -- a day went missing from the gap-fill"
+        % (len(daily), (last - first).days + 1))
+    print("  stats daily: %d days, %d submissions, %d judgments, counts match"
+          % (len(daily), submitted, judged))
+
+
 def check_exports(client, code):
     assert main.translate_status("accepted") == "গৃহীত"
     assert main.translate_status("rejected") == "প্রত্যাখ্যাত"
@@ -227,6 +269,7 @@ def demo():
         client = TestClient(main.app)
         check_gets(client, code, username)
         check_review_queue(client, code)
+        check_stats_daily(client, code)
         check_exports(client, code)
     finally:
         main.app.dependency_overrides.clear()

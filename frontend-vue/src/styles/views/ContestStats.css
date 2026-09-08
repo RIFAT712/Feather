@@ -53,6 +53,27 @@
 .tone-red .summary-value { color: #a33a3a; }
 .tone-amber .summary-value { color: #8a5a00; }
 
+/* Judging progress. Same white panel as the chart below it, one row tall:
+   the bar is the headline, the counts beside it are the detail. */
+.progress-panel {
+  margin-bottom: 18px;
+  padding: 16px 18px;
+  border: 1px solid var(--feather-border);
+  border-radius: 12px;
+  background: var(--feather-surface);
+  box-shadow: 0 8px 24px rgba(32, 54, 77, .08);
+}
+.progress-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 14px;
+  margin-bottom: 12px;
+}
+.progress-head h2 { margin: 0; color: #20364d; font-size: .95rem; font-weight: 800; }
+.progress-head p { margin: 0; color: #47637c; font-size: .82rem; font-variant-numeric: tabular-nums; }
+
 .chart-panel {
   overflow: hidden;
   border: 1px solid #c7d6e3;
@@ -70,8 +91,27 @@
   border-bottom: 1px solid #e3ecf3;
 }
 .chart-head h2 { margin: 0; color: #20364d; font-size: .95rem; font-weight: 800; }
-.chart-head p { margin: 0; color: #47637c; font-size: .82rem; }
 .chart-head-right { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+
+/* The legend is also the filter, so it has to read as pressable: a bordered
+   pill each, a hover, a focus ring, and a visibly off state when the series is
+   hidden. Same pill vocabulary as the scale switch beside it, but separate
+   groups -- these toggle two independent series, that one picks one of two. */
+.series-switch { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.series-switch button {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 11px; border: 1px solid var(--feather-border); border-radius: 999px;
+  background: #fff; color: var(--feather-text);
+  font: inherit; font-size: .76rem; font-weight: 650; cursor: pointer;
+}
+.series-switch button:hover { background: #f4f8fb; border-color: #adc4d6; }
+.series-switch button:focus-visible { outline: 2px solid var(--feather-accent); outline-offset: 1px; }
+/* Off state: struck through as well as faded, so "hidden" does not rest on
+   colour or opacity alone. */
+.series-switch button.is-off { background: #f4f8fb; color: var(--feather-muted); text-decoration: line-through; }
+.series-switch button.is-off .series-swatch { opacity: .35; }
+.series-swatch { width: 16px; height: 0; border-top: 2px solid var(--swatch); }
+.series-swatch.is-dashed { border-top-style: dashed; }
 
 /* The same pale-pill active state as the contest tabs: a control that changes
    what the chart means should read as a control, not as decoration. */
@@ -83,7 +123,22 @@
 .scale-switch button:hover { color: var(--feather-text); }
 .scale-switch button.is-active { background: #e4eef5; box-shadow: inset 0 0 0 1px #cbdde9; color: #274d70; }
 .scale-switch button:focus-visible { outline: 2px solid var(--feather-accent); outline-offset: 1px; }
-.chart-frame { height: 320px; padding: 18px 16px 8px; }
+/* Crosshair over the plot is the only affordance the gesture gets besides the
+   hint line below it; the selection rectangle takes over once the drag starts. */
+.chart-frame { position: relative; height: 320px; padding: 18px 16px 8px; cursor: crosshair; }
+.drag-select {
+  position: absolute; top: 18px; bottom: 8px;
+  border-left: 1px solid var(--feather-accent); border-right: 1px solid var(--feather-accent);
+  background: rgba(53, 91, 128, .12); pointer-events: none;
+}
+.chart-hint { margin: 0; padding: 0 20px 14px; color: var(--feather-muted); font-size: .76rem; }
+.zoom-reset {
+  padding: 4px 11px; border: 1px solid var(--feather-border); border-radius: 999px;
+  background: #fff; color: var(--feather-accent);
+  font: inherit; font-size: .76rem; font-weight: 650; cursor: pointer;
+}
+.zoom-reset:hover { background: #f4f8fb; border-color: #adc4d6; }
+.zoom-reset:focus-visible { outline: 2px solid var(--feather-accent); outline-offset: 1px; }
 .chart-empty { margin: 0; padding: 40px 20px; color: #47637c; font-size: .88rem; text-align: center; }
 
 /* The standings table draws its own surface (light-theme.css), so the heading

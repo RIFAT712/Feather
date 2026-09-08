@@ -2270,23 +2270,42 @@ def get_contest_stats(code: str, db: Session = Depends(get_db),
     # between 00:00 and 06:00 local counts to the previous day. Shifting the
     # column before truncating needs dialect-specific interval syntax; do that
     # if the day boundary ever matters more than the shape of the curve.
-    daily_rows = db.query(
+    def by_day(rows):
+        out = {}
+        for day, count in rows:
+            if day is None:
+                continue
+            key = day.isoformat() if hasattr(day, "isoformat") else str(day)[:10]
+            out[key] = out.get(key, 0) + int(count)
+        return out
+
+    counts = by_day(db.query(
         func.date(models.Article.submitted_at), func.count(models.Article.id)
     ).filter(models.Article.contest_id == contest.id,
-             models.Article.submitted_at.isnot(None))      .group_by(func.date(models.Article.submitted_at)).all()
-    counts = {}
-    for day, count in daily_rows:
-        if day is None:
-            continue
-        key = day.isoformat() if hasattr(day, "isoformat") else str(day)[:10]
-        counts[key] = counts.get(key, 0) + int(count)
+             models.Article.submitted_at.isnot(None))
+     .group_by(func.date(models.Article.submitted_at)).all())
+
+    # Judgments per day, plotted against submissions on the same axis -- both
+    # are "rows per day", so one scale reads them honestly. Every non-skipped
+    # review counts as a judging action on the day it was made; a re-decision is
+    # a second action, not a correction of the first, so it is not deduplicated
+    # the way the per-jury tallies above are.
+    judged = by_day(db.query(
+        func.date(models.Review.timestamp), func.count(models.Review.id)
+    ).join(models.Article, models.Article.id == models.Review.article_id)
+     .filter(models.Article.contest_id == contest.id,
+             models.Review.status != models.ReviewStatus.skipped,
+             models.Review.timestamp.isnot(None))
+     .group_by(func.date(models.Review.timestamp)).all())
+
     daily = []
-    if counts:
-        first = date.fromisoformat(min(counts))
-        last = date.fromisoformat(max(counts))
+    if counts or judged:
+        keys = list(counts) + list(judged)
+        first = date.fromisoformat(min(keys))
+        last = date.fromisoformat(max(keys))
         for offset in range((last - first).days + 1):
             day = (first + timedelta(days=offset)).isoformat()
-            daily.append({"date": day, "count": counts.get(day, 0)})
+            daily.append({"date": day, "count": counts.get(day, 0), "judged": judged.get(day, 0)})
 
     latest_article_id = db.query(func.max(models.Article.id)).filter_by(contest_id=contest.id).scalar() or 0
     latest_review_id = db.query(func.max(models.Review.id)) \
