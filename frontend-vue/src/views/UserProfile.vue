@@ -10,6 +10,7 @@ const profile = ref(null);
 const isLoading = ref(true);
 const error = ref(null);
 const submissionSort = ref({});
+const reviewSort = ref({});
 const competitionPosition = ref(null);
 const showScrollTop = ref(false);
 const submissionColumns = [
@@ -17,17 +18,32 @@ const submissionColumns = [
   { id: 'status', label: 'Status', allowSort: true },
   { id: 'jury', label: 'Jury', allowSort: true, minWidth: '160px' },
   { id: 'comment', label: 'Judgment comment', allowSort: true, minWidth: '250px' },
+  { id: 'reviewed_at', label: 'Reviewed At', allowSort: true, minWidth: '170px' },
   { id: 'submitted_at', label: 'Submitted At', allowSort: true, minWidth: '170px' }
 ];
 
 const reviewColumns = [
-  { id: 'article_title', label: 'Article', minWidth: '220px' },
-  { id: 'decision', label: 'Decision' },
-  { id: 'comment', label: 'Comment', minWidth: '260px' },
-  { id: 'reviewed_at', label: 'Reviewed At', minWidth: '170px' },
+  { id: 'article_title', label: 'Article', allowSort: true, minWidth: '220px' },
+  { id: 'submitter', label: 'Submitter', allowSort: true, minWidth: '150px' },
+  { id: 'decision', label: 'Decision', allowSort: true },
+  { id: 'comment', label: 'Comment', allowSort: true, minWidth: '260px' },
+  { id: 'reviewed_at', label: 'Reviewed At', allowSort: true, minWidth: '170px' },
 ];
 
 const updateSubmissionSort = (sort) => { submissionSort.value = sort; };
+const updateReviewSort = (sort) => { reviewSort.value = sort; };
+
+// Shared by both tables: CdxTable reports the active column and direction, and
+// the rows are ordered here rather than server-side because the endpoint
+// already returns the whole set in one response. String comparison throughout
+// -- the only non-text column either table sorts on is a timestamp, and those
+// are ISO strings, which order correctly as text.
+const sortRows = (rows, sort, valueFor) => {
+  const [key, direction] = Object.entries(sort)[0] || [];
+  if (!key || direction === 'none') return rows;
+  const multiplier = direction === 'asc' ? 1 : -1;
+  return rows.sort((a, b) => multiplier * String(valueFor(a, key)).localeCompare(String(valueFor(b, key))));
+};
 
 const articleStats = computed(() => {
   const submissions = profile.value?.submissions || [];
@@ -38,18 +54,26 @@ const articleStats = computed(() => {
   };
 });
 
-const sortedSubmissions = computed(() => {
-  const submissions = [...(profile.value?.submissions || [])];
-  const [key, direction] = Object.entries(submissionSort.value)[0] || [];
-  if (!key || direction === 'none') return submissions;
-  const valueFor = (submission) => {
+const sortedSubmissions = computed(() => sortRows(
+  [...(profile.value?.submissions || [])],
+  submissionSort.value,
+  (submission, key) => {
     if (key === 'jury') return (submission.reviews || []).map((review) => review.jury).join(', ');
     if (key === 'comment') return (submission.reviews || []).map((review) => review.comment || '').join(' ');
+    // Reviews arrive newest-first, so the first one is the current decision --
+    // sort on that rather than on a concatenation of every timestamp.
+    if (key === 'reviewed_at') return (submission.reviews || [])[0]?.reviewed_at || '';
     return submission[key] || '';
-  };
-  const multiplier = direction === 'asc' ? 1 : -1;
-  return submissions.sort((a, b) => multiplier * String(valueFor(a)).localeCompare(String(valueFor(b))));
-});
+  },
+));
+
+// Every review column is flat on the row, so no special cases. Unsorted means
+// the order the endpoint returned, which is already newest decision first.
+const sortedReviews = computed(() => sortRows(
+  [...(profile.value?.reviews || [])],
+  reviewSort.value,
+  (review, key) => review[key] || '',
+));
 
 // Both tables below used to render every row this user has: a prolific
 // submitter on a large contest has thousands, each carrying a nested loop over
@@ -107,9 +131,9 @@ const reviewPills = computed(() => pillsFor(profile.value?.reviews || [], 'decis
 ]));
 
 const visibleReviewCount = ref(ROW_WINDOW);
-const visibleReviews = computed(() => (profile.value?.reviews || []).slice(0, visibleReviewCount.value));
+const visibleReviews = computed(() => sortedReviews.value.slice(0, visibleReviewCount.value));
 const hiddenReviewCount = computed(() =>
-  Math.max((profile.value?.reviews || []).length - visibleReviewCount.value, 0));
+  Math.max(sortedReviews.value.length - visibleReviewCount.value, 0));
 const showMoreReviews = () => { visibleReviewCount.value += ROW_WINDOW; };
 
 const fetchProfile = async () => {
@@ -238,6 +262,10 @@ const formatDate = (dateStr) => {
               <template v-if="row.reviews?.length"><div v-for="(review, reviewIndex) in row.reviews" :key="`${row.id}-comment-${reviewIndex}`" class="judgment-comment">{{ review.comment || 'No comment' }}</div></template>
               <span v-else class="muted-value">&mdash;</span>
             </template>
+            <template #item-reviewed_at="{ row }">
+              <template v-if="row.reviews?.length"><div v-for="(review, reviewIndex) in row.reviews" :key="`${row.id}-time-${reviewIndex}`" class="jury-entry"><span class="muted-value">{{ formatDate(review.reviewed_at) }}</span></div></template>
+              <span v-else class="muted-value">&mdash;</span>
+            </template>
             <template #item-submitted_at="{ row }">{{ formatDate(row.submitted_at) }}</template>
           </cdx-table>
           <div v-else class="empty-state">No submissions yet.</div>
@@ -279,9 +307,15 @@ const formatDate = (dateStr) => {
             hide-caption
             :columns="reviewColumns"
             :data="visibleReviews"
+            :sort="reviewSort"
+            @update:sort="updateReviewSort"
           >
             <template #item-article_title="{ item }">
               <a :href="'https://bn.wiktionary.org/wiki/' + encodeURIComponent(item)" target="_blank" class="title-link">{{ item }}</a>
+            </template>
+            <template #item-submitter="{ item }">
+              <router-link v-if="item" :to="`/${route.params.code}/user/${encodeURIComponent(item)}`">{{ item }}</router-link>
+              <span v-else class="muted-value">&mdash;</span>
             </template>
             <template #item-decision="{ item }">
               <span :class="['decision-badge', item]">{{ item }}</span>

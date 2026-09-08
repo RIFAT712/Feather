@@ -2978,8 +2978,10 @@ def get_contest_user_profile(code: str, username: str, db: Session = Depends(get
             "reviewed_at": review.timestamp.isoformat() if review.timestamp else None
         })
     
+    # The submitter comes along with the article: the jury table on the profile
+    # names who wrote each page, and lazily that is one SELECT per review row.
     reviews = db.query(models.Review).join(models.Article)\
-        .options(joinedload(models.Review.article))\
+        .options(joinedload(models.Review.article).joinedload(models.Article.submitter))\
         .filter(
             models.Article.contest_id == contest.id,
             models.Review.reviewer_id == user.id
@@ -3001,6 +3003,7 @@ def get_contest_user_profile(code: str, username: str, db: Session = Depends(get
         "reviews": [
             {
                 "article_title": r.article.title,
+                "submitter": r.article.submitter.wiki_username if r.article.submitter else None,
                 "decision": r.status.value,
                 "comment": r.comment,
                 "reviewed_at": r.timestamp.isoformat() if r.timestamp else None
