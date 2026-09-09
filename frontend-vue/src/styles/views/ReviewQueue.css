@@ -323,10 +323,9 @@ button { cursor: pointer; }
    beside it to be legible at all. The glyphs are gone; the block heading above
    each run names the decision, so position and label still carry it for anyone
    the colour does not. */
-.rq-list-item.rq-item-accepted:not(.is-active) { background: color-mix(in srgb, var(--rq-success) 34%, var(--rq-surface-alt)); }
-.rq-list-item.rq-item-rejected:not(.is-active) { background: color-mix(in srgb, var(--rq-danger) 34%, var(--rq-surface-alt)); }
-.rq-list-item.rq-item-accepted { box-shadow: inset 3px 0 0 var(--rq-success-dark); }
-.rq-list-item.rq-item-rejected { box-shadow: inset 3px 0 0 var(--rq-danger-dark); }
+/* No per-row accepted/rejected tint or edge: the Re-review list is already
+   split into sticky Accepted and Rejected blocks, so colour was restating the
+   heading a reader has on screen anyway. */
 
 /* One row introducing each decision block. Sticky, so the label is still there
    after scrolling into a long run of rejections. */
@@ -349,7 +348,6 @@ button { cursor: pointer; }
 .rq-decision-chevron { font-size: .9rem; transition: transform 180ms var(--ease-out); }
 .rq-decision-chevron.is-collapsed { transform: rotate(-90deg); }
 .rq-decision-count { margin-left: auto; color: var(--rq-text-muted); font-weight: 600; font-variant-numeric: tabular-nums; }
-.rq-item-skipped { background: color-mix(in srgb, var(--rq-warning) 8%, var(--rq-surface-alt)); }
 .rq-item-readonly { cursor: default; }
 .rq-panel-tools { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
 .rq-panel-search { width: 100%; }

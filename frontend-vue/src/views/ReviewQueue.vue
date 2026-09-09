@@ -19,8 +19,6 @@ import {
   cdxIconNext,
   cdxIconTrash,
   cdxIconBlock,
-  cdxIconBright,
-  cdxIconMoon,
 } from '@wikimedia/codex-icons';
 import { formatDateDayFirst } from '../utils/datetime';
 import { fetchAllContestLogPages } from '../utils/contestLog';
@@ -67,18 +65,12 @@ const searchQuery = ref("");
 // not a per-visit one.
 const panelWidth = ref(Number(localStorage.getItem('review_queue_panel_width')) || 340);
 const isResizing = ref(false);
-const theme = ref(localStorage.getItem('review_queue_theme') || 'light');
 const ownerViewMode = ref('judge');
 // Defaults to the owner's own queue, not just whichever jury happens to be
 // first in the contest's jury list -- an owner opening /review-v2 should
 // land on their own assigned articles, not silently start reviewing (and
 // attributing decisions to) another jury member's queue by default.
 const selectedJudge = ref(user?.value?.wiki_username || props.contest?.juries?.[0] || '');
-
-const toggleTheme = () => {
-  theme.value = theme.value === 'dark' ? 'light' : 'dark';
-  localStorage.setItem('review_queue_theme', theme.value);
-};
 
 const toggleWikitext = () => {
   showWikitext.value = !showWikitext.value;
@@ -119,118 +111,6 @@ let roleLoaded = false;
 let assignedRefillPromise = null;
 
 const WIKI_BASE = 'https://bn.wiktionary.org/wiki/';
-const DARK_CSS = `
-  :root { color-scheme: dark; }
-  html, body {
-    background: oklch(0.1 0.01 264) !important;
-    color: oklch(0.96 0.02 264) !important;
-    font-family: 'Linux Libertine', Georgia, Times, serif;
-    font-size: 15px;
-    line-height: 1.75;
-    /* Centred, not flush left: with the queue panel collapsed the pane runs
-       past 1,100px and 'margin: 0' left the text pinned to one edge with the
-       rest empty. 720px rather than a ch-based measure -- ch is derived from
-       the '0' advance, which says nothing useful about Bengali glyph widths. */
-    margin: 0 auto;
-    padding: 10px 14px 28px;
-    max-width: 720px;
-  }
-  /* Wikipedia-style link colors */
-  a { color: #3366cc !important; }
-  a:visited { color: #795cb2 !important; }
-  a.new, a.new:visited { color: #d33 !important; }  /* red-links (missing pages) */
-  a:hover { text-decoration: underline; }
-
-  /* TOC, reflist, catlinks links inherit wiki-blue */
-  .toc a, .toc a:visited { color: #3366cc !important; }
-  .reflist a, .references a { color: #3366cc !important; }
-  .catlinks a { color: #3366cc !important; }
-
-  /* --- strip ALL inline light-background colors from every element --- */
-  * { background-color: unset !important; }
-
-  /* tables */
-  table { border-collapse: collapse; background: oklch(0.15 0.01 264) !important; color: oklch(0.96 0.02 264) !important; }
-  th, td { border: 1px solid oklch(0.4 0.02 264) !important; padding: 6px 10px; color: oklch(0.96 0.02 264) !important; }
-  th { background: oklch(0.2 0.01 264) !important; }
-  tr:nth-child(even) td { background: oklch(0.18 0.01 264) !important; }
-
-  /* wikitable */
-  .wikitable { background: oklch(0.15 0.01 264) !important; border: 1px solid oklch(0.4 0.02 264) !important; }
-  .wikitable > * > tr > th { background: oklch(0.2 0.01 264) !important; color: oklch(0.96 0.02 264) !important; }
-  .wikitable > * > tr > td { background: transparent !important; }
-
-  /* NavFrame */
-  .NavFrame {
-    border: 1px solid oklch(0.4 0.02 264) !important;
-    border-radius: 6px;
-    background: oklch(0.2 0.01 264) !important;
-    margin: 12px 0;
-    overflow: hidden;
-  }
-  .NavHead {
-    background: oklch(0.25 0.02 264) !important;
-    color: oklch(0.96 0.02 264) !important;
-    padding: 6px 10px !important;
-    cursor: pointer !important;
-    font-weight: 600;
-    user-select: none;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border-bottom: 1px solid oklch(0.4 0.02 264);
-  }
-  .NavHead:hover { background: oklch(0.3 0.02 264) !important; }
-  .NavToggle { color: oklch(0.96 0.02 264) !important; font-size: 0.85em; }
-  .NavContent { background: oklch(0.15 0.01 264) !important; }
-  .NavContent td, .NavContent th { border-color: oklch(0.3 0.02 264) !important; }
-
-  /* vsToggle */
-  .vsToggleElement[style*='background'] { background: oklch(0.25 0.02 264) !important; color: oklch(0.96 0.02 264) !important; }
-  th[class~='vsToggleElement'] { background: oklch(0.25 0.02 264) !important; color: oklch(0.96 0.02 264) !important; cursor: pointer !important; }
-
-  /* mw-collapsible */
-  .mw-collapsible-toggle { cursor: pointer; color: oklch(0.76 0.02 264) !important; }
-  .mw-collapsed .mw-collapsible-content { display: none !important; }
-
-  /* headings */
-  h1, h2, h3, h4, h5 {
-    color: oklch(0.96 0.02 264) !important;
-    border-bottom: 1px solid oklch(0.4 0.02 264) !important;
-    padding-bottom: 4px;
-  }
-  h2 { font-size: 1.4em; margin-top: 1.4em; }
-  h3 { font-size: 1.15em; margin-top: 1em; }
-  h4 { font-size: 1em; border-bottom: none !important; }
-
-  /* TOC */
-  #toc, .toc { background: oklch(0.2 0.01 264) !important; border: 1px solid oklch(0.4 0.02 264) !important; border-radius: 6px; padding: 12px 18px; }
-  .toctitle { color: oklch(0.96 0.02 264) !important; }
-
-  /* hide edit links */
-  .mw-editsection, .mw-editsection-bracket { display: none !important; }
-
-  /* infobox */
-  .infobox { background: oklch(0.2 0.01 264) !important; border: 1px solid oklch(0.4 0.02 264) !important; }
-  .infobox th { background: oklch(0.25 0.02 264) !important; }
-
-  /* references */
-  .reflist, ol.references { color: #94a3b8 !important; font-size: 0.85em; }
-
-  /* categories */
-  .catlinks { background: oklch(0.2 0.01 264) !important; border: 1px solid oklch(0.4 0.02 264) !important; color: oklch(0.76 0.02 264) !important; margin-top: 24px; padding: 8px 14px; border-radius: 6px; }
-
-  /* hatnote/notices */
-  .hatnote, .dablink { background: #1d3550 !important; border-left: 3px solid #4f9cf7 !important; padding: 6px 12px; color: #9eb6cc !important; }
-
-  /* ib-header / inflection tables with inline styles */
-  [style*='background:#'], [style*='background: #'], [style*='background:rgb'], [style*='background: rgb'] {
-    background: rgba(80,80,120,0.25) !important;
-    color: oklch(0.96 0.02 264) !important;
-  }
-  /* keep text-align / font-weight from inline styles but neutralise colour */
-  [style*='color:rgb'], [style*='color: rgb'] { color: oklch(0.96 0.02 264) !important; }
-`;
 const COLLAPSIBLE_JS = `
   (function() {
     function initNavFrames() {
@@ -351,14 +231,10 @@ const LIGHT_CSS = `
     color: #20364d !important;
     font-family: 'Linux Libertine', Georgia, Times, serif;
     font-size: 15px;
-    line-height: 1.75;
-    /* Centred, not flush left: with the queue panel collapsed the pane runs
-       past 1,100px and 'margin: 0' left the text pinned to one edge with the
-       rest empty. 720px rather than a ch-based measure -- ch is derived from
-       the '0' advance, which says nothing useful about Bengali glyph widths. */
-    margin: 0 auto;
+    line-height: 1.6;
+    margin: 0;
     padding: 10px 14px 28px;
-    max-width: 720px;
+    max-width: 860px;
   }
   a { color: #1769aa !important; }
   a:visited { color: #7253a8 !important; }
@@ -398,7 +274,7 @@ const fetchPreview = async (title) => {
 <head>
 <meta charset="utf-8">
 <base href="https://bn.wiktionary.org/wiki/">
-<style>${theme.value === 'light' ? LIGHT_CSS : DARK_CSS}</style>
+<style>${LIGHT_CSS}</style>
 </head>
 <body class="mw-body mw-parser-output">
 ${body}
@@ -407,18 +283,11 @@ ${body}
 </html>`;
   } catch (e) {
     console.error(e);
-    const errorTheme = theme.value === 'light'
-      ? 'color:#20364d;background:#f5f8fb'
-      : 'color:oklch(0.96 0.02 264);background:oklch(0.1 0.01 264)';
-    if (requestId === previewRequestId) previewSrcdoc.value = `<!DOCTYPE html><html><body style="${errorTheme};padding:24px">Error loading preview.</body></html>`;
+    if (requestId === previewRequestId) previewSrcdoc.value = `<!DOCTYPE html><html><body style="color:#20364d;background:#f5f8fb;padding:24px">Error loading preview.</body></html>`;
   } finally {
     if (requestId === previewRequestId) isLoadingPreview.value = false;
   }
 };
-
-watch(theme, () => {
-  if (currentArticle.value?.title) fetchPreview(currentArticle.value.title);
-});
 
 // Walks the assigned queue in bounded keyset pages until it runs out. Returns
 // a promise that settles once the *first* page is in `articles.value`, so the
@@ -1439,7 +1308,7 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
 </script>
 
 <template>
-  <div class="rq-app" :class="`rq-theme-${theme}`">
+  <div class="rq-app rq-theme-light">
     <div v-if="!isLoading && !isAuthorized" class="rq-center-state">
       <div class="rq-card-unauth">
         <cdx-icon class="rq-icon-large" :icon="cdxIconBlock" />
@@ -1476,15 +1345,6 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
                 @click="showQueueOptions = !showQueueOptions"
               >
                 <CdxIcon :icon="cdxIconSettings" />
-              </button>
-              <button
-                class="rq-icon-btn"
-                type="button"
-                :title="theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
-                :aria-label="theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
-                @click="toggleTheme"
-              >
-                <CdxIcon :icon="theme === 'dark' ? cdxIconBright : cdxIconMoon" />
               </button>
               <button class="rq-icon-btn rq-desktop-only" title="Collapse the panel" @click="sidebarCollapsed = true">
                 <CdxIcon :icon="cdxIconCollapse" />
