@@ -126,10 +126,14 @@ const DARK_CSS = `
     color: oklch(0.96 0.02 264) !important;
     font-family: 'Linux Libertine', Georgia, Times, serif;
     font-size: 15px;
-    line-height: 1.6;
-    margin: 0;
+    line-height: 1.75;
+    /* Centred, not flush left: with the queue panel collapsed the pane runs
+       past 1,100px and 'margin: 0' left the text pinned to one edge with the
+       rest empty. 720px rather than a ch-based measure -- ch is derived from
+       the '0' advance, which says nothing useful about Bengali glyph widths. */
+    margin: 0 auto;
     padding: 10px 14px 28px;
-    max-width: 860px;
+    max-width: 720px;
   }
   /* Wikipedia-style link colors */
   a { color: #3366cc !important; }
@@ -347,10 +351,14 @@ const LIGHT_CSS = `
     color: #20364d !important;
     font-family: 'Linux Libertine', Georgia, Times, serif;
     font-size: 15px;
-    line-height: 1.6;
-    margin: 0;
+    line-height: 1.75;
+    /* Centred, not flush left: with the queue panel collapsed the pane runs
+       past 1,100px and 'margin: 0' left the text pinned to one edge with the
+       rest empty. 720px rather than a ch-based measure -- ch is derived from
+       the '0' advance, which says nothing useful about Bengali glyph widths. */
+    margin: 0 auto;
     padding: 10px 14px 28px;
-    max-width: 860px;
+    max-width: 720px;
   }
   a { color: #1769aa !important; }
   a:visited { color: #7253a8 !important; }
