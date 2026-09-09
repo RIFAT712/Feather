@@ -9,8 +9,9 @@ import {
   cdxIconCheck,
   cdxIconClear,
   cdxIconCollapse,
-  cdxIconCopy,
   cdxIconDownTriangle,
+  cdxIconSettings,
+  cdxIconCopy,
   cdxIconLinkExternal,
   cdxIconLock,
   cdxIconMenu,
@@ -48,10 +49,21 @@ const previewPane = ref('visual');
 const wikitextSource = ref('');
 const wikitextCopied = ref(false);
 
-const showNewArticles = ref(true);
-const showJudgedArticles = ref(false);
-const judgedSearch = ref("");
-const showOtherReviewed = ref(false);
+// The three collapsible groups (pending / other judges / my judged) became
+// tabs: stacked, each group cost a header band plus its own margins, so on a
+// laptop the chrome above the first article was taller than the list. One
+// list at a time also means one row template instead of three near-copies.
+const listTab = ref('queue');
+// View-as and the grouping preference are set once and then in the way, so
+// they live behind a disclosure rather than in a permanent band.
+const showQueueOptions = ref(false);
+// One search box for the whole panel (it used to filter My Judged only).
+// Terms are ANDed against the title, so "raja mahal" narrows by both words.
+const searchQuery = ref("");
+// Desktop-only panel width. Persisted because it is a physical layout choice,
+// not a per-visit one.
+const panelWidth = ref(Number(localStorage.getItem('review_queue_panel_width')) || 340);
+const isResizing = ref(false);
 const theme = ref(localStorage.getItem('review_queue_theme') || 'light');
 const ownerViewMode = ref('judge');
 // Defaults to the owner's own queue, not just whichever jury happens to be
@@ -113,7 +125,7 @@ const DARK_CSS = `
     font-size: 15px;
     line-height: 1.6;
     margin: 0;
-    padding: 20px 24px 64px;
+    padding: 10px 14px 28px;
     max-width: 860px;
   }
   /* Wikipedia-style link colors */
@@ -334,7 +346,7 @@ const LIGHT_CSS = `
     font-size: 15px;
     line-height: 1.6;
     margin: 0;
-    padding: 20px 24px 64px;
+    padding: 10px 14px 28px;
     max-width: 860px;
   }
   a { color: #1769aa !important; }
@@ -563,10 +575,100 @@ const judgedArticles = computed(() => {
   return articles.value.filter(a => a.reviews.some(r => r.reviewer === myUsername.value));
 });
 
-const filteredJudgedArticles = computed(() => {
-  const query = judgedSearch.value.trim().toLocaleLowerCase();
-  if (!query) return judgedArticles.value;
-  return judgedArticles.value.filter(article => article.title.toLocaleLowerCase().includes(query));
+// Case-folded and stripped of combining marks, so a query typed without
+// diacritics still matches a title carrying them.
+const normalizeText = (value) => (value || '')
+  .toLocaleLowerCase()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '');
+
+const searchTerms = computed(() => normalizeText(searchQuery.value).split(/\s+/).filter(Boolean));
+
+// Titles only. Submitter and reviewer names were in here, and searching them
+// mostly matched an entire contest at once -- one person tends to submit
+// hundreds of the articles in a queue, so the result was the list you already
+// had.
+const matchesSearch = (article) => {
+  if (!searchTerms.value.length) return true;
+  const haystack = normalizeText(article.title);
+  return searchTerms.value.every(term => haystack.includes(term));
+};
+
+// Filtering is display-only and never touches `newArticles`, which the queue
+// logic (next-article pick, lock filtering, the nav badge) reads directly.
+const forSidebar = (list) => list.filter(matchesSearch);
+const filteredNewArticles = computed(() => forSidebar(newArticles.value));
+// Re-review is ordered by decision so accepted and rejected form separate
+// blocks. Array.sort is stable, so the queue order survives inside a block.
+const DECISION_RANK = { accepted: 0, rejected: 1, skipped: 2 };
+const rankOf = (article) => DECISION_RANK[getMyLatestDecision(article)] ?? 9;
+const filteredJudgedArticles = computed(() =>
+  [...forSidebar(judgedArticles.value)].sort((a, b) => rankOf(a) - rankOf(b)));
+
+const DECISION_LABEL = { accepted: 'Accepted', rejected: 'Rejected', skipped: 'Skipped' };
+const collapsedDecisions = ref({});
+const toggleDecision = (decision) => {
+  collapsedDecisions.value = { ...collapsedDecisions.value, [decision]: !collapsedDecisions.value[decision] };
+};
+const filteredOtherArticles = computed(() => forSidebar(otherReviewedArticles.value));
+
+// `key` is the sidebarVisibleCounts bucket, kept as the original section
+// names so a tab remembers how far it was scrolled independently.
+const listTabs = computed(() => {
+  const tabs = [
+    { id: 'queue', key: 'pending', label: 'Queue', list: filteredNewArticles.value },
+    { id: 'rereview', key: 'judged', label: 'Re-review', list: filteredJudgedArticles.value },
+  ];
+  // Owner-only, and only worth a tab when there is something in it.
+  if (otherReviewedArticles.value.length) {
+    tabs.push({ id: 'others', key: 'other', label: 'Other judges', list: filteredOtherArticles.value });
+  }
+  return tabs;
+});
+// Falls back rather than rendering nothing if the active tab disappears --
+// 'Other judges' comes and goes with the owner switcher.
+const activeTab = computed(() => listTabs.value.find(tab => tab.id === listTab.value) || listTabs.value[0]);
+const openArticle = (article) => { if (activeTab.value.id !== 'others') selectArticle(article); };
+
+// The rows actually drawn. Re-review emits a heading row per decision block
+// followed by that block's articles, so the template needs no lookahead, and
+// the 100-row budget is spent only on blocks that are open -- collapsing
+// Accepted lets the window fill with rejections instead of wasting itself on
+// rows nobody can see.
+const visibleRows = computed(() => {
+  const tab = activeTab.value;
+  if (tab.id !== 'rereview') {
+    return visibleSidebarArticles(tab.key, tab.list).map(article => ({ article }));
+  }
+  const blocks = new Map();
+  for (const article of tab.list) {
+    const decision = getMyLatestDecision(article) || 'skipped';
+    if (!blocks.has(decision)) blocks.set(decision, []);
+    blocks.get(decision).push(article);
+  }
+  const rows = [];
+  let budget = sidebarVisibleCounts.value.judged || 100;
+  for (const [decision, articlesInBlock] of blocks) {
+    rows.push({ heading: decision, count: articlesInBlock.length });
+    if (collapsedDecisions.value[decision]) continue;
+    for (const article of articlesInBlock) {
+      if (budget <= 0) break;
+      rows.push({ article, decision });
+      budget -= 1;
+    }
+  }
+  return rows;
+});
+
+// Re-review counts its own drawn rows, since collapsed blocks contribute none.
+const hasMoreRows = computed(() => {
+  const tab = activeTab.value;
+  if (tab.id !== 'rereview') return hasMoreSidebarArticles(tab.key, tab.list);
+  const drawn = visibleRows.value.filter(row => row.article).length;
+  const openTotal = tab.list.filter(
+    article => !collapsedDecisions.value[getMyLatestDecision(article) || 'skipped'],
+  ).length;
+  return drawn < openTotal;
 });
 
 const otherReviewedArticles = computed(() => {
@@ -637,6 +739,35 @@ const getMyLatestDecision = (article) => {
   if (!myReviews.length) return null;
   return myReviews[myReviews.length - 1].decision;
 };
+
+const PANEL_MIN = 260, PANEL_MAX = 640, PANEL_DEFAULT = 340;
+const rememberPanelWidth = () => {
+  try { localStorage.setItem('review_queue_panel_width', String(panelWidth.value)); } catch { /* not persisted */ }
+};
+const setPanelWidth = (px) => { panelWidth.value = Math.min(Math.max(Math.round(px), PANEL_MIN), PANEL_MAX); };
+
+// Listeners go on the window rather than the handle: the pointer leaves a 5px
+// strip immediately once you start dragging.
+const startResize = (event) => {
+  if (event.pointerType === 'touch') return;
+  const startX = event.clientX;
+  const startWidth = panelWidth.value;
+  isResizing.value = true;
+  const onMove = (moveEvent) => setPanelWidth(startWidth + moveEvent.clientX - startX);
+  const onUp = () => {
+    isResizing.value = false;
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    rememberPanelWidth();
+  };
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+  event.preventDefault();
+};
+// A splitter that only responds to a mouse is unreachable by keyboard, and
+// this one gates how much of the queue you can read.
+const nudgeResize = (delta) => { setPanelWidth(panelWidth.value + delta); rememberPanelWidth(); };
+const resetPanelWidth = () => { setPanelWidth(PANEL_DEFAULT); rememberPanelWidth(); };
 
 const getMyLatestComment = (article) => {
   const myReviews = article.reviews.filter(r => r.reviewer === myUsername.value);
@@ -755,6 +886,16 @@ watch(mobileTab, (tab) => {
   if (tab === 'list') releaseArticleLock(currentArticle.value?.article_id);
 });
 
+// Bulk selection belongs to the Queue tab -- it is the only one that renders
+// checkboxes. When the three lists were stacked, a selected row was always on
+// screen; with one list at a time a selection could outlive the tab showing
+// it, leaving the bulk banner offering Accept/Reject over articles the
+// reviewer could no longer see or uncheck.
+watch(listTab, () => {
+  selectedForBulk.value = [];
+  bulkComment.value = '';
+});
+
 onBeforeUnmount(() => {
   articleFetchController?.abort();
   clearInterval(statsInterval);
@@ -795,15 +936,25 @@ const handleDecision = async (decision) => {
     articles.value = articles.value.map(article => article.article_id === reviewedArticleId
       ? { ...article, status: decision, reviews: [...(article.reviews || []), optimisticReview] }
       : article);
-    const remainingArticles = availableNewArticles.value;
-    const nextArticle = remainingArticles.length
-      ? remainingArticles[Math.min(Math.max(previousQueueIndex, 0), remainingArticles.length - 1)]
-      : null;
-    if (nextArticle) {
-      selectArticle(nextArticle);
+    // Auto-advance belongs to the Queue tab, where the job is to work through
+    // a list. Re-reviewing is aimed at one particular article, so stay on it
+    // and just refresh it from the updated array. This is what threw the
+    // reviewer to the top of the queue: `previousQueueIndex` is -1 for an
+    // article that is no longer pending, and Math.max(-1, 0) made that 0.
+    if (listTab.value !== 'queue') {
+      currentArticle.value = articles.value.find(article => article.article_id === reviewedArticleId)
+        || currentArticle.value;
     } else {
-      currentArticle.value = null;
-      mobileTab.value = 'list';
+      const remainingArticles = availableNewArticles.value;
+      const nextArticle = remainingArticles.length
+        ? remainingArticles[Math.min(Math.max(previousQueueIndex, 0), remainingArticles.length - 1)]
+        : null;
+      if (nextArticle) {
+        selectArticle(nextArticle);
+      } else {
+        currentArticle.value = null;
+        mobileTab.value = 'list';
+      }
     }
 
     // Append the next keyset item instead of replacing the first page.
@@ -1178,8 +1329,10 @@ const handleBulkDecision = async (decision) => {
     errors = failed.map(item => item.article_id);
     selectedForBulk.value = [];
     bulkComment.value = '';
+    // Only the Queue tab moves you along; see handleDecision.
+    const advanceAfter = listTab.value === 'queue';
     const currentWasSuccessfullyReviewed = currentWasSelected && !errors.includes(currentArticle.value?.article_id);
-    if (currentWasSuccessfullyReviewed) {
+    if (advanceAfter && currentWasSuccessfullyReviewed) {
       currentArticle.value = null;
       previewRequestId++;
       previewSrcdoc.value = '';
@@ -1187,7 +1340,7 @@ const handleBulkDecision = async (decision) => {
       isLoadingPreview.value = false;
     }
     await fetchArticles(false);
-    if (currentWasSuccessfullyReviewed || !currentArticle.value || !availableNewArticles.value.find(a => a.article_id === currentArticle.value.article_id)) {
+    if (advanceAfter && (currentWasSuccessfullyReviewed || !currentArticle.value || !availableNewArticles.value.find(a => a.article_id === currentArticle.value.article_id))) {
       if (availableNewArticles.value.length > 0) {
         selectArticle(availableNewArticles.value[0]);
       } else {
@@ -1254,47 +1407,91 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
     <div v-else class="rq-layout" :class="{ 'is-mobile-review': mobileTab === 'review' }">
       
       <!-- LEFT COLUMN: QUEUE -->
-      <aside class="rq-panel rq-queue-panel" :class="{ 'mobile-hidden': mobileTab !== 'list', 'is-collapsed': sidebarCollapsed }">
+      <aside
+        class="rq-panel rq-queue-panel"
+        :class="{ 'mobile-hidden': mobileTab !== 'list', 'is-collapsed': sidebarCollapsed, 'is-resizing': isResizing }"
+        :style="{ '--rq-panel-w': panelWidth + 'px' }"
+      >
         <header class="rq-panel-header">
-          <div class="rq-panel-header-top">
-            <div class="rq-brand-eyebrow">
-              <span class="rq-eyebrow-text">Jury Workspace</span>
-              <span class="rq-badge-live">Live</span>
-            </div>
-            <div class="rq-header-actions">
-              <button class="rq-theme-btn" type="button" @click="toggleTheme" :aria-label="theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'">
-                <span aria-hidden="true"><cdx-icon :icon="theme === 'dark' ? cdxIconBright : cdxIconMoon" /></span>
-                {{ theme === 'dark' ? 'Light' : 'Dark' }}
+          <div class="rq-panel-titlebar">
+            <span class="rq-live-dot" role="img" aria-label="Live: the queue refreshes on its own"></span>
+            <h2 class="rq-panel-title">Review Queue</h2>
+            <div class="rq-titlebar-actions">
+              <button
+                v-if="props.assignedQueue && roles.is_owner"
+                class="rq-icon-btn"
+                type="button"
+                :class="{ 'is-active': showQueueOptions }"
+                :aria-expanded="showQueueOptions ? 'true' : 'false'"
+                title="Queue options"
+                @click="showQueueOptions = !showQueueOptions"
+              >
+                <CdxIcon :icon="cdxIconSettings" />
               </button>
-              <button class="rq-icon-btn rq-desktop-only" @click="sidebarCollapsed = true" title="Collapse Sidebar">
+              <button
+                class="rq-icon-btn"
+                type="button"
+                :title="theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+                :aria-label="theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+                @click="toggleTheme"
+              >
+                <CdxIcon :icon="theme === 'dark' ? cdxIconBright : cdxIconMoon" />
+              </button>
+              <button class="rq-icon-btn rq-desktop-only" title="Collapse the panel" @click="sidebarCollapsed = true">
                 <CdxIcon :icon="cdxIconCollapse" />
               </button>
             </div>
           </div>
-          <h2 class="rq-panel-title">Review Queue</h2>
-          <div v-if="props.assignedQueue && roles.is_owner" class="rq-owner-switcher">
-            <span class="rq-owner-switcher-label">View as</span>
-            <div class="rq-owner-mode-buttons">
-              <button type="button" :class="{ 'is-active': ownerViewMode === 'judge' }" @click="ownerViewMode = 'judge'">Judge</button>
-              <button type="button" :class="{ 'is-active': ownerViewMode === 'owner' }" @click="ownerViewMode = 'owner'">Owner</button>
+
+          <transition name="rq-fade">
+            <div v-if="showQueueOptions" class="rq-queue-options">
+              <div v-if="props.assignedQueue && roles.is_owner" class="rq-owner-switcher">
+                <span class="rq-owner-switcher-label">View as</span>
+                <div class="rq-owner-mode-buttons">
+                  <button type="button" :class="{ 'is-active': ownerViewMode === 'judge' }" @click="ownerViewMode = 'judge'">Judge</button>
+                  <button type="button" :class="{ 'is-active': ownerViewMode === 'owner' }" @click="ownerViewMode = 'owner'">Owner</button>
+                </div>
+                <select v-if="ownerViewMode === 'judge'" v-model="selectedJudge" class="rq-owner-judge-select" aria-label="Choose jury member">
+                  <option v-for="jury in (props.contest?.juries || [])" :key="jury" :value="jury">{{ jury }}</option>
+                </select>
+                <router-link
+                  v-if="ownerViewMode === 'judge' && selectedJudge === user?.wiki_username"
+                  :to="`/${props.contest?.code}/admin-special`"
+                  class="rq-owner-special-link"
+                >Missing sections</router-link>
+              </div>
             </div>
-            <select v-if="ownerViewMode === 'judge'" v-model="selectedJudge" class="rq-owner-judge-select" aria-label="Choose jury member">
-              <option v-for="jury in (props.contest?.juries || [])" :key="jury" :value="jury">{{ jury }}</option>
-            </select>
-            <!-- Owner viewing their own queue: jump to the missing-section sweep. -->
-            <router-link
-              v-if="ownerViewMode === 'judge' && selectedJudge === user?.wiki_username"
-              :to="`/${props.contest?.code}/admin-special`"
-              class="rq-owner-special-link"
-            >Missing sections</router-link>
+          </transition>
+
+          <CdxTextInput
+            v-model="searchQuery"
+            class="rq-panel-search"
+            placeholder="Search titles"
+            aria-label="Search the queue by article title"
+            :start-icon="cdxIconSearch"
+            clearable
+          />
+
+          <div class="rq-tabs" role="tablist" aria-label="Queue lists">
+            <button
+              v-for="tab in listTabs"
+              :key="tab.id"
+              type="button"
+              role="tab"
+              :aria-selected="activeTab.id === tab.id ? 'true' : 'false'"
+              :class="{ 'is-active': activeTab.id === tab.id }"
+              @click="listTab = tab.id"
+            >
+              {{ tab.label }}
+              <span class="rq-tab-count">{{ tab.list.length.toLocaleString() }}</span>
+            </button>
           </div>
-          
-          <div class="rq-stats-strip">
-            <div class="rq-stat"><span class="rq-stat-val">{{ statusStats.total }}</span><span class="rq-stat-lbl">Total</span></div>
-            <div class="rq-stat rq-stat-pending"><span class="rq-stat-val">{{ statusStats.pending }}</span><span class="rq-stat-lbl">Pending</span></div>
-            <div class="rq-stat rq-stat-ok"><span class="rq-stat-val">{{ statusStats.accepted }}</span><span class="rq-stat-lbl">OK</span></div>
-            <div class="rq-stat rq-stat-rej"><span class="rq-stat-val">{{ statusStats.rejected }}</span><span class="rq-stat-lbl">Rej</span></div>
-          </div>
+
+          <p class="rq-stat-line">
+            <span><span class="rq-stat-n">{{ statusStats.pending.toLocaleString() }}</span> pending</span>
+            <span class="rq-stat-ok"><span class="rq-stat-n">{{ statusStats.accepted.toLocaleString() }}</span> accepted</span>
+            <span class="rq-stat-rej"><span class="rq-stat-n">{{ statusStats.rejected.toLocaleString() }}</span> rejected</span>
+          </p>
         </header>
 
         <transition name="rq-fade">
@@ -1321,119 +1518,96 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
         </div>
 
         <div class="rq-panel-scroll">
-          <div class="rq-group">
-            <button class="rq-group-header" @click="showNewArticles = !showNewArticles">
-              <div class="rq-group-header-left">
-                <span class="rq-dot rq-dot-pending"></span>
-                <span class="rq-group-title">Pending Review</span>
-              </div>
-              <CdxIcon :icon="cdxIconDownTriangle" class="rq-group-chevron" :class="{ 'is-open': showNewArticles }" />
-            </button>
-            
-            <div v-if="showNewArticles" class="rq-group-content is-open">
-              <div class="rq-group-inner">
-                <ul class="rq-list">
-                  <li
-                    v-for="a in visibleSidebarArticles('pending', newArticles)"
-                    :key="a.article_id"
-                    class="rq-list-item rq-item-pending"
-                    :class="{ 'is-active': currentArticle?.article_id === a.article_id, 'is-locked': a.locked_by && a.locked_by !== myUsername }"
-                    @click="selectArticle(a)"
-                  >
-                    <label class="rq-cb-wrapper" @click.stop>
-                      <input type="checkbox" :checked="selectedForBulk.includes(a.article_id)" @change="toggleBulkSelection(a.article_id, $event)" class="rq-cb" />
-                    </label>
-                    <div class="rq-item-content">
-                      <span class="rq-item-title">{{ a.title }}</span>
-                      <span class="rq-item-meta">{{ a.submitted_by }}</span>
-                    </div>
-                    <CdxIcon v-if="a.locked_by && a.locked_by !== myUsername" :icon="cdxIconLock" class="rq-icon-lock" title="Being reviewed by someone" />
-                  </li>
-                  <li v-if="!newArticles.length" class="rq-list-empty">
-                    <CdxIcon :icon="cdxIconArticleCheck" class="rq-empty-icon" />
-                    <span>All caught up!</span>
-                  </li>
-                  <li v-if="hasMoreSidebarArticles('pending', newArticles)" class="rq-load-more-wrap">
-                    <button type="button" class="rq-load-more" @click="loadMoreSidebarArticles('pending', newArticles)">Show 100 more</button>
-                  </li>
-                  <li v-if="!hasMoreSidebarArticles('pending', newArticles) && hasMoreAssignedArticles && !isBackgroundLoading" class="rq-load-more-wrap">
-                    <button type="button" class="rq-load-more" @click="loadMoreAssignedArticles">Load next 250 articles from server</button>
-                  </li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          <div class="rq-group" v-if="otherReviewedArticles.length">
-            <button class="rq-group-header" @click="showOtherReviewed = !showOtherReviewed">
-              <div class="rq-group-header-left">
-                <span class="rq-dot rq-dot-other"></span>
-                <span class="rq-group-title">Other Judges</span>
-                <span class="rq-group-count">{{ otherReviewedArticles.length }}</span>
-              </div>
-              <CdxIcon :icon="cdxIconDownTriangle" class="rq-group-chevron" :class="{ 'is-open': showOtherReviewed }" />
-            </button>
-            <div v-if="showOtherReviewed" class="rq-group-content is-open">
-              <div class="rq-group-inner">
-                <ul class="rq-list">
-                  <li
-                    v-for="a in visibleSidebarArticles('other', otherReviewedArticles)"
-                    :key="`other-${a.article_id}`"
-                    class="rq-list-item rq-item-readonly"
-                  >
-                    <div class="rq-item-content">
-                      <span class="rq-item-title">{{ a.title }}</span>
-                      <span class="rq-item-meta">{{ a.reviews.map(r => r.reviewer).join(', ') }}</span>
-                    </div>
-                  </li>
-                  <li v-if="hasMoreSidebarArticles('other', otherReviewedArticles)" class="rq-load-more-wrap">
-                    <button class="rq-load-more" @click="loadMoreSidebarArticles('other', otherReviewedArticles)">Load 100 more</button>
-                  </li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          <div class="rq-group">
-            <button class="rq-group-header" @click="showJudgedArticles = !showJudgedArticles">
-              <div class="rq-group-header-left">
-                <span class="rq-dot rq-dot-judged"></span>
-                <span class="rq-group-title">My Judged</span>
-                <span class="rq-group-count">{{ judgedArticles.length }}</span>
-              </div>
-              <CdxIcon :icon="cdxIconDownTriangle" class="rq-group-chevron" :class="{ 'is-open': showJudgedArticles }" />
-            </button>
-            
-            <div v-if="showJudgedArticles" class="rq-group-content is-open">
-              <div class="rq-group-inner">
-                <div class="rq-judged-search-wrap">
-                  <CdxTextInput v-model="judgedSearch" class="rq-judged-search" placeholder="Search judged articles" aria-label="Search judged articles" :start-icon="cdxIconSearch" clearable />
+          <ul class="rq-list" role="tabpanel" :aria-label="activeTab.label">
+            <template v-for="row in visibleRows" :key="`${activeTab.id}-${row.heading || row.article.article_id}`">
+              <li v-if="row.heading" class="rq-decision-head" :class="'is-' + row.heading">
+                <button
+                  type="button"
+                  class="rq-decision-toggle"
+                  :aria-expanded="collapsedDecisions[row.heading] ? 'false' : 'true'"
+                  @click="toggleDecision(row.heading)"
+                >
+                  <CdxIcon
+                    :icon="cdxIconDownTriangle"
+                    class="rq-decision-chevron"
+                    :class="{ 'is-collapsed': collapsedDecisions[row.heading] }"
+                  />
+                  {{ DECISION_LABEL[row.heading] || row.heading }}
+                  <span class="rq-decision-count">{{ row.count.toLocaleString() }}</span>
+                </button>
+              </li>
+              <li
+                v-else
+                class="rq-list-item"
+                :class="[
+                  activeTab.id === 'queue' ? 'rq-item-pending' : '',
+                  activeTab.id === 'others' ? 'rq-item-readonly' : '',
+                  row.decision ? 'rq-item-' + row.decision : '',
+                  {
+                    'is-active': currentArticle?.article_id === row.article.article_id && activeTab.id !== 'others',
+                    'is-locked': activeTab.id === 'queue' && row.article.locked_by && row.article.locked_by !== myUsername,
+                  },
+                ]"
+                @click="openArticle(row.article)"
+              >
+                <label v-if="activeTab.id !== 'others'" class="rq-cb-wrapper" @click.stop>
+                  <input type="checkbox" :checked="selectedForBulk.includes(row.article.article_id)" @change="toggleBulkSelection(row.article.article_id, $event)" class="rq-cb" />
+                </label>
+                <div class="rq-item-content">
+                  <span class="rq-item-title">{{ row.article.title }}</span>
+                  <span class="rq-item-meta">
+                    {{ activeTab.id === 'others' ? row.article.reviews.map(r => r.reviewer).join(', ') : row.article.submitted_by }}
+                  </span>
                 </div>
-                <ul class="rq-list">
-                  <li
-                    v-for="a in visibleSidebarArticles('judged', filteredJudgedArticles)"
-                    :key="a.article_id"
-                    class="rq-list-item"
-                    :class="['rq-item-' + getMyLatestDecision(a), { 'is-active': currentArticle?.article_id === a.article_id }]"
-                    @click="selectArticle(a)"
-                  >
-                    <div class="rq-item-content">
-                      <span class="rq-item-title">{{ a.title }}</span>
-                      <span class="rq-item-meta">{{ a.submitted_by }}</span>
-                    </div>
-                  </li>
-                  <li v-if="!filteredJudgedArticles.length" class="rq-list-empty">
-                    <span>{{ judgedSearch ? "No matching judged articles" : "Nothing judged yet" }}</span>
-                  </li>
-                  <li v-if="hasMoreSidebarArticles('judged', filteredJudgedArticles)" class="rq-load-more-wrap">
-                    <button class="rq-load-more" @click="loadMoreSidebarArticles('judged', judgedArticles)">Load 100 more</button>
-                  </li>
-                </ul>
-              </div>
-            </div>
-          </div>
+                <CdxIcon
+                  v-if="activeTab.id === 'queue' && row.article.locked_by && row.article.locked_by !== myUsername"
+                  :icon="cdxIconLock"
+                  class="rq-icon-lock"
+                  title="Being reviewed by someone"
+                />
+              </li>
+            </template>
+
+            <li v-if="!activeTab.list.length" class="rq-list-empty">
+              <CdxIcon v-if="activeTab.id === 'queue' && !searchQuery" :icon="cdxIconArticleCheck" class="rq-empty-icon" />
+              <span v-if="searchQuery">Nothing here matches &ldquo;{{ searchQuery }}&rdquo;</span>
+              <span v-else-if="activeTab.id === 'queue'">All caught up</span>
+              <span v-else-if="activeTab.id === 'rereview'">Judge an article and it turns up here</span>
+              <span v-else>No decisions by other judges yet</span>
+            </li>
+
+            <li v-if="hasMoreRows" class="rq-load-more-wrap">
+              <button type="button" class="rq-load-more" @click="loadMoreSidebarArticles(activeTab.key, activeTab.list)">Show 100 more</button>
+            </li>
+            <li
+              v-if="activeTab.id === 'queue' && !hasMoreSidebarArticles('pending', filteredNewArticles) && hasMoreAssignedArticles && !isBackgroundLoading"
+              class="rq-load-more-wrap"
+            >
+              <button type="button" class="rq-load-more" @click="loadMoreAssignedArticles">Load next 250 articles from server</button>
+            </li>
+          </ul>
         </div>
       </aside>
+
+      <!-- Panel splitter. A sibling of the panel rather than a strip inside
+           it, so it never sits on top of the queue's own scrollbar. -->
+      <div
+        v-if="!sidebarCollapsed"
+        class="rq-resize-handle rq-desktop-only"
+        :class="{ 'is-resizing': isResizing }"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the queue panel"
+        :aria-valuenow="panelWidth"
+        :aria-valuemin="260"
+        :aria-valuemax="640"
+        tabindex="0"
+        @pointerdown="startResize"
+        @dblclick="resetPanelWidth"
+        @keydown.left.prevent="nudgeResize(-16)"
+        @keydown.right.prevent="nudgeResize(16)"
+        @keydown.home.prevent="resetPanelWidth"
+      ></div>
 
       <!-- CENTER AREA (Preview + Decision) -->
       <div class="rq-review-area" :class="{ 'mobile-hidden': mobileTab !== 'review' }">

@@ -59,6 +59,8 @@ Tables should use a pale alternate header and a very light alternating row state
 
 `/jury/review` and `/jury/review-v2` are full-screen workspaces. They may use the ReviewQueue theme switch and review-specific tokens. Normal application rules must exclude `.rq-app`, and normal page redesigns must not change the review workflow, queue density, iframe preview, bulk comment panel, or review action bar.
 
+The queue panel's own structure was deliberately rebuilt on 2026-09-09 at the owner's request, so the "queue density" clause above describes what a *normal page redesign* may not touch incidentally -- not a freeze. The panel is now a compact header (titlebar, search, tabs, one stat line) over a single list, with `Queue` / `Re-review` / `Other judges` as tabs rather than stacked collapsible sections, and `View as` plus `Group by submitter` behind a gear disclosure. The parts the clause protects were preserved through that change and still are: the review workflow, the iframe preview, the bulk banner and comment panel, and the action bar. See the 2026-09-09 AGENTS.md entry.
+
 ## Maintenance workflow
 
 1. Put new shared visual decisions in `light-theme.css` and view-specific decisions in the owning external CSS file.

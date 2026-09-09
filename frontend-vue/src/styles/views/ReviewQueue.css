@@ -114,7 +114,9 @@ button { cursor: pointer; }
 .rq-layout {
   display: flex;
   flex-direction: row;
-  gap: 8px;
+  /* No gap: the 5px splitter between the panel and the review area is the
+     separator, and an 8px gap either side of it made that 21px. */
+  gap: 0;
   padding: 8px;
   height: 100%;
   min-height: 0;
@@ -159,15 +161,99 @@ button { cursor: pointer; }
 }
 
 .rq-queue-panel {
-  width: 340px;
+  width: var(--rq-panel-w, 340px);
   flex-shrink: 0;
   overflow: hidden;
   transition: width 160ms var(--ease-out);
 }
+/* The collapse animation is a transition on width; a drag sets width every
+   pointermove, so the same transition would make the panel lag the cursor. */
+.rq-queue-panel.is-resizing { transition: none; }
+
+/* Splitter between the queue and the review area. Desktop only -- the mobile
+   breakpoint hides .rq-desktop-only and gives the panel the full width. */
+.rq-resize-handle {
+  position: relative;
+  flex: 0 0 5px;
+  align-self: stretch;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 160ms var(--ease-out);
+  touch-action: none;
+}
+/* A 5px target is a small thing to hit, so the grip is padded out to 11px
+   with a pseudo-element while the visible line stays thin. */
+.rq-resize-handle::before {
+  content: "";
+  position: absolute; top: 0; bottom: 0; left: -3px; right: -3px;
+}
+.rq-resize-handle::after {
+  content: "";
+  position: absolute; top: 50%; left: 50%;
+  width: 3px; height: 34px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: var(--rq-border-light);
+  opacity: 0;
+  transition: opacity 160ms var(--ease-out);
+}
+.rq-resize-handle:hover::after,
+.rq-resize-handle:focus-visible::after,
+.rq-resize-handle.is-resizing::after { opacity: 1; }
+.rq-resize-handle:hover, .rq-resize-handle.is-resizing { background: var(--rq-surface-hover); }
+.rq-resize-handle:focus-visible { outline: 2px solid var(--rq-accent); outline-offset: -2px; }
 .rq-queue-panel.is-collapsed {
   width: 0;
   border: none;
 }
+/* One row: live dot, name, and the three icon actions. Replaces the old
+   header-top plus the all-caps "Jury Workspace" eyebrow and Live pill, which
+   between them spent a whole band restating where you already are. */
+.rq-panel-titlebar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.rq-panel-titlebar .rq-panel-title { margin: 0; flex: 1; }
+.rq-titlebar-actions { display: flex; align-items: center; gap: 4px; }
+.rq-icon-btn.is-active { background: var(--rq-accent-bg); color: var(--rq-accent); }
+/* The polling indicator, reduced from a pill with a word in it to the dot the
+   pill already contained. */
+.rq-live-dot {
+  flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--rq-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rq-success) 20%, transparent);
+}
+
+/* Queue options, behind the gear. */
+.rq-queue-options {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-bottom: 8px; padding: 8px;
+  border: 1px solid var(--rq-border); border-radius: 8px;
+  background: var(--rq-surface-alt);
+}
+
+/* Tabs. The count sits inside the tab because it is the reason you pick one. */
+.rq-tabs { display: flex; gap: 2px; margin-bottom: 8px; padding: 2px; border-radius: 8px; background: var(--rq-surface-alt); }
+.rq-tabs button {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+  min-width: 0; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--rq-text-muted); font: inherit; font-size: .76rem; font-weight: 600;
+  white-space: nowrap; cursor: pointer;
+  transition: background 160ms var(--ease-out), color 160ms var(--ease-out);
+}
+.rq-tabs button:hover { color: var(--rq-text); }
+.rq-tabs button.is-active { background: var(--rq-surface); color: var(--rq-text); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+.rq-tabs button:focus-visible { outline: 2px solid var(--rq-accent); outline-offset: -2px; }
+.rq-tab-count { color: var(--rq-text-muted); font-size: .7rem; font-variant-numeric: tabular-nums; }
+.rq-tabs button.is-active .rq-tab-count { color: var(--rq-accent); }
+
+/* One line instead of four bordered tiles. Numbers carry the weight, labels
+   stay quiet, and the row wraps rather than shrinking the digits. */
+.rq-stat-line {
+  display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0;
+  color: var(--rq-text-muted); font-size: .72rem;
+}
+.rq-stat-n { color: var(--rq-text); font-weight: 700; font-size: .78rem; font-variant-numeric: tabular-nums; }
+.rq-stat-ok .rq-stat-n { color: var(--rq-success-dark); }
+.rq-stat-rej .rq-stat-n { color: var(--rq-danger-dark); }
+
 .rq-panel-header-top {
   display: flex;
   align-items: center;
@@ -184,71 +270,34 @@ button { cursor: pointer; }
 .rq-icon-btn:active { transform: scale(0.95); }
 
 .rq-panel-header {
-  padding: 8px 16px;
+  padding: 8px 16px 6px;
   border-bottom: 1px solid var(--rq-border);
   background: #132238;
 }
 .rq-header-actions { display: flex; align-items: center; gap: 8px; }
-.rq-theme-btn {
-  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px;
-  border: 1px solid var(--rq-border-light); border-radius: 7px; background: var(--rq-surface-alt);
-  color: var(--rq-text); font-size: .75rem; font-weight: 650;
-  transition: background 160ms var(--ease-out), transform 160ms var(--ease-out);
-}
-.rq-theme-btn:hover { background: var(--rq-surface-hover); }
-.rq-theme-btn:active { transform: scale(.97); }
-.rq-brand-eyebrow { display: flex; align-items: center; gap: 8px; }
-.rq-eyebrow-text { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--rq-text-muted); }
-.rq-badge-live { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; background: #145443; color: #6ee7b7; padding: 2px 6px; border-radius: 4px; }
 .rq-panel-title { margin: 0 0 16px 0; font-size: 1.1rem; font-weight: 600; color: var(--rq-text); }
-.rq-owner-switcher { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin: -7px 0 14px; padding: 8px; border: 1px solid var(--rq-border); border-radius: 8px; background: var(--rq-surface-alt); }
+.rq-owner-switcher { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin: 0; padding: 0; border: 0; background: none; }
 .rq-owner-switcher-label { color: var(--rq-text-muted); font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
 .rq-owner-mode-buttons { display: inline-flex; gap: 2px; padding: 2px; border-radius: 6px; background: var(--rq-bg); }
 .rq-owner-mode-buttons button { border: 0; border-radius: 5px; padding: 4px 8px; background: transparent; color: var(--rq-text-muted); font-size: .75rem; font-weight: 600; }
 .rq-owner-mode-buttons button.is-active { background: var(--rq-accent); color: #fff; }
 .rq-owner-judge-select { min-width: 110px; flex: 1; padding: 4px 7px; border: 1px solid var(--rq-border-light); border-radius: 6px; background: var(--rq-surface); color: var(--rq-text); font-size: .75rem; }
 
-.rq-stats-strip { display: flex; gap: 8px; }
-.rq-stat { flex: 1; display: flex; flex-direction: column; align-items: center; background: var(--rq-surface-alt); border: 1px solid var(--rq-border); border-radius: 8px; padding: 8px 4px; }
-.rq-stat-pending { border-color: #9a6b2f; }
-.rq-stat-ok { border-color: #23745e; }
-.rq-stat-rej { border-color: #a84b58; }
-.rq-stat-val { font-size: 0.9rem; font-weight: 700; color: var(--rq-text); }
-.rq-stat-pending .rq-stat-val { color: var(--rq-warning); }
-.rq-stat-ok .rq-stat-val { color: var(--rq-success); }
-.rq-stat-rej .rq-stat-val { color: var(--rq-danger); }
-.rq-stat-lbl { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--rq-text-muted); margin-top: 4px; }
 
-.rq-panel-scroll { flex: 1; overflow-y: auto; padding-bottom: 24px; }
+.rq-panel-scroll { flex: 1; overflow-y: auto; }
 
-.rq-group { margin-bottom: 8px; }
-.rq-group-header {
-  width: 100%; display: flex; align-items: center; justify-content: space-between;
-  padding: 7px 14px; background: #132238; border: none;
-  position: sticky; top: 0; z-index: 5; transition: background 160ms var(--ease-out);
-}
-.rq-group-header:hover { background: var(--rq-surface-hover); }
-.rq-group-header-left { display: flex; align-items: center; gap: 8px; }
 .rq-dot { width: 8px; height: 8px; border-radius: 50%; }
 .rq-dot-pending { background: var(--rq-warning); }
 .rq-dot-other { background: var(--rq-text-muted); }
 .rq-dot-judged { background: var(--rq-success); }
-.rq-group-title { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--rq-text); }
-.rq-group-count { background: var(--rq-surface-alt); padding: 2px 8px; border-radius: 8px; font-size: 0.7rem; font-weight: 600; color: var(--rq-text-muted); }
-.rq-group-chevron { color: var(--rq-text-muted); font-size: 1.2rem; transition: transform 180ms var(--ease-out); }
-.rq-group-chevron.is-open { transform: rotate(180deg); }
 
-.rq-group-content {
-  display: block;
-}
-.rq-group-content.is-open {
-  display: block;
-}
-.rq-group-inner {
-  overflow: visible;
-}
-
-.rq-list { list-style: none; padding: 4px 0; margin: 0; background: var(--rq-surface-alt); border: 1px solid var(--rq-border); border-radius: 0; overflow: hidden; }
+/* No vertical padding and no border of its own: the panel already draws the
+   outer edge and the header the divider above, so both only added a gap and
+   a doubled line between the two. */
+/* `overflow: hidden` used to clip the list's own rounded corners. With the
+   border and radius gone it only broke the decision headings: an ancestor
+   clip between a sticky element and its scroll container stops the sticky. */
+.rq-list { list-style: none; padding: 0; margin: 0; background: var(--rq-surface-alt); border: 0; border-radius: 0; }
 .rq-load-more-wrap { padding: 10px 12px 14px; }
 .rq-load-more { width: 100%; border: 1px solid var(--rq-border); border-radius: 7px; padding: 8px 10px; background: var(--rq-surface-alt); color: var(--rq-text-muted); font: inherit; font-size: .75rem; font-weight: 600; cursor: pointer; }
 .rq-load-more:hover { background: var(--rq-surface-hover); color: var(--rq-text); }
@@ -271,12 +320,43 @@ button { cursor: pointer; }
   transform: translateY(-8px);
 }
 .rq-item-pending { }
-.rq-list-item.rq-item-accepted:not(.is-active) { background: transparent; }
-.rq-list-item.rq-item-rejected:not(.is-active) { background: transparent; }
+/* Both of these used to be `background: transparent`, i.e. a judged article
+   looked identical whether it was accepted or rejected. The tint carries it
+   now -- at 34% it reads at a glance, where the earlier 10% needed the glyph
+   beside it to be legible at all. The glyphs are gone; the block heading above
+   each run names the decision, so position and label still carry it for anyone
+   the colour does not. */
+.rq-list-item.rq-item-accepted:not(.is-active) { background: color-mix(in srgb, var(--rq-success) 34%, var(--rq-surface-alt)); }
+.rq-list-item.rq-item-rejected:not(.is-active) { background: color-mix(in srgb, var(--rq-danger) 34%, var(--rq-surface-alt)); }
+.rq-list-item.rq-item-accepted { box-shadow: inset 3px 0 0 var(--rq-success-dark); }
+.rq-list-item.rq-item-rejected { box-shadow: inset 3px 0 0 var(--rq-danger-dark); }
+
+/* One row introducing each decision block. Sticky, so the label is still there
+   after scrolling into a long run of rejections. */
+.rq-decision-head {
+  position: sticky; top: 0; z-index: 3;
+  background: var(--rq-surface);
+  border-bottom: 1px solid var(--rq-border-light);
+}
+.rq-decision-toggle {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; padding: 5px 12px;
+  border: 0; background: none;
+  color: var(--rq-text-muted); font: inherit; font-size: .7rem; font-weight: 700;
+  text-align: left; cursor: pointer;
+}
+.rq-decision-toggle:hover { background: var(--rq-surface-hover); }
+.rq-decision-toggle:focus-visible { outline: 2px solid var(--rq-accent); outline-offset: -2px; }
+.rq-decision-head.is-accepted .rq-decision-toggle { color: var(--rq-success-dark); }
+.rq-decision-head.is-rejected .rq-decision-toggle { color: var(--rq-danger-dark); }
+.rq-decision-chevron { font-size: .9rem; transition: transform 180ms var(--ease-out); }
+.rq-decision-chevron.is-collapsed { transform: rotate(-90deg); }
+.rq-decision-count { margin-left: auto; color: var(--rq-text-muted); font-weight: 600; font-variant-numeric: tabular-nums; }
 .rq-item-skipped { background: color-mix(in srgb, var(--rq-warning) 8%, var(--rq-surface-alt)); }
 .rq-item-readonly { cursor: default; }
-.rq-judged-search-wrap { position: sticky; top: 0; z-index: 4; padding: 8px 10px 4px; background: var(--rq-surface-alt); }
-.rq-judged-search { width: 100%; }
+.rq-panel-tools { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.rq-panel-search { width: 100%; }
+:deep(.rq-panel-search.cdx-text-input) { width: 100%; }
 :deep(.rq-judged-search.cdx-text-input) { width: 100%; }
 :deep(.rq-judged-search .cdx-text-input__input) {
   width: 100%;
@@ -554,15 +634,11 @@ button { cursor: pointer; }
 /* Compact queue controls: preserve vertical room for the article list. */
 .rq-panel-header { padding: 6px 12px; }
 .rq-panel-title { margin-bottom: 8px; font-size: 1rem; }
-.rq-owner-switcher { gap: 5px; margin: -2px 0 8px; padding: 5px 6px; border-radius: 7px; }
+.rq-owner-switcher { gap: 5px; }
 .rq-owner-switcher-label { font-size: .62rem; }
 .rq-owner-mode-buttons { gap: 1px; padding: 1px; }
 .rq-owner-mode-buttons button { padding: 3px 7px; font-size: .7rem; }
 .rq-owner-judge-select { min-width: 90px; padding: 3px 6px; font-size: .7rem; }
-.rq-stats-strip { gap: 4px; }
-.rq-stat { border-radius: 6px; padding: 4px 2px; }
-.rq-stat-val { font-size: .8rem; line-height: 1.1; }
-.rq-stat-lbl { margin-top: 2px; font-size: .56rem; letter-spacing: .035em; }
 .rq-app.rq-theme-light .rq-tag-locked { background: #fff1d6; }
 .rq-app.rq-theme-light .rq-tag-accepted { background: #dff6e9; }
 .rq-app.rq-theme-light .rq-tag-rejected { background: #fde4e4; }
@@ -651,19 +727,12 @@ button { cursor: pointer; }
   .rq-app { padding-bottom: 60px; }
   .rq-panel-header { padding: 7px 10px; }
   .rq-panel-title { margin-bottom: 6px; font-size: .92rem; }
-  .rq-brand-eyebrow { gap: 6px; }
-  .rq-owner-switcher { display: grid; grid-template-columns: auto 1fr; gap: 4px 6px; margin: -1px 0 6px; padding: 4px 5px; }
+  .rq-owner-switcher { display: grid; grid-template-columns: auto 1fr; gap: 4px 6px; }
+  .rq-tabs button { padding: 5px 6px; font-size: .7rem; }
+  .rq-stat-line { gap: 2px 9px; font-size: .68rem; }
   .rq-owner-switcher-label { align-self: center; }
   .rq-owner-mode-buttons { justify-self: end; }
   .rq-owner-judge-select { grid-column: 1 / -1; width: 100%; min-height: 28px; }
-  .rq-stats-strip { gap: 3px; }
-  .rq-stat { padding: 3px 2px; }
-  .rq-stat-val { font-size: .76rem; }
-  .rq-stat-lbl { margin-top: 1px; font-size: .52rem; }
-  .rq-group { margin-bottom: 4px; }
-  .rq-group-header { min-height: 38px; padding: 7px 10px; }
-  .rq-group-title { font-size: .64rem; }
-  .rq-group-count { padding: 2px 6px; font-size: .62rem; }
   .rq-list-item { min-height: 44px; padding: 8px 9px; gap: 6px; }
   .rq-item-title { font-size: .78rem; line-height: 1.15; }
   .rq-item-meta { font-size: .65rem; line-height: 1.2; }
