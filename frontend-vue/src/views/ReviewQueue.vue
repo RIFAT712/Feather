@@ -1654,10 +1654,6 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
                   <div class="rq-stat-number">{{ judgeableTotal.toLocaleString() }}</div>
                   <div class="rq-stat-label">Total</div>
                 </div>
-                <div class="rq-stat-card accent-amber">
-                  <div class="rq-stat-number">{{ statusStats.pending.toLocaleString() }}</div>
-                  <div class="rq-stat-label">Pending</div>
-                </div>
                 <div class="rq-stat-card accent-green">
                   <div class="rq-stat-number">{{ statusStats.accepted.toLocaleString() }}</div>
                   <div class="rq-stat-label">Accepted</div>
@@ -1665,6 +1661,10 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
                 <div class="rq-stat-card accent-red">
                   <div class="rq-stat-number">{{ statusStats.rejected.toLocaleString() }}</div>
                   <div class="rq-stat-label">Rejected</div>
+                </div>
+                <div class="rq-stat-card accent-amber">
+                  <div class="rq-stat-number">{{ statusStats.pending.toLocaleString() }}</div>
+                  <div class="rq-stat-label">Pending</div>
                 </div>
               </div>
               <div
