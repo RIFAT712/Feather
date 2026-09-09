@@ -581,6 +581,13 @@ const judgedPercent = computed(() =>
   judgeableTotal.value ? Math.round((judgedCount.value / judgeableTotal.value) * 100) : 0
 );
 
+// One submitter behind the whole batch means the column prints the same name on
+// every row and buys nothing but width. The 'others' tab shows reviewer names
+// in the same slot and keeps them regardless.
+const isSingleSubmitter = computed(() =>
+  new Set(articles.value.map(a => a.submitted_by)).size <= 1
+);
+
 const hasMoreAssignedArticles = computed(() => props.assignedQueue && assignedHasMore.value);
 
 const releaseArticleLock = (articleId) => {
@@ -1073,6 +1080,7 @@ const SHORTCUT_ACTIONS = [
   { id: 'comment', label: 'Focus the comment box', default: 'c' },
   { id: 'undo', label: 'Undo the last decision', default: 'u' },
   { id: 'wikitext', label: 'Show or hide the raw wikitext panel', default: 'w' },
+  { id: 'queue', label: 'Show or hide the queue drawer', default: 'q' },
 ];
 const DEFAULT_SHORTCUTS = Object.fromEntries(SHORTCUT_ACTIONS.map(a => [a.id, a.default]));
 const actionLabel = (id) => SHORTCUT_ACTIONS.find(a => a.id === id)?.label || id;
@@ -1239,12 +1247,27 @@ const handleShortcut = (event) => {
   // Auto-repeat from a held key never counts as a second deliberate press.
   if (event.repeat) return;
 
+  if (event.key === 'Escape' && !sidebarCollapsed.value) {
+    sidebarCollapsed.value = true;
+    event.preventDefault();
+    return;
+  }
+
   if (event.key === '/' || event.key === '?') {
     showShortcutHelp.value = !showShortcutHelp.value;
     event.preventDefault();
     return;
   }
   if (showShortcutHelp.value) return;
+
+  // Ahead of the currentArticle guard below: the drawer has to open even when
+  // the queue is empty, which is exactly when someone goes looking for it.
+  if (normalizeShortcutKey(event.key) === shortcuts.value.queue) {
+    sidebarCollapsed.value = !sidebarCollapsed.value;
+    event.preventDefault();
+    return;
+  }
+
   if (!currentArticle.value || isSubmitting.value) return;
 
   const key = normalizeShortcutKey(event.key);
@@ -1568,7 +1591,7 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
                 </label>
                 <div class="rq-item-content">
                   <span class="rq-item-title">{{ row.article.title }}</span>
-                  <span class="rq-item-meta">
+                  <span v-if="activeTab.id === 'others' || !isSingleSubmitter" class="rq-item-meta">
                     {{ activeTab.id === 'others' ? row.article.reviews.map(r => r.reviewer).join(', ') : row.article.submitted_by }}
                   </span>
                 </div>

@@ -211,10 +211,11 @@ button { cursor: pointer; }
     border: none;
   }
 }
+
 /* One row: live dot, name, and the three icon actions. Replaces the old
    header-top plus the all-caps "Jury Workspace" eyebrow and Live pill, which
    between them spent a whole band restating where you already are. */
-.rq-panel-titlebar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.rq-panel-titlebar { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
 .rq-panel-titlebar .rq-panel-title { margin: 0; flex: 1; }
 .rq-titlebar-actions { display: flex; align-items: center; gap: 4px; }
 .rq-icon-btn.is-active { background: var(--rq-accent-bg); color: var(--rq-accent); }
@@ -235,7 +236,7 @@ button { cursor: pointer; }
 }
 
 /* Tabs. The count sits inside the tab because it is the reason you pick one. */
-.rq-tabs { display: flex; gap: 2px; margin-bottom: 8px; padding: 2px; border-radius: 8px; background: var(--rq-surface-alt); }
+.rq-tabs { display: flex; gap: 2px; margin-bottom: 0; padding: 2px; border-radius: 8px; background: var(--rq-surface-alt); }
 .rq-tabs button {
   flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
   min-width: 0; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent;
@@ -266,7 +267,7 @@ button { cursor: pointer; }
 .rq-icon-btn:active { transform: scale(0.95); }
 
 .rq-panel-header {
-  padding: 8px 16px 6px;
+  padding: 6px 12px 5px;
   border-bottom: 1px solid var(--rq-border);
   background: #132238;
 }
@@ -298,7 +299,7 @@ button { cursor: pointer; }
 .rq-load-more { width: 100%; border: 1px solid var(--rq-border); border-radius: 7px; padding: 8px 10px; background: var(--rq-surface-alt); color: var(--rq-text-muted); font: inherit; font-size: .75rem; font-weight: 600; cursor: pointer; }
 .rq-load-more:hover { background: var(--rq-surface-hover); color: var(--rq-text); }
 .rq-list-item {
-  display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 12px;
+  display: flex; align-items: center; gap: 8px; margin: 0; padding: 6px 12px;
   border: none; border-radius: 0;
   background: var(--rq-surface-alt);
   cursor: pointer; transition: background 160ms var(--ease-out), opacity 200ms var(--ease-out), transform 200ms var(--ease-out);
@@ -336,7 +337,7 @@ button { cursor: pointer; }
 }
 .rq-decision-toggle {
   display: flex; align-items: center; gap: 6px;
-  width: 100%; padding: 5px 12px;
+  width: 100%; padding: 4px 12px;
   border: 0; background: none;
   color: var(--rq-text-muted); font: inherit; font-size: .7rem; font-weight: 700;
   text-align: left; cursor: pointer;
