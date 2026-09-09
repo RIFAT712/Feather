@@ -563,6 +563,21 @@ const statusStats = computed(() => ({
   rejected: assignedStatusStats.value?.rejected ?? articles.value.filter(a => a.status === 'rejected').length,
   pending: assignedStatusStats.value?.pending ?? articles.value.filter(a => a.status === 'pending').length,
 }));
+// Flow-header arithmetic. Every value comes from statusStats, which is already
+// fetched, so the cards and the bar cost no extra request.
+//
+// The denominator is derived rather than taken from statusStats.total: the
+// server counts validation_failed in that total (0 on an assigned queue today,
+// but non-zero contest-wide), and those articles are never judged by anyone --
+// including them would leave a progress bar that can't reach 100%.
+const judgeableTotal = computed(() =>
+  statusStats.value.pending + statusStats.value.accepted + statusStats.value.rejected
+);
+const judgedCount = computed(() => statusStats.value.accepted + statusStats.value.rejected);
+const judgedPercent = computed(() =>
+  judgeableTotal.value ? Math.round((judgedCount.value / judgeableTotal.value) * 100) : 0
+);
+
 const hasMoreAssignedArticles = computed(() => props.assignedQueue && assignedHasMore.value);
 
 const releaseArticleLock = (articleId) => {
@@ -1633,6 +1648,41 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
         <template v-else>
           <!-- PREVIEW (Top) -->
           <main class="rq-panel rq-preview-panel">
+            <div class="rq-flow-stats">
+              <div class="rq-stat-grid">
+                <div class="rq-stat-card">
+                  <div class="rq-stat-number">{{ judgeableTotal.toLocaleString() }}</div>
+                  <div class="rq-stat-label">Total</div>
+                </div>
+                <div class="rq-stat-card accent-amber">
+                  <div class="rq-stat-number">{{ statusStats.pending.toLocaleString() }}</div>
+                  <div class="rq-stat-label">Pending</div>
+                </div>
+                <div class="rq-stat-card accent-green">
+                  <div class="rq-stat-number">{{ statusStats.accepted.toLocaleString() }}</div>
+                  <div class="rq-stat-label">Accepted</div>
+                </div>
+                <div class="rq-stat-card accent-red">
+                  <div class="rq-stat-number">{{ statusStats.rejected.toLocaleString() }}</div>
+                  <div class="rq-stat-label">Rejected</div>
+                </div>
+              </div>
+              <div
+                class="rq-progress"
+                role="progressbar"
+                :aria-valuenow="judgedPercent"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                :aria-label="`${judgedCount} of ${judgeableTotal} judged`"
+              >
+                <div class="rq-progress-track">
+                  <div class="rq-progress-fill" :style="{ width: judgedPercent + '%' }"></div>
+                </div>
+                <span class="rq-progress-text">
+                  {{ judgedCount.toLocaleString() }} of {{ judgeableTotal.toLocaleString() }} judged · {{ judgedPercent }}%
+                </span>
+              </div>
+            </div>
             <header class="rq-article-header">
               <!-- Sidebar Toggle (Desktop) -->
               <button v-if="sidebarCollapsed" class="rq-hamburger-btn rq-desktop-only" @click="sidebarCollapsed = false" title="Open Sidebar">
