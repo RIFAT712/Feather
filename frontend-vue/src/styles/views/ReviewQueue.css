@@ -141,7 +141,6 @@ button { cursor: pointer; }
 .rq-app .rq-icon-btn .cdx-icon,
 .rq-app .rq-hamburger-btn .cdx-icon,
 .rq-app .rq-back-btn .cdx-icon,
-.rq-app .rq-theme-btn .cdx-icon,
 .rq-app .rq-group-header .cdx-icon,
 .rq-app .rq-nav-btn .cdx-icon {
   color: var(--rq-text-muted) !important;
@@ -149,7 +148,6 @@ button { cursor: pointer; }
 .rq-app .rq-icon-btn:hover .cdx-icon,
 .rq-app .rq-hamburger-btn:hover .cdx-icon,
 .rq-app .rq-back-btn:hover .cdx-icon,
-.rq-app .rq-theme-btn:hover .cdx-icon,
 .rq-app .rq-group-header:hover .cdx-icon,
 .rq-app .rq-nav-btn:hover .cdx-icon {
   color: var(--rq-text) !important;
