@@ -1101,6 +1101,11 @@ const handleShortcut = (event) => {
       event.preventDefault();
     } else if (isTypingTarget(event.target)) {
       event.target.blur();
+    } else if (!sidebarCollapsed.value) {
+      // Last branch on purpose: from the drawer's search box the first Esc
+      // blurs the field, a second closes the drawer.
+      sidebarCollapsed.value = true;
+      event.preventDefault();
     }
     return;
   }
@@ -1123,12 +1128,6 @@ const handleShortcut = (event) => {
 
   // Auto-repeat from a held key never counts as a second deliberate press.
   if (event.repeat) return;
-
-  if (event.key === 'Escape' && !sidebarCollapsed.value) {
-    sidebarCollapsed.value = true;
-    event.preventDefault();
-    return;
-  }
 
   if (event.key === '/' || event.key === '?') {
     showShortcutHelp.value = !showShortcutHelp.value;
