@@ -40,7 +40,10 @@ const isSubmitting = ref(false);
 const isLoadingPreview = ref(false);
 const reviewError = ref('');
 const mobileTab = ref('list');
-const sidebarCollapsed = ref(false);
+// Flow-first: the article is the screen and the queue is a drawer you summon.
+// Deliberately not persisted -- see the 2026-09-09 amendment in the design
+// spec: an overlay drawer left open permanently covers the article.
+const sidebarCollapsed = ref(true);
 
 // Raw-wikitext side panel. Desktop shows it beside the rendered preview;
 // mobile has no room for both, so `previewPane` picks one at a time.
