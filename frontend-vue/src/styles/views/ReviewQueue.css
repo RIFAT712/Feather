@@ -38,31 +38,31 @@
 }
 
 .rq-app.rq-theme-light {
-  --rq-bg: hsl(220 21% 90%);
-  --rq-bg: oklch(0.92 0.01 264);
-  --rq-surface: hsl(220 46% 96%);
-  --rq-surface: oklch(0.96 0.01 264);
-  --rq-surface-alt: hsl(220 100% 100%);
-  --rq-surface-alt: oklch(1 0.01 264);
-  --rq-surface-hover: hsl(220 100% 100%);
-  --rq-surface-hover: oklch(1 0.02 264);
-  --rq-border: hsl(220 7% 52%);
-  --rq-border: oklch(0.6 0.02 264);
-  --rq-border-light: hsl(220 10% 63%);
-  --rq-border-light: oklch(0.7 0.02 264);
-  --rq-text: hsl(221 47% 5%);
-  --rq-text: oklch(0.15 0.02 264);
-  --rq-text-muted: hsl(220 11% 29%);
-  --rq-text-muted: oklch(0.4 0.02 264);
-  --rq-accent: hsl(221 49% 33%);
-  --rq-accent: oklch(0.4 0.1 264);
-  --rq-accent-hover: oklch(0.46 0.1 264);
-  --rq-accent-bg: oklch(0.92 0.03 264);
-  --rq-success: oklch(0.5 0.05 160);
-  --rq-success-dark: oklch(0.42 0.05 160);
-  --rq-danger: oklch(0.5 0.05 30);
-  --rq-danger-dark: oklch(0.42 0.05 30);
-  --rq-warning: oklch(0.5 0.05 100);
+  /* The Feather palette from docs/STYLE_GUIDE.md "Core tokens", mapped by role
+     rather than by name -- this route's --rq-surface is the panel body where
+     Feather's --feather-surface is a card, so the names do not line up even
+     though the colours must. Before this, the review shell ran a parallel
+     oklch palette that landed near the Feather values without matching them
+     (--rq-text was #12203a against Feather's #20364d) while a dozen rules
+     hard-coded the real Feather hexes. Two palettes, one drifting. */
+  --rq-bg: #e7f0f8;              /* --feather-bg: the canvas behind the panels */
+  --rq-surface: #f4f8fb;         /* --feather-surface-alt: panel body, chrome bands */
+  --rq-surface-alt: #ffffff;     /* --feather-surface: list rows, cards */
+  --rq-surface-hover: #eaf1f8;
+  --rq-border: #c7d6e3;          /* --feather-border */
+  --rq-border-light: #dde7f0;    /* hairline between rows */
+  --rq-text: #20364d;            /* --feather-text */
+  --rq-text-muted: #47637c;      /* --feather-muted */
+  --rq-accent: #355b80;          /* --feather-accent */
+  --rq-accent-hover: #27455f;
+  --rq-accent-bg: #e2ecf6;
+  /* Status stays pale-background / dark-text, per the style guide's rule that
+     semantic colour carries meaning only. */
+  --rq-success: #22a05a;
+  --rq-success-dark: #1a6e3f;
+  --rq-danger: #d94b4b;
+  --rq-danger-dark: #a33a3a;
+  --rq-warning: #d99322;
 }
 
 * { box-sizing: border-box; }
@@ -80,8 +80,8 @@
 
 .rq-app *::-webkit-scrollbar { width: 6px; height: 6px; }
 .rq-app *::-webkit-scrollbar-track { background: transparent; }
-.rq-app *::-webkit-scrollbar-thumb { background: #466481; border-radius: 4px; }
-.rq-app *::-webkit-scrollbar-thumb:hover { background: #6484a3; }
+.rq-app *::-webkit-scrollbar-thumb { background: var(--rq-border); border-radius: 4px; }
+.rq-app *::-webkit-scrollbar-thumb:hover { background: var(--rq-text-muted); }
 
 button, input, textarea { font-family: inherit; }
 button { cursor: pointer; }
@@ -95,7 +95,7 @@ button { cursor: pointer; }
 .rq-card-unauth, .rq-card-done {
   text-align: center; background: var(--rq-surface); border: 1px solid var(--rq-border);
   border-radius: 8px; padding: 48px; max-width: 400px;
-  box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+  box-shadow: 0 8px 24px rgba(32, 54, 77, .08);
 }
 .rq-icon-large, .rq-done-icon { font-size: 3rem; margin-bottom: 16px; }
 .rq-done-icon { color: var(--rq-success); }
@@ -103,7 +103,7 @@ button { cursor: pointer; }
 .rq-card-done p { margin: 0; font-size: 0.85rem; line-height: 1.6; }
 
 .rq-spinner {
-  width: 40px; height: 40px; border: 3px solid #27272a;
+  width: 40px; height: 40px; border: 3px solid var(--rq-border);
   border-top-color: var(--rq-accent); border-radius: 50%;
   animation: rq-spin 0.8s linear infinite;
 }
@@ -129,7 +129,7 @@ button { cursor: pointer; }
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  box-shadow: 0 8px 24px rgba(32, 54, 77, .08);
 }
 
 /* --- QUEUE PANEL (COLLAPSIBLE) --- */
@@ -234,7 +234,7 @@ button { cursor: pointer; }
 }
 
 /* Tabs. The count sits inside the tab because it is the reason you pick one. */
-.rq-tabs { display: flex; gap: 2px; margin-bottom: 0; padding: 2px; border-radius: 8px; background: var(--rq-surface-alt); }
+.rq-tabs { display: flex; gap: 2px; margin-bottom: 0; padding: 2px; border-radius: 8px; background: var(--rq-bg); }
 .rq-tabs button {
   flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
   min-width: 0; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent;
@@ -243,12 +243,11 @@ button { cursor: pointer; }
   transition: background 160ms var(--ease-out), color 160ms var(--ease-out);
 }
 .rq-tabs button:hover { color: var(--rq-text); }
-.rq-tabs button.is-active { background: var(--rq-surface); color: var(--rq-text); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+.rq-tabs button.is-active { background: var(--rq-surface-alt); color: var(--rq-text); box-shadow: 0 1px 2px rgba(32, 54, 77, .12); }
 .rq-tabs button:focus-visible { outline: 2px solid var(--rq-accent); outline-offset: -2px; }
 .rq-tab-count { color: var(--rq-text-muted); font-size: .7rem; font-variant-numeric: tabular-nums; }
 .rq-tabs button.is-active .rq-tab-count { color: var(--rq-accent); }
 
-.rq-stat-ok .rq-stat-rej 
 .rq-panel-header-top {
   display: flex;
   align-items: center;
@@ -257,26 +256,27 @@ button { cursor: pointer; }
 }
 .rq-icon-btn {
   display: flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px; border-radius: 6px; border: 1px solid var(--rq-border);
-  background: var(--rq-surface); color: var(--rq-text-muted);
-  transition: transform 160ms var(--ease-out), background 160ms var(--ease-out);
+  width: 30px; height: 30px; border-radius: 6px; border: 1px solid transparent;
+  background: transparent; color: var(--rq-text-muted);
+  transition: transform 160ms var(--ease-out), background 160ms var(--ease-out), border-color 160ms var(--ease-out);
 }
-.rq-icon-btn:hover { background: var(--rq-surface-hover); color: var(--rq-text); }
+.rq-icon-btn:hover { background: var(--rq-surface-alt); border-color: var(--rq-border); color: var(--rq-text); }
+.rq-icon-btn:focus-visible { outline: 2px solid var(--rq-accent); outline-offset: 1px; }
 .rq-icon-btn:active { transform: scale(0.95); }
 
 .rq-panel-header {
   padding: 6px 12px 5px;
   border-bottom: 1px solid var(--rq-border);
-  background: #132238;
+  background: var(--rq-surface);
 }
 .rq-header-actions { display: flex; align-items: center; gap: 8px; }
-.rq-panel-title { margin: 0 0 16px 0; font-size: 1.1rem; font-weight: 600; color: var(--rq-text); }
-.rq-owner-switcher { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin: 0; padding: 0; border: 0; background: none; }
-.rq-owner-switcher-label { color: var(--rq-text-muted); font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
-.rq-owner-mode-buttons { display: inline-flex; gap: 2px; padding: 2px; border-radius: 6px; background: var(--rq-bg); }
-.rq-owner-mode-buttons button { border: 0; border-radius: 5px; padding: 4px 8px; background: transparent; color: var(--rq-text-muted); font-size: .75rem; font-weight: 600; }
+.rq-panel-title { margin: 0; font-size: .95rem; font-weight: 600; color: var(--rq-text); }
+.rq-owner-switcher { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; border: 0; background: none; }
+.rq-owner-switcher-label { color: var(--rq-text-muted); font-size: .75rem; font-weight: 600; }
+.rq-owner-mode-buttons { display: inline-flex; gap: 1px; padding: 1px; border-radius: 6px; background: var(--rq-bg); }
+.rq-owner-mode-buttons button { border: 0; border-radius: 5px; padding: 3px 8px; background: transparent; color: var(--rq-text-muted); font-size: .73rem; font-weight: 600; }
 .rq-owner-mode-buttons button.is-active { background: var(--rq-accent); color: #fff; }
-.rq-owner-judge-select { min-width: 110px; flex: 1; padding: 4px 7px; border: 1px solid var(--rq-border-light); border-radius: 6px; background: var(--rq-surface); color: var(--rq-text); font-size: .75rem; }
+.rq-owner-judge-select { min-width: 90px; flex: 1; padding: 3px 7px; border: 1px solid var(--rq-border-light); border-radius: 6px; background: var(--rq-surface); color: var(--rq-text); font-size: .75rem; }
 
 
 .rq-panel-scroll { flex: 1; overflow-y: auto; }
@@ -305,7 +305,7 @@ button { cursor: pointer; }
 .rq-list-item { position: relative; border-radius: 0; }
 .rq-list-item:not(:last-child)::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: 0; height: 1px; background: var(--rq-border-light); }
 .rq-list-item:hover { background: var(--rq-surface-hover); }
-.rq-list-item.is-active { background: var(--rq-accent-bg); }
+.rq-list-item.is-active { background: var(--rq-accent-bg); box-shadow: inset 3px 0 0 var(--rq-accent); }
 
 .rq-fade-enter-active, .rq-fade-leave-active {
   transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out);
@@ -367,9 +367,12 @@ button { cursor: pointer; }
 .rq-cb { width: 16px; height: 16px; accent-color: var(--rq-accent); cursor: pointer; }
 
 .rq-item-content { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
-.rq-item-title { flex: 1; min-width: 0; font-size: 0.85rem; line-height: 1.2; font-weight: 500; color: var(--rq-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 1.5, not 1.2: Bengali and Devanagari stack vowel signs above and below the
+   baseline and the tighter figure clipped them. The entry title is the only
+   content in this panel -- everything else is chrome -- so it gets the room. */
+.rq-item-title { flex: 1; min-width: 0; font-size: 0.9rem; line-height: 1.5; font-weight: 500; color: var(--rq-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rq-list-item.is-active .rq-item-title { color: var(--rq-accent-hover); font-weight: 600; }
-.rq-item-meta { flex-shrink: 0; white-space: nowrap; font-size: 0.74rem; line-height: 1.15; color: var(--rq-text-muted); }
+.rq-item-meta { flex-shrink: 0; white-space: nowrap; font-size: 0.7rem; line-height: 1.5; color: var(--rq-text-muted); }
 .rq-list-item.is-locked { opacity: 0.5; }
 .rq-icon-lock { color: var(--rq-text-muted); font-size: 1.1rem; }
 .rq-list-empty { padding: 32px 24px; text-align: center; color: var(--rq-text-muted); font-size: 0.8rem; display: flex; flex-direction: column; align-items: center; gap: 8px; }
@@ -413,7 +416,7 @@ button { cursor: pointer; }
 }
 .rq-article-header {
   display: flex; align-items: center; padding: 8px 16px;
-  background: #132238; border-bottom: 1px solid var(--rq-border); gap: 12px;
+  background: var(--rq-surface); border-bottom: 1px solid var(--rq-border); gap: 12px;
 }
 .rq-hamburger-btn {
   display: flex; align-items: center; justify-content: center;
@@ -485,7 +488,7 @@ button { cursor: pointer; }
 
 /* Mobile pane picker: visual and raw are mutually exclusive on small screens. */
 .rq-pane-tabs {
-  display: none; gap: 4px; padding: 6px 9px; background: #132238;
+  display: none; gap: 4px; padding: 6px 9px; background: var(--rq-surface);
   border-bottom: 1px solid var(--rq-border);
 }
 .rq-pane-tabs button {
@@ -589,60 +592,45 @@ button { cursor: pointer; }
 
 /* --- MOBILE NAV --- */
 .rq-mobile-nav {
-  display: none; background: #132238; border-top: 1px solid var(--rq-border);
+  display: none; background: var(--rq-surface); border-top: 1px solid var(--rq-border);
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-.rq-app.rq-theme-light .rq-panel-header,
-.rq-app.rq-theme-light .rq-group-header,
-.rq-app.rq-theme-light .rq-article-header,
-.rq-app.rq-theme-light .rq-mobile-nav { background: #e7f0f8; }
-.rq-app.rq-theme-light .rq-panel,
-.rq-app.rq-theme-light .rq-panel-scroll { background: var(--rq-surface); }
-.rq-app.rq-theme-light .rq-panel-scroll {
-  scrollbar-color: #91a7ba #edf3f7;
-}
-.rq-app.rq-theme-light .rq-panel-scroll::-webkit-scrollbar-track { background: #edf3f7; }
-.rq-app.rq-theme-light .rq-panel-scroll::-webkit-scrollbar-thumb { background: #91a7ba; }
-.rq-app.rq-theme-light .rq-panel-scroll::-webkit-scrollbar-thumb:hover { background: #6f8da5; }
+.rq-app.rq-theme-light .rq-panel-scroll { background: var(--rq-surface-alt); }
+.rq-app.rq-theme-light .rq-panel-scroll { scrollbar-color: var(--rq-border) var(--rq-surface); }
+.rq-app.rq-theme-light .rq-panel-scroll::-webkit-scrollbar-track { background: var(--rq-surface); }
+.rq-app.rq-theme-light .rq-panel-scroll::-webkit-scrollbar-thumb { background: var(--rq-border); }
+.rq-app.rq-theme-light .rq-panel-scroll::-webkit-scrollbar-thumb:hover { background: var(--rq-text-muted); }
 
 .rq-app.rq-theme-light .rq-cb {
   color-scheme: light;
-  background-color: #fff !important;
-  accent-color: #355b80;
+  background-color: var(--rq-surface-alt) !important;
+  accent-color: var(--rq-accent);
 }
-.rq-app.rq-theme-light .rq-bulk-banner { background: #cfe7fb; border-bottom-color: #a9cde9; }
-.rq-app.rq-theme-light .rq-bulk-count { color: #174d78; }
-.rq-app.rq-theme-light .rq-bulk-comment-panel { background: #f4f8fb; border-bottom-color: var(--rq-border-light); }
+.rq-app.rq-theme-light .rq-bulk-banner { background: var(--rq-accent-bg); border-bottom-color: var(--rq-border); }
+.rq-app.rq-theme-light .rq-bulk-count { color: var(--rq-accent); }
+.rq-app.rq-theme-light .rq-bulk-comment-panel { background: var(--rq-surface); border-bottom-color: var(--rq-border-light); }
 .rq-app.rq-theme-light .rq-input,
-.rq-app.rq-theme-light textarea.rq-input { background: #fff !important; color: var(--rq-text) !important; border-color: var(--rq-border-light) !important; }
+.rq-app.rq-theme-light textarea.rq-input { background: var(--rq-surface-alt) !important; color: var(--rq-text) !important; border-color: var(--rq-border-light) !important; }
 .rq-app.rq-theme-light .rq-input:focus,
-.rq-app.rq-theme-light textarea.rq-input:focus { background: #f7fbff !important; color: var(--rq-text) !important; }
+.rq-app.rq-theme-light textarea.rq-input:focus { background: var(--rq-surface-alt) !important; color: var(--rq-text) !important; }
 .rq-app.rq-theme-light .rq-input::placeholder { color: var(--rq-text-muted) !important; }
-.rq-app.rq-theme-light .rq-preview-container { background: #dce8f2; }
-.rq-app.rq-theme-light .rq-btn-ghost { background: #f4f8fb; }
-.rq-app.rq-theme-light .rq-btn-ghost:hover:not(:disabled) { background: #e2edf7; }
-.rq-app.rq-theme-light .rq-spinner { border-color: #d5e2ed; }
+.rq-app.rq-theme-light .rq-preview-container { background: var(--rq-bg); }
+.rq-app.rq-theme-light .rq-btn-ghost { background: var(--rq-surface); }
+.rq-app.rq-theme-light .rq-btn-ghost:hover:not(:disabled) { background: var(--rq-accent-bg); }
+.rq-app.rq-theme-light .rq-spinner { border-color: var(--rq-border); }
 
-/* Compact queue controls: preserve vertical room for the article list. */
-.rq-panel-header { padding: 6px 12px; }
-.rq-panel-title { margin-bottom: 8px; font-size: 1rem; }
-.rq-owner-switcher { gap: 5px; }
-.rq-owner-switcher-label { font-size: .62rem; }
-.rq-owner-mode-buttons { gap: 1px; padding: 1px; }
-.rq-owner-mode-buttons button { padding: 3px 7px; font-size: .7rem; }
-.rq-owner-judge-select { min-width: 90px; padding: 3px 6px; font-size: .7rem; }
 .rq-app.rq-theme-light .rq-tag-locked { background: #fff1d6; }
 .rq-app.rq-theme-light .rq-tag-accepted { background: #dff6e9; }
 .rq-app.rq-theme-light .rq-tag-rejected { background: #fde4e4; }
 .rq-app.rq-theme-light .rq-tag-skipped { background: #edf0f3; }
-.rq-app.rq-theme-light .rq-wiki-link-btn { color: var(--rq-accent); border-color: #aebdd4; background: #e8eef8; }
-.rq-app.rq-theme-light .rq-wiki-link-btn:hover { background: #dce6f4; }
-.rq-app.rq-theme-light .rq-wikitext-switch { background: #f4f8fb; }
-.rq-app.rq-theme-light .rq-wikitext-switch.is-on { color: var(--rq-accent); border-color: #aebdd4; background: #e8eef8; }
-.rq-app.rq-theme-light .rq-pane-tabs { background: #e7f0f8; }
-.rq-app.rq-theme-light .rq-wikitext-pane { background: #fff; border-left-color: var(--rq-border-light); }
-.rq-app.rq-theme-light .rq-wikitext-bar { background: #e7f0f8; }
+.rq-app.rq-theme-light .rq-wiki-link-btn { color: var(--rq-accent); border-color: var(--rq-border); background: var(--rq-accent-bg); }
+.rq-app.rq-theme-light .rq-wiki-link-btn:hover { background: var(--rq-surface-hover); }
+.rq-app.rq-theme-light .rq-wikitext-switch { background: var(--rq-surface); }
+.rq-app.rq-theme-light .rq-wikitext-switch.is-on { color: var(--rq-accent); border-color: var(--rq-border); background: var(--rq-accent-bg); }
+.rq-app.rq-theme-light .rq-pane-tabs { background: var(--rq-surface); }
+.rq-app.rq-theme-light .rq-wikitext-pane { background: var(--rq-surface-alt); border-left-color: var(--rq-border-light); }
+.rq-app.rq-theme-light .rq-wikitext-bar { background: var(--rq-surface); }
 .rq-app.rq-theme-light .rq-error-msg { background: #fff0f0; border-color: #d99090; }
 .rq-app.rq-theme-light .rq-input:focus { background: var(--rq-surface-alt); }
 .rq-app.rq-theme-light .rq-panel-header,
@@ -658,7 +646,7 @@ button { cursor: pointer; }
 .rq-nav-btn:active { transform: scale(0.95); }
 .rq-nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 .rq-nav-icon { font-size: 1.4rem; }
-.rq-nav-label { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.rq-nav-label { font-size: 0.72rem; font-weight: 600; }
 .rq-nav-badge { position: absolute; top: 6px; right: 25%; background: var(--rq-accent); color: #fff; font-size: 0.65rem; font-weight: 700; padding: 2px 6px; border-radius: 8px; }
 
 /* --- RESPONSIVE LAYOUT --- */
@@ -691,7 +679,7 @@ button { cursor: pointer; }
   .rq-decision-panel {
     position: fixed; bottom: 70px; left: 0; right: 0;
     border-radius: 12px 12px 0 0; border: 1px solid var(--rq-border);
-    border-bottom: none; box-shadow: 0 -8px 32px rgba(0,0,0,0.8);
+    border-bottom: none; box-shadow: 0 -8px 24px rgba(32, 54, 77, .1);
     z-index: 40; padding-bottom: env(safe-area-inset-bottom);
   }
   .rq-decision-body { padding: 12px; gap: 8px; }
@@ -726,8 +714,10 @@ button { cursor: pointer; }
   .rq-owner-mode-buttons { justify-self: end; }
   .rq-owner-judge-select { grid-column: 1 / -1; width: 100%; min-height: 28px; }
   .rq-list-item { min-height: 44px; padding: 8px 9px; gap: 6px; }
-  .rq-item-title { font-size: .78rem; line-height: 1.15; }
-  .rq-item-meta { font-size: .65rem; line-height: 1.2; }
+  /* Mobile shrinks the type but keeps the leading: on a phone the queue IS
+     the screen, and clipped vowel signs are worse here than anywhere. */
+  .rq-item-title { font-size: .84rem; line-height: 1.5; }
+  .rq-item-meta { font-size: .66rem; line-height: 1.5; }
   .rq-load-more-wrap { padding: 7px 9px 9px; }
   .rq-load-more { padding: 7px 8px; font-size: .7rem; }
   .rq-preview-panel { margin-bottom: 0; }
@@ -735,7 +725,7 @@ button { cursor: pointer; }
   .rq-article-title-link { font-size: .92rem; }
   .rq-tags { gap: 4px; }
   .rq-tag { padding: 3px 6px; font-size: .62rem; }
-  .rq-decision-panel { bottom: 60px; border-radius: 10px 10px 0 0; box-shadow: 0 -5px 20px rgba(0,0,0,.35); }
+  .rq-decision-panel { bottom: 60px; border-radius: 10px 10px 0 0; box-shadow: 0 -5px 20px rgba(32, 54, 77, .1); }
   .rq-decision-body { padding: 7px 9px; gap: 5px; }
   .rq-decision-form { gap: 5px; }
   .rq-input, .rq-bulk-comment-input { height: 36px; min-height: 36px; padding: 6px 9px; font-size: .78rem; }
