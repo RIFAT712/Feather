@@ -1505,11 +1505,6 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
             </button>
           </div>
 
-          <p class="rq-stat-line">
-            <span><span class="rq-stat-n">{{ statusStats.pending.toLocaleString() }}</span> pending</span>
-            <span class="rq-stat-ok"><span class="rq-stat-n">{{ statusStats.accepted.toLocaleString() }}</span> accepted</span>
-            <span class="rq-stat-rej"><span class="rq-stat-n">{{ statusStats.rejected.toLocaleString() }}</span> rejected</span>
-          </p>
         </header>
 
         <transition name="rq-fade">
@@ -1652,24 +1647,6 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
           <!-- PREVIEW (Top) -->
           <main class="rq-panel rq-preview-panel">
             <div class="rq-flow-stats">
-              <div class="rq-stat-grid">
-                <div class="rq-stat-card">
-                  <div class="rq-stat-number">{{ judgeableTotal.toLocaleString() }}</div>
-                  <div class="rq-stat-label">Total</div>
-                </div>
-                <div class="rq-stat-card accent-green">
-                  <div class="rq-stat-number">{{ statusStats.accepted.toLocaleString() }}</div>
-                  <div class="rq-stat-label">Accepted</div>
-                </div>
-                <div class="rq-stat-card accent-red">
-                  <div class="rq-stat-number">{{ statusStats.rejected.toLocaleString() }}</div>
-                  <div class="rq-stat-label">Rejected</div>
-                </div>
-                <div class="rq-stat-card accent-amber">
-                  <div class="rq-stat-number">{{ statusStats.pending.toLocaleString() }}</div>
-                  <div class="rq-stat-label">Pending</div>
-                </div>
-              </div>
               <div
                 class="rq-progress"
                 role="progressbar"
