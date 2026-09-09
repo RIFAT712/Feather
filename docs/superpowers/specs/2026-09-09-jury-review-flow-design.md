@@ -43,16 +43,19 @@ The owner chose, explicitly:
 
 ### 1. Flow by default
 
-`sidebarCollapsed` (`ReviewQueue.vue:43`) defaults to `true`.
+`sidebarCollapsed` (`ReviewQueue.vue:43`) defaults to `true`. Every session
+starts in flow.
 
-The value persists per user in `localStorage` under
-`review_queue_layout:<username>`, reusing the read/write pattern already
-established for shortcuts at `ReviewQueue.vue:1097-1128` — including its
-`try`/`catch`, because private windows and blocked site data throw on write. A
-layout preference that fails to persist must not break the view.
+**Amended 2026-09-09 — no persistence.** The first draft persisted the open
+state per user. That contradicts §4: once the drawer is an overlay, "left open"
+means permanently covering the article you are trying to read. Supporting both a
+docked column and an overlay would be two layout modes, and pure flow was chosen
+precisely to avoid that.
 
-First visit lands in flow. If the reviewer opens the drawer and leaves it open,
-it stays open on return.
+So there is one mode. The drawer is transient: it opens on demand and closes on
+`Esc`, on the toggle key, on backdrop click, and on selecting an article —
+which returns the reviewer to flow without a second keystroke. Nothing about
+layout is written to `localStorage`.
 
 ### 2. Stat cards
 
@@ -114,6 +117,18 @@ already wires all of that off `SHORTCUT_ACTIONS`.
 `Esc` closes the drawer, consistent with the existing contract that Escape is
 the way out of everything (`:1062-1065`).
 
+**Mobile guard — required.** `.rq-queue-panel.is-collapsed` (`ReviewQueue.css:205`)
+is currently an unscoped top-level rule. It is harmless today only because
+`sidebarCollapsed` defaults to `false` and the collapse button is
+`rq-desktop-only`. Once the default flips to `true`, that rule would collapse
+the panel on mobile too, where layout is governed by `mobileTab`
+(`ReviewQueue.vue:42`) and the panel is the primary screen — leaving mobile
+users with a blank list.
+
+The collapsed/overlay rules must therefore be wrapped in
+`@media (min-width: 769px)`, matching the 768px breakpoint the file already uses
+at `ReviewQueue.vue:854`.
+
 The drawer header keeps a single compact line — `2,232 pending · 52 accepted ·
 380 rejected` — since the full cards are in the flow header. This replaces
 `.rq-stat-line` (`ReviewQueue.css:249`) and fixes its wrapped "380 rejected"
@@ -121,9 +136,20 @@ orphan.
 
 ### 5. Article reading measure
 
-Wiki content inside `.rq-article` is constrained to ~72ch and centred, with
-increased base size and line-height. The wiki HTML is injected wholesale, so this
-is one scoped selector on the container, not a per-element pass.
+**Amended 2026-09-09 — corrected mechanism.** The first draft said this was one
+selector on a parent container. It is not: the article renders in an
+`<iframe sandbox="allow-scripts" :srcdoc="previewSrcdoc">` (`ReviewQueue.vue:1716`).
+Parent CSS cannot reach inside it.
+
+The app does control the iframe's stylesheet — `previewSrcdoc` is assembled at
+`:385-390` and injects `LIGHT_CSS` or `DARK_CSS` depending on the review theme.
+The reading measure goes there, in the `html, body` rules that already exist in
+**both** sheets (`:121` dark, `:342` light). Editing only one leaves the other
+theme unchanged.
+
+Rule: constrain body to ~72ch, centre it, raise line-height. `STYLE_GUIDE.md:60`
+protects the iframe preview from redesign — this changes measure and leading
+only, not the preview's structure or behaviour.
 
 ### 6. Row density
 
