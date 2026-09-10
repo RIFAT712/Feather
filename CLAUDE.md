@@ -27,7 +27,14 @@ npm run build     # required before verifying CSS/visual changes — see STYLE_G
 npm run preview
 ```
 
-There is no test suite (no pytest/vitest config) and no lint script configured — verify backend changes by running the server and exercising endpoints, and verify frontend changes with `npm run build` plus manual checks at both desktop and mobile widths.
+There is no test framework (no pytest/vitest config) and no lint script, but there are two assert-based smoke tests, run directly and with no framework:
+
+```bash
+python test_api.py         # from backend/, venv active: route set + every read endpoint + exports
+python test_ban_filter.py  # banning a participant must not un-count judged articles
+```
+
+`test_api.py` compares FastAPI's registered routes against an explicit `EXPECTED_ROUTES` list, so **adding or removing a route means editing that list on purpose** — it exists because a deletion that took one line too many once stripped an `@app.get` off the next function. Run both after backend changes. Verify frontend changes with `npm run build` plus manual checks at both desktop and mobile widths.
 
 Production process (Toolforge, via `Procfile`): `cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT`. The built `frontend-vue/dist` SPA is served by FastAPI itself (`StaticFiles`/`FileResponse` in `main.py`); it must be built and, per current workflow, committed to the repo for Toolforge to serve it (`dist/` is gitignored in `frontend-vue/.gitignore` — see STYLE_GUIDE.md step 6 and the 2026-07-29 AGENTS.md change log entry for why this matters).
 

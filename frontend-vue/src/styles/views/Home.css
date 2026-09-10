@@ -206,18 +206,6 @@
 }
 
 /* Wave divider */
-.hero-wave {
-  position: relative;
-  height: 60px;
-  margin-top: -1px;
-  margin-left: -32px;
-  margin-right: -32px;
-  width: calc(100% + 64px);
-}
-.hero-wave svg {
-  width: 100%; height: 100%;
-  display: block;
-}
 
 /* ── Contests Section ── */
 .contests-section {
@@ -456,7 +444,6 @@
 .wiki-badge { background: linear-gradient(135deg, #5f88a8 0%, #355b80 100%); box-shadow: 0 10px 25px rgba(53,91,128,.22); }
 .admin-btn { background: #355b80; border-color: #355b80; color: #fff; }
 .admin-btn:hover { background: #274d70; border-color: #274d70; color: #fff; }
-.hero-wave { display: none; }
 .contests-section { background: transparent !important; padding-bottom: 56px; }
 .section-inner { max-width: 1180px; }
 .section-header { margin-bottom: 18px; border: 0; background: transparent !important; box-shadow: none !important; }

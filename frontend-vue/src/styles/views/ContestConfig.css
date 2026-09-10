@@ -31,10 +31,6 @@
 .tags { display: flex; flex-wrap: wrap; gap: 8px; }
 .tag { background: rgba(255,255,255,0.1); color: #e5e7eb; padding: 4px 10px; border-radius: 14px; font-size: 0.82rem; display: flex; align-items: center; gap: 6px; }
 .remove-tag { background: none; border: none; color: white; font-weight: bold; cursor: pointer; padding: 0; }
-
-.jury-table { width: 100%; border-collapse: collapse; }
-.jury-table th, .jury-table td { padding: 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); }
-.jury-table th { color: #9ca3af; text-transform: uppercase; font-size: 0.8rem; }
 .remove-btn { background: rgba(255,255,255,0.1); color: #d1d5db; border: 1px solid rgba(255,255,255,0.1); padding: 5px 11px; border-radius: 4px; cursor: pointer; font-size: 0.82rem; }
 .remove-btn:hover { background: rgba(255,255,255,0.1); }
 .restriction-help { color: #9ca3af; margin: -6px 0 16px; font-size: .9rem; line-height: 1.5; }
@@ -252,43 +248,6 @@
 .integrity-badge-redirect { background: #eef3fd; color: #2c4f9b; }
 .integrity-badge-below_min_bytes { background: #fdf6e7; color: #92600e; }
 .integrity-badge-creator_changed { background: #f5eefd; color: #6b2c9b; }
-
-.integrity-table-wrap {
-  margin-top: 16px;
-  border: 1px solid var(--feather-border, #c7d6e3);
-  border-radius: 10px;
-  overflow-x: auto;
-  max-height: 460px;
-  overflow-y: auto;
-}
-.integrity-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: .8rem;
-}
-.integrity-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  text-align: left;
-  padding: 9px 12px;
-  background: var(--feather-surface-alt, #f4f8fb);
-  border-bottom: 1px solid var(--feather-border, #c7d6e3);
-  font-size: .72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .04em;
-  color: var(--feather-muted, #47637c);
-}
-.integrity-table td {
-  padding: 9px 12px;
-  border-bottom: 1px solid #edf2f7;
-  color: var(--feather-text, #20364d);
-  vertical-align: top;
-}
-.integrity-table tr:last-child td { border-bottom: none; }
-.integrity-table a { color: var(--feather-accent, #355b80); text-decoration: none; }
-.integrity-table a:hover { text-decoration: underline; }
 .integrity-detail { color: var(--feather-muted, #47637c); }
 
 @media (max-width: 640px) {

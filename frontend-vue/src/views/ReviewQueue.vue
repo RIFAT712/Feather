@@ -532,6 +532,15 @@ const listTabs = computed(() => {
 const activeTab = computed(() => listTabs.value.find(tab => tab.id === listTab.value) || listTabs.value[0]);
 const openArticle = (article) => { if (activeTab.value.id !== 'others') selectArticle(article); };
 
+// The list the reviewer is actually working through, which is what every
+// "move me along" step has to walk. Skip and the post-decision advance both
+// used to read availableNewArticles unconditionally, so doing either one from
+// Re-review dropped you onto a pending article -- the tab looked like it had
+// jumped to Queue. 'others' is read-only and cannot be the current article,
+// so anything that is not Re-review keeps the pending queue it always had.
+const workingList = computed(() =>
+  listTab.value === 'rereview' ? filteredJudgedArticles.value : availableNewArticles.value);
+
 // The rows actually drawn. Re-review emits a heading row per decision block
 // followed by that block's articles, so the template needs no lookahead, and
 // the 100-row budget is spent only on blocks that are open -- collapsing
@@ -773,8 +782,8 @@ onMounted(async () => {
 const skipArticle = () => {
   if (!currentArticle.value) return;
   const previousArticleId = currentArticle.value.article_id;
-  const list = availableNewArticles.value;
-  
+  const list = workingList.value;
+
   if (list.length <= 1) return;
   
   const currentIndex = list.findIndex(a => a.article_id === previousArticleId);
@@ -814,6 +823,14 @@ const handleDecision = async (decision) => {
     const previousQueueIndex = availableNewArticles.value.findIndex(
       article => article.article_id === reviewedArticleId,
     );
+    // Re-review advances inside its own list, and deciding re-sorts the
+    // decision block this row sits in -- so the next row is taken now, before
+    // the local update moves it.
+    const nextInWorkingList = listTab.value === 'queue' ? null : (() => {
+      const list = workingList.value;
+      const index = list.findIndex(article => article.article_id === reviewedArticleId);
+      return index >= 0 ? list[index + 1] || null : null;
+    })();
   try {
     const res = await fetch(`/api/articles/${reviewedArticleId}/review`, {
       method: 'POST',
@@ -838,14 +855,18 @@ const handleDecision = async (decision) => {
     articles.value = articles.value.map(article => article.article_id === reviewedArticleId
       ? { ...article, status: decision, reviews: [...(article.reviews || []), optimisticReview] }
       : article);
-    // Auto-advance belongs to the Queue tab, where the job is to work through
-    // a list. Re-reviewing is aimed at one particular article, so stay on it
-    // and just refresh it from the updated array. This is what threw the
-    // reviewer to the top of the queue: `previousQueueIndex` is -1 for an
-    // article that is no longer pending, and Math.max(-1, 0) made that 0.
+    // Both tabs advance, each within its own list. The queue walks the pending
+    // articles; Re-review walks the judged ones and only falls back to holding
+    // position on the last row of the list. Note `previousQueueIndex` is -1 for
+    // an article that is no longer pending, and Math.max(-1, 0) made that 0 --
+    // which is what used to throw the reviewer to the top of the queue.
     if (listTab.value !== 'queue') {
-      currentArticle.value = articles.value.find(article => article.article_id === reviewedArticleId)
-        || currentArticle.value;
+      if (nextInWorkingList) {
+        selectArticle(nextInWorkingList);
+      } else {
+        currentArticle.value = articles.value.find(article => article.article_id === reviewedArticleId)
+          || currentArticle.value;
+      }
     } else {
       const remainingArticles = availableNewArticles.value;
       const nextArticle = remainingArticles.length
@@ -882,11 +903,15 @@ const lastDecision = ref(null);
 const isUndoing = ref(false);
 let undoExpiryTimer;
 
-const UNDO_WINDOW_MS = 12000;
+const UNDO_WINDOW_MS = 2000;
+// Keys the toast so a second decision recreates the element -- without it the
+// countdown bar keeps running out the previous decision's animation.
+let decisionSeq = 0;
 
 const rememberDecision = (article, decision, commentText) => {
   clearTimeout(undoExpiryTimer);
   lastDecision.value = {
+    seq: ++decisionSeq,
     articleId: article.article_id,
     title: article.title,
     decision,
@@ -1710,7 +1735,7 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
     </nav>
 
     <!-- Undo toast: the affordance for taking back the decision just made. -->
-    <div v-if="lastDecision" class="rq-undo-toast" role="status">
+    <div v-if="lastDecision" :key="lastDecision.seq" class="rq-undo-toast" role="status">
       <span class="rq-undo-text">
         <strong class="rq-undo-decision" :class="`rq-undo-${lastDecision.decision}`">{{ lastDecision.decision }}</strong>
         <span class="rq-undo-title">{{ lastDecision.title }}</span>
@@ -1719,6 +1744,9 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
         {{ isUndoing ? 'Undoing…' : 'Undo' }} <kbd class="rq-kbd">{{ shortcutKeyLabel(shortcuts.undo) }}</kbd>
       </button>
       <button type="button" class="rq-undo-dismiss" aria-label="Dismiss" @click="dismissUndo">×</button>
+      <!-- Runs out with the undo window; duration comes from the timer that
+           actually clears the toast, so the bar cannot drift from it. -->
+      <span class="rq-undo-progress" :style="{ animationDuration: `${UNDO_WINDOW_MS}ms` }"></span>
     </div>
 
     <!-- Keyboard shortcut reference -->

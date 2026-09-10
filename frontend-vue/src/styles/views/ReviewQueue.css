@@ -247,13 +247,6 @@ button { cursor: pointer; }
 .rq-tabs button:focus-visible { outline: 2px solid var(--rq-accent); outline-offset: -2px; }
 .rq-tab-count { color: var(--rq-text-muted); font-size: .7rem; font-variant-numeric: tabular-nums; }
 .rq-tabs button.is-active .rq-tab-count { color: var(--rq-accent); }
-
-.rq-panel-header-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
 .rq-icon-btn {
   display: flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; border-radius: 6px; border: 1px solid transparent;
@@ -269,7 +262,6 @@ button { cursor: pointer; }
   border-bottom: 1px solid var(--rq-border);
   background: var(--rq-surface);
 }
-.rq-header-actions { display: flex; align-items: center; gap: 8px; }
 .rq-panel-title { margin: 0; font-size: .95rem; font-weight: 600; color: var(--rq-text); }
 .rq-owner-switcher { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; border: 0; background: none; }
 .rq-owner-switcher-label { color: var(--rq-text-muted); font-size: .75rem; font-weight: 600; }
@@ -278,13 +270,7 @@ button { cursor: pointer; }
 .rq-owner-mode-buttons button.is-active { background: var(--rq-accent); color: #fff; }
 .rq-owner-judge-select { min-width: 90px; flex: 1; padding: 3px 7px; border: 1px solid var(--rq-border-light); border-radius: 6px; background: var(--rq-surface); color: var(--rq-text); font-size: .75rem; }
 
-
 .rq-panel-scroll { flex: 1; overflow-y: auto; }
-
-.rq-dot { width: 8px; height: 8px; border-radius: 50%; }
-.rq-dot-pending { background: var(--rq-warning); }
-.rq-dot-other { background: var(--rq-text-muted); }
-.rq-dot-judged { background: var(--rq-success); }
 
 /* No vertical padding and no border of its own: the panel already draws the
    outer edge and the header the divider above, so both only added a gap and
@@ -341,27 +327,12 @@ button { cursor: pointer; }
 }
 .rq-decision-toggle:hover { background: var(--rq-surface-hover); }
 .rq-decision-toggle:focus-visible { outline: 2px solid var(--rq-accent); outline-offset: -2px; }
-.rq-decision-head.is-accepted .rq-decision-toggle { color: var(--rq-success-dark); }
-.rq-decision-head.is-rejected .rq-decision-toggle { color: var(--rq-danger-dark); }
 .rq-decision-chevron { font-size: .9rem; transition: transform 180ms var(--ease-out); }
 .rq-decision-chevron.is-collapsed { transform: rotate(-90deg); }
 .rq-decision-count { margin-left: auto; color: var(--rq-text-muted); font-weight: 600; font-variant-numeric: tabular-nums; }
 .rq-item-readonly { cursor: default; }
-.rq-panel-tools { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
 .rq-panel-search { width: 100%; }
 :deep(.rq-panel-search.cdx-text-input) { width: 100%; }
-:deep(.rq-judged-search.cdx-text-input) { width: 100%; }
-:deep(.rq-judged-search .cdx-text-input__input) {
-  width: 100%;
-  min-height: 34px;
-  padding: 7px 36px;
-  border-color: var(--rq-border-light);
-  background: var(--rq-surface);
-  color: var(--rq-text);
-  font-size: .78rem;
-}
-:deep(.rq-judged-search .cdx-text-input__input::placeholder) { color: var(--rq-text-muted); opacity: .85; }
-:deep(.rq-judged-search .cdx-text-input__input:focus) { border-color: var(--rq-accent); box-shadow: 0 0 0 1px var(--rq-accent); }
 
 .rq-cb-wrapper { display: flex; align-items: center; }
 .rq-cb { width: 16px; height: 16px; accent-color: var(--rq-accent); cursor: pointer; }
@@ -397,7 +368,6 @@ button { cursor: pointer; }
 .rq-bbtn:active:not(:disabled) { transform: scale(0.95); }
 .rq-bbtn-accept { background: var(--rq-success-dark); }
 .rq-bbtn-reject { background: var(--rq-danger-dark); }
-.rq-bbtn-skip { background: #3f3f46; border: 1px solid var(--rq-border-light); }
 .rq-bbtn-remove { background: #450a0a; border: 1px solid #7f1d1d; }
 
 /* --- REVIEW AREA (PREVIEW + DECISION) --- */
@@ -783,6 +753,7 @@ button { cursor: pointer; }
   gap: 12px;
   max-width: min(560px, calc(100vw - 32px));
   padding: 10px 12px 10px 16px;
+  overflow: hidden; /* clips the countdown bar to the rounded corners */
   border: 1px solid var(--rq-border);
   border-radius: 10px;
   background: var(--rq-surface-alt);
@@ -799,6 +770,23 @@ button { cursor: pointer; }
 
 @media (prefers-reduced-motion: reduce) {
   .rq-undo-toast { animation: none; }
+}
+
+/* Countdown for the undo window. Duration is set inline from UNDO_WINDOW_MS. */
+.rq-undo-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 2px;
+  transform-origin: left center;
+  background: var(--rq-accent);
+  animation: rq-undo-countdown linear forwards;
+}
+
+@keyframes rq-undo-countdown {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
 }
 
 .rq-undo-text {
