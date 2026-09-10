@@ -829,22 +829,25 @@ def _assign_pending_articles(db: Session, contest: models.Contest, jury_map: dic
     }
     banned_ids = {b.user_id for b in db.query(models.ContestBannedUser).filter_by(contest_id=contest.id).all()}
 
-    base_filters = [models.Article.contest_id == contest.id]
-    if banned_ids:
-        base_filters.append(~models.Article.submitter_id.in_(banned_ids))
-
     # Current load: everything each jury currently owns (pending + already
     # reviewed by them), so a jury who has judged a lot doesn't also get
-    # piled up with new pending work.
+    # piled up with new pending work. Counted through the jury-panel filter,
+    # so a ban leaves already-judged work on the books -- otherwise banning a
+    # participant looked like free capacity and refilled the queue.
     loads = {uid: 0 for uid in jury_ids}
     for uid, count in db.query(models.Article.assigned_to_id, func.count(models.Article.id)).filter(
-        *base_filters, models.Article.assigned_to_id.in_(jury_ids)
+        *_jury_panel_filters(contest), models.Article.assigned_to_id.in_(jury_ids)
     ).group_by(models.Article.assigned_to_id).all():
         loads[uid] = count
 
+    # Nothing pending from a banned submitter gets handed out again.
+    pending_filters = [models.Article.contest_id == contest.id]
+    if banned_ids:
+        pending_filters.append(~models.Article.submitter_id.in_(banned_ids))
+
     query = db.query(
         models.Article.id, models.Article.submitter_id, models.Article.assigned_to_id
-    ).filter(*base_filters, models.Article.status == models.ArticleStatus.pending)
+    ).filter(*pending_filters, models.Article.status == models.ArticleStatus.pending)
     if not full:
         query = query.filter(or_(
             models.Article.assigned_to_id.is_(None),
@@ -2532,12 +2535,21 @@ def _jury_panel_authorize(contest, current_user, db, view_as=None):
     return is_owner
 
 def _jury_panel_filters(contest):
-    """Row filters shared by every jury-panel read: this contest, minus any
-    submitter banned from it."""
+    """Row filters shared by every jury-panel read: this contest, minus the
+    *pending* work of any submitter banned from it.
+
+    A ban retires a participant's remaining entries, but it does not un-judge
+    what the jury already decided -- filtering banned submitters outright made
+    a jury's `judged` count drop by however many of their articles they had
+    already reviewed, and handed the allocator that much fresh work to refill
+    the gap. Decided rows stay visible and stay counted."""
     filters = [models.Article.contest_id == contest.id]
     banned_ids = {b.user_id for b in contest.banned_users}
     if banned_ids:
-        filters.append(~models.Article.submitter_id.in_(banned_ids))
+        filters.append(or_(
+            ~models.Article.submitter_id.in_(banned_ids),
+            models.Article.status != models.ArticleStatus.pending,
+        ))
     return filters
 
 def _jury_panel_base_query(db, contest):
@@ -2632,14 +2644,11 @@ def get_jury_panel_queue_stats(
     jury_map = get_eligible_juries(contest)
 
     target = view_as if (is_owner and view_as) else ("*" if is_owner else current_user.wiki_username)
-    banned_ids = {b.user_id for b in contest.banned_users}
     query = db.query(
         models.Article.status,
         func.count(models.Article.id),
         func.max(models.Article.id),
-    ).filter(models.Article.contest_id == contest.id)
-    if banned_ids:
-        query = query.filter(~models.Article.submitter_id.in_(banned_ids))
+    ).filter(*_jury_panel_filters(contest))
     if target != "*":
         target_id = jury_map_username_to_id(jury_map).get(target, -1)
         query = query.filter(models.Article.assigned_to_id == target_id)
@@ -2833,10 +2842,7 @@ def get_jury_panel_progress(code: str, current_user: models.User = Depends(get_c
     if not visible_ids:
         return []
 
-    banned_ids = {b.user_id for b in contest.banned_users}
-    filters = [models.Article.contest_id == contest.id, models.Article.assigned_to_id.in_(visible_ids)]
-    if banned_ids:
-        filters.append(~models.Article.submitter_id.in_(banned_ids))
+    filters = [*_jury_panel_filters(contest), models.Article.assigned_to_id.in_(visible_ids)]
 
     stats = {uid: {"assigned": 0, "judged": 0, "accepted": 0, "rejected": 0} for uid in visible_ids}
     for uid, status, count in db.query(
