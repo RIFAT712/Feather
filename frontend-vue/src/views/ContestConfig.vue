@@ -309,7 +309,7 @@ const fetchContest = async () => {
       contest.value = c;
       juries.value = c.juries || [];
       juryRestrictions.value = c.jury_restrictions || [];
-      bannedUsers.value = (c.banned_users || []).map((username, index) => ({ id: `legacy-${index}`, username }));
+      await loadBannedUsers();
       
       editName.value = c.name;
       const start = utcToContestTimeParts(c.start_date);
@@ -467,8 +467,15 @@ const handleBanUser = async () => {
   } catch (e) { showToast('Failed to ban user.', true); }
 };
 
+// Ids come from the admin endpoint, not from /api/contests/{code} -- that
+// payload carries usernames only, and the placeholder ids it used to be
+// mapped to made every Restore button a no-op.
+const loadBannedUsers = async () => {
+  const res = await fetch(`/api/admin/contests/${route.params.code}/banned-users`);
+  bannedUsers.value = res.ok ? await res.json() : [];
+};
+
 const handleUnbanUser = async (ban) => {
-  if (!String(ban.id).match(/^\d+$/)) return;
   try {
     const res = await fetch(`/api/admin/contests/${contest.value.code}/banned-users/${ban.id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('Failed');

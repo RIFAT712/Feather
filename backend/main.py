@@ -1503,6 +1503,12 @@ def ban_contest_user(code: str, data: ContestBan, _: models.User = Depends(get_o
     item = models.ContestBannedUser(contest_id=contest.id, user_id=user.id)
     db.add(item)
     db.commit()
+    # Hiding or restoring a submitter changes what the allocator can see, so it
+    # re-levels the pending pool the same way a jury or COI change does. On a
+    # ban that spreads the rest of the pool over the freed capacity; on an
+    # unban it puts the restored entries back through scarcity-first instead of
+    # dumping them all on whoever happened to own them before the ban.
+    redistribute_pending_articles(db, contest)
     return {"status": "success", "id": item.id, "username": username}
 
 @app.delete("/api/admin/contests/{code}/banned-users/{ban_id}")
@@ -1513,6 +1519,7 @@ def unban_contest_user(code: str, ban_id: int, _: models.User = Depends(get_owne
         raise HTTPException(status_code=404, detail="Ban not found")
     db.delete(item)
     db.commit()
+    redistribute_pending_articles(db, contest)
     return {"status": "success", "removed": ban_id}
 
 # ---------------------------------------------------------------------------
