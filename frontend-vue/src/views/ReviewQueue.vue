@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, inject, computed, watch } from 'vue';
+import { ref, onMounted, onBeforeUnmount, inject, computed, watch, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import { CdxTextInput, CdxIcon } from '@wikimedia/codex';
 import {
@@ -101,6 +101,10 @@ const roles = ref({ is_jury: false, is_owner: false });
 const isAuthorized = computed(() => roles.value.is_jury || roles.value.is_owner);
 
 const selectedForBulk = ref([]);
+// Origin row for shift-click ranges: the last row a click selected or cleared.
+const bulkAnchorId = ref(null);
+// What the last shift-range contributed, so the next one can replace it.
+const bulkRangeIds = ref([]);
 const sidebarVisibleCounts = ref({ pending: 100, other: 100, judged: 100 });
 const assignedAfterId = ref(null);
 const assignedHasMore = ref(false);
@@ -484,28 +488,32 @@ const normalizeText = (value) => (value || '')
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '');
 
+const searchPlaceholder = computed(() =>
+  listTab.value === 'rereview' ? 'Search titles or submitter' : 'Search titles');
+
 const searchTerms = computed(() => normalizeText(searchQuery.value).split(/\s+/).filter(Boolean));
 
-// Titles only. Submitter and reviewer names were in here, and searching them
-// mostly matched an entire contest at once -- one person tends to submit
-// hundreds of the articles in a queue, so the result was the list you already
-// had.
-const matchesSearch = (article) => {
+// Titles only in Queue and Other judges: submitter and reviewer names were in
+// here, and searching them mostly matched an entire contest at once -- one
+// person tends to submit hundreds of the articles in a queue, so the result was
+// the list you already had. Re-review is the exception: it holds only what this
+// judge decided, so "everything I judged of X's" is a list worth having.
+const matchesSearch = (article, withSubmitter) => {
   if (!searchTerms.value.length) return true;
-  const haystack = normalizeText(article.title);
+  const haystack = normalizeText(withSubmitter ? `${article.title} ${article.submitted_by}` : article.title);
   return searchTerms.value.every(term => haystack.includes(term));
 };
 
 // Filtering is display-only and never touches `newArticles`, which the queue
 // logic (next-article pick, lock filtering, the nav badge) reads directly.
-const forSidebar = (list) => list.filter(matchesSearch);
+const forSidebar = (list, withSubmitter) => list.filter(a => matchesSearch(a, withSubmitter));
 const filteredNewArticles = computed(() => forSidebar(newArticles.value));
 // Re-review is ordered by decision so accepted and rejected form separate
 // blocks. Array.sort is stable, so the queue order survives inside a block.
 const DECISION_RANK = { accepted: 0, rejected: 1, skipped: 2 };
 const rankOf = (article) => DECISION_RANK[getMyLatestDecision(article)] ?? 9;
 const filteredJudgedArticles = computed(() =>
-  [...forSidebar(judgedArticles.value)].sort((a, b) => rankOf(a) - rankOf(b)));
+  [...forSidebar(judgedArticles.value, true)].sort((a, b) => rankOf(a) - rankOf(b)));
 
 const DECISION_LABEL = { accepted: 'Accepted', rejected: 'Rejected', skipped: 'Skipped' };
 const collapsedDecisions = ref({});
@@ -530,7 +538,15 @@ const listTabs = computed(() => {
 // Falls back rather than rendering nothing if the active tab disappears --
 // 'Other judges' comes and goes with the owner switcher.
 const activeTab = computed(() => listTabs.value.find(tab => tab.id === listTab.value) || listTabs.value[0]);
-const openArticle = (article) => { if (activeTab.value.id !== 'others') selectArticle(article); };
+// Plain click opens the article; ctrl/cmd-click toggles its bulk checkbox and
+// shift-click takes the range from the anchor, so a block can be selected
+// without walking every checkbox. 'others' is read-only and does neither.
+const handleRowClick = (article, e) => {
+  if (activeTab.value.id === 'others') return;
+  setFocusToArticle(article);
+  if (e.shiftKey || e.ctrlKey || e.metaKey) { handleSelectClick(article.article_id, e); return; }
+  selectArticle(article);
+};
 
 // The list the reviewer is actually working through, which is what every
 // "move me along" step has to walk. Skip and the post-decision advance both
@@ -582,6 +598,101 @@ const hasMoreRows = computed(() => {
   return drawn < openTotal;
 });
 
+// Keyboard focus in the list, which is not the open article: arrowing through
+// the queue opens nothing, because every open fetches the article and takes a
+// review lock on it. Enter is what opens the focused row.
+const rowArticles = computed(() => visibleRows.value.filter(row => row.article).map(row => row.article));
+// Held as an article id, not a row index: the queue is live, and a refresh that
+// re-plans the pending pool reorders the rows under a stored index -- pressing
+// Up would then walk *down* the list, which is exactly what testing this did.
+const focusedArticleId = ref(null);
+
+const setFocusToArticle = (article) => { focusedArticleId.value = article.article_id; };
+
+// Shift+Arrow drags the selection along with the focus, from an anchor fixed
+// where the extend began: Shift+Down takes the row being left and the row moved
+// onto, and stepping back toward the anchor drops the row at the far end --
+// `selectBulkRange` already replaces the previous range rather than adding to
+// it, so shrinking falls out of it.
+// `block: 'nearest'` parks the row right at the bottom edge of the scroller --
+// which is under the bulk bar, since that floats over the end of the list. So
+// scroll it into view the normal way, then push past whatever the bar covers.
+const scrollFocusedRowIntoView = () => {
+  const el = document.querySelector('.rq-list-item.is-focused');
+  if (!el) return;
+  el.scrollIntoView({ block: 'nearest' });
+  const bar = document.querySelector('.rq-bulk-bar');
+  const scroller = el.closest('.rq-panel-scroll');
+  if (!bar || !scroller) return;
+  const overlap = el.getBoundingClientRect().bottom - bar.getBoundingClientRect().top;
+  if (overlap > 0) scroller.scrollTop += overlap;
+};
+
+const moveFocusTo = (targetIndex, extend) => {
+  const rows = rowArticles.value;
+  if (!rows.length) return;
+  const at = rows.findIndex(a => a.article_id === focusedArticleId.value);
+  const from = at >= 0 ? at : Math.max(0, rows.findIndex(a => a.article_id === currentArticle.value?.article_id));
+  const next = Math.min(rows.length - 1, Math.max(0, targetIndex));
+  focusedArticleId.value = rows[next].article_id;
+  nextTick(scrollFocusedRowIntoView);
+  if (activeTab.value.id === 'others') return;
+  // A plain arrow moves focus and nothing else -- it leaves both the selection
+  // and the anchor where they are, which is what makes the range predictable
+  // afterwards. Moving the anchor here (an earlier version did) stranded the
+  // rows already selected: the range restarted at the focused row, so the old
+  // rows were outside every range that followed and could never be dropped
+  // again. Selecting 1-5, stepping up to 4 and pressing Shift+Up then did
+  // nothing at all. The anchor is re-taken below only when nothing is selected,
+  // so it can never be left pointing at some row from a cleared selection.
+  if (!extend) return;
+  if (!selectedForBulk.value.length || !bulkAnchorId.value) {
+    bulkAnchorId.value = rows[from].article_id;
+    bulkRangeIds.value = [];
+  }
+  selectBulkRange(rows[next].article_id);
+};
+
+const moveFocus = async (delta, extend) => {
+  const rows = rowArticles.value;
+  if (!rows.length) return;
+  const at = rows.findIndex(a => a.article_id === focusedArticleId.value);
+  // The first press picks up from the open article rather than the top, so the
+  // keyboard continues where the mouse left off; so does a press after the
+  // focused article has left the list.
+  if (at < 0) {
+    moveFocusTo(Math.max(0, rows.findIndex(a => a.article_id === currentArticle.value?.article_id)), extend);
+    return;
+  }
+  // Walking off the end extends the list, the same way scrolling into it does.
+  // Without this the keyboard stops dead on row 100 of 2,077 and the only way
+  // past it is the mouse.
+  if (at + delta > rows.length - 1) {
+    await growList();
+    if (rowArticles.value.length === rows.length) return;
+  }
+  moveFocusTo(at + delta, extend);
+};
+
+// Ctrl/Cmd+A takes the rows the list is showing -- not the thousands behind the
+// 100-row window, which nobody can see to check -- and takes them away again
+// when they are all already selected, the way every file list does.
+const toggleSelectAllVisible = () => {
+  const ids = rowArticles.value.map(article => article.article_id);
+  if (!ids.length) return;
+  const allSelected = ids.every(id => selectedForBulk.value.includes(id));
+  setBulkSelection(allSelected
+    ? selectedForBulk.value.filter(id => !ids.includes(id))
+    : [...new Set([...selectedForBulk.value, ...ids])]);
+  bulkRangeIds.value = [];
+};
+
+const clearBulkSelection = () => {
+  setBulkSelection([]);
+  bulkAnchorId.value = null;
+  bulkRangeIds.value = [];
+};
+
 const otherReviewedArticles = computed(() => {
   if (!myUsername.value || !roles.value.is_owner) return [];
   return articles.value.filter(a =>
@@ -602,6 +713,27 @@ const loadMoreSidebarArticles = (section, list) => {
 
 const loadMoreAssignedArticles = () => {
   if (assignedHasMore.value && !isLoading.value) fetchArticles(false, true);
+};
+
+// The list grows as the queue is scrolled instead of behind a button: within
+// 200px of the end, the 100-row window widens, and once that window has caught
+// up with everything held locally the next page is pulled from the server --
+// the two steps used to be 'Show 100 more' and 'Load next 250 articles from
+// server'. A plain scroll listener rather than an IntersectionObserver: the
+// panel is zero-width while collapsed, which stops an observer reporting at
+// all, and a sentinel that stays in view after a grow never fires it a second
+// time -- both cost a debugging round trip before this was rewritten.
+// ponytail: no virtualisation -- scrolling to the end still puts the whole
+// filtered list in the DOM (~2k rows here), exactly as pressing the old button
+// twenty times did. Swap the window for a virtual list if that starts to hurt.
+const onListScroll = (e) => {
+  const el = e.currentTarget;
+  if (el.scrollHeight - el.scrollTop - el.clientHeight > 200) return;
+  if (hasMoreRows.value) {
+    loadMoreSidebarArticles(activeTab.value.key, activeTab.value.list);
+  } else if (activeTab.value.id === 'queue' && hasMoreAssignedArticles.value && !isBackgroundLoading.value) {
+    loadMoreAssignedArticles();
+  }
 };
 
 const ownerViewQuery = () => (
@@ -805,6 +937,9 @@ watch(mobileTab, (tab) => {
 watch(listTab, () => {
   selectedForBulk.value = [];
   bulkComment.value = '';
+  bulkAnchorId.value = null;
+  bulkRangeIds.value = [];
+  focusedArticleId.value = null;
 });
 
 onBeforeUnmount(() => {
@@ -1114,6 +1249,16 @@ const releaseHeldKey = (event) => heldKeys.delete(normalizeShortcutKey(event.key
 const clearHeldKeys = () => heldKeys.clear();
 
 const handleShortcut = (event) => {
+  // Select-all is the one selection gesture that needs a modifier, so it has to
+  // sit ahead of the guard that drops modified keys.
+  if (
+    (event.ctrlKey || event.metaKey) && !event.altKey && normalizeShortcutKey(event.key) === 'a'
+    && !sidebarCollapsed.value && !isTypingTarget(event.target) && activeTab.value.id !== 'others'
+  ) {
+    toggleSelectAllVisible();
+    event.preventDefault();
+    return;
+  }
   if (event.ctrlKey || event.metaKey || event.altKey) return;
 
   // Escape always works, including from the comment box -- it's the way out.
@@ -1126,6 +1271,12 @@ const handleShortcut = (event) => {
       event.preventDefault();
     } else if (isTypingTarget(event.target)) {
       event.target.blur();
+    } else if (selectedForBulk.value.length) {
+      // Ahead of closing the drawer: everywhere else Esc drops a selection
+      // first, and closing the drawer on a live selection hides the rows it
+      // applies to while the bulk bar keeps offering Accept and Reject.
+      clearBulkSelection();
+      event.preventDefault();
     } else if (!sidebarCollapsed.value) {
       // Last branch on purpose: from the drawer's search box the first Esc
       // blurs the field, a second closes the drawer.
@@ -1150,6 +1301,44 @@ const handleShortcut = (event) => {
 
   // Never steal keys from the comment textarea or any search/filter input.
   if (isTypingTarget(event.target)) return;
+
+  // Arrow keys walk the queue list and Shift+Arrow drags the selection with
+  // them. Ahead of the auto-repeat guard on purpose -- holding an arrow to run
+  // down a list is the whole point of arrow keys -- and only while the drawer
+  // is open, so a closed drawer leaves the arrows to the article preview.
+  if (!sidebarCollapsed.value && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+    moveFocus(event.key === 'ArrowDown' ? 1 : -1, event.shiftKey);
+    event.preventDefault();
+    return;
+  }
+  if (!sidebarCollapsed.value && (event.key === 'Home' || event.key === 'End')) {
+    moveFocusTo(event.key === 'Home' ? 0 : rowArticles.value.length - 1, event.shiftKey);
+    event.preventDefault();
+    return;
+  }
+  // Space toggles the focused row, the one selection key ARIA's listbox pattern
+  // asks for by name. Left to the browser while a control has focus, where it
+  // is that control's activation key.
+  if (
+    !sidebarCollapsed.value && normalizeShortcutKey(event.key) === 'space'
+    && focusedArticleId.value && activeTab.value.id !== 'others'
+    && !isInteractiveTarget(document.activeElement)
+  ) {
+    toggleBulkSelection(focusedArticleId.value);
+    event.preventDefault();
+    return;
+  }
+  if (
+    !sidebarCollapsed.value && event.key === 'Enter' && !event.shiftKey
+    && focusedArticleId.value && !isInteractiveTarget(document.activeElement)
+  ) {
+    const article = rowArticles.value.find(a => a.article_id === focusedArticleId.value);
+    if (article) {
+      selectArticle(article);
+      event.preventDefault();
+      return;
+    }
+  }
 
   // Auto-repeat from a held key never counts as a second deliberate press.
   if (event.repeat) return;
@@ -1245,15 +1434,54 @@ const handleRemoveArticle = async (article) => {
 const handleRemove = () => handleRemoveArticle(currentArticle.value);
 
 
-const toggleBulkSelection = (article_id, e) => {
-  e.stopPropagation();
-  const idx = selectedForBulk.value.indexOf(article_id);
-  if (idx > -1) {
-    selectedForBulk.value.splice(idx, 1);
-  } else {
-    selectedForBulk.value.push(article_id);
+const setBulkSelection = (ids) => {
+  selectedForBulk.value = ids;
+  if (ids.length < 2) bulkComment.value = '';
+};
+
+const toggleBulkSelection = (article_id) => {
+  const selected = selectedForBulk.value;
+  setBulkSelection(
+    selected.includes(article_id)
+      ? selected.filter(id => id !== article_id)
+      : [...selected, article_id],
+  );
+  bulkAnchorId.value = article_id;
+  bulkRangeIds.value = [];
+};
+
+// Shift-click runs over `visibleRows`, the rows actually drawn -- not the tab's
+// full list -- so a range cannot quietly sweep in articles behind a collapsed
+// decision block or below the 100-row window. The anchor stays put after a
+// range, so a second shift-click re-extends from the same origin, and the new
+// range *replaces* the previous one rather than adding to it -- shift-clicking
+// back toward the anchor is how a range is deselected. Rows picked with ctrl
+// sit outside the range and survive it.
+const selectBulkRange = (article_id) => {
+  const ids = visibleRows.value.filter(row => row.article).map(row => row.article.article_id);
+  const from = ids.indexOf(bulkAnchorId.value);
+  const to = ids.indexOf(article_id);
+  if (from === -1 || to === -1) { toggleBulkSelection(article_id); return; }
+  const range = ids.slice(Math.min(from, to), Math.max(from, to) + 1);
+  const kept = selectedForBulk.value.filter(id => !bulkRangeIds.value.includes(id));
+  bulkRangeIds.value = range;
+  setBulkSelection([...new Set([...kept, ...range])]);
+  // Shift-click is also the browser's text-range gesture, and the row labels
+  // end up highlighted blue behind the selection without this.
+  window.getSelection()?.removeAllRanges();
+};
+
+const handleSelectClick = (article_id, e) => {
+  if (e.shiftKey) selectBulkRange(article_id);
+  else toggleBulkSelection(article_id);
+  // A checkbox toggles itself on click, and Vue's `:checked` patch lands in a
+  // microtask that races that native toggle -- with `.prevent` the browser's
+  // cancelled-activation reset ran *after* the patch and left the box empty on
+  // a selected row. Nothing is prevented now, and the box is asserted from
+  // state here, where the answer is already known.
+  if (e.target?.type === 'checkbox') {
+    e.target.checked = selectedForBulk.value.includes(article_id);
   }
-  if (selectedForBulk.value.length < 2) bulkComment.value = '';
 };
 
 const handleBulkDecision = async (decision) => {
@@ -1351,7 +1579,7 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
       <!-- LEFT COLUMN: QUEUE -->
       <aside
         class="rq-panel rq-queue-panel"
-        :class="{ 'mobile-hidden': mobileTab !== 'list', 'is-collapsed': sidebarCollapsed, 'is-resizing': isResizing }"
+        :class="{ 'mobile-hidden': mobileTab !== 'list', 'is-collapsed': sidebarCollapsed, 'is-resizing': isResizing, 'has-bulk': selectedForBulk.length > 0 }"
         :style="{ '--rq-panel-w': panelWidth + 'px' }"
       >
         <header class="rq-panel-header">
@@ -1399,8 +1627,8 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
           <CdxTextInput
             v-model="searchQuery"
             class="rq-panel-search"
-            placeholder="Search titles"
-            aria-label="Search the queue by article title"
+            :placeholder="searchPlaceholder"
+            :aria-label="searchPlaceholder"
             :start-icon="cdxIconSearch"
             clearable
           />
@@ -1423,29 +1651,27 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
         </header>
 
         <transition name="rq-fade">
-          <div v-if="selectedForBulk.length > 0" class="rq-bulk-banner">
-            <span class="rq-bulk-count">{{ selectedForBulk.length }} selected</span>
-            <div class="rq-bulk-actions">
-              <button type="button" class="rq-bbtn rq-bbtn-accept" @click.prevent="handleBulkDecision('accepted')" title="Accept"><CdxIcon :icon="cdxIconCheck" /></button>
-              <button type="button" class="rq-bbtn rq-bbtn-reject" @click.prevent="handleBulkDecision('rejected')" title="Reject"><CdxIcon :icon="cdxIconClear" /></button>
-              <button type="button" class="rq-bbtn rq-bbtn-remove" @click.prevent="handleBulkRemove" title="Remove"><CdxIcon :icon="cdxIconTrash" /></button>
+          <div v-if="selectedForBulk.length > 0" class="rq-bulk-bar">
+            <div class="rq-bulk-banner">
+              <span class="rq-bulk-count">{{ selectedForBulk.length }} selected</span>
+              <div class="rq-bulk-actions">
+                <button type="button" class="rq-bbtn rq-bbtn-accept" @click.prevent="handleBulkDecision('accepted')" title="Accept"><CdxIcon :icon="cdxIconCheck" /></button>
+                <button type="button" class="rq-bbtn rq-bbtn-reject" @click.prevent="handleBulkDecision('rejected')" title="Reject"><CdxIcon :icon="cdxIconClear" /></button>
+                <button type="button" class="rq-bbtn rq-bbtn-remove" @click.prevent="handleBulkRemove" title="Remove"><CdxIcon :icon="cdxIconTrash" /></button>
+              </div>
+            </div>
+            <div v-if="selectedForBulk.length > 1" class="rq-bulk-comment-panel">
+              <textarea
+                v-model="bulkComment"
+                class="rq-input rq-bulk-comment-input"
+                rows="1"
+                :placeholder="`Comment on all ${selectedForBulk.length} (optional)`"
+              ></textarea>
             </div>
           </div>
         </transition>
-        <div v-if="selectedForBulk.length > 1" class="rq-bulk-comment-panel">
-          <div class="rq-bulk-comment-heading">
-            <span>Bulk review comment</span>
-            <span class="rq-bulk-comment-hint">Added to all {{ selectedForBulk.length }} selected articles</span>
-          </div>
-          <textarea
-            v-model="bulkComment"
-            class="rq-input rq-bulk-comment-input"
-            rows="2"
-            placeholder="Add comment"
-          ></textarea>
-        </div>
 
-        <div class="rq-panel-scroll">
+        <div class="rq-panel-scroll" @scroll.passive="onListScroll">
           <ul class="rq-list" role="tabpanel" :aria-label="activeTab.label">
             <template v-for="row in visibleRows" :key="`${activeTab.id}-${row.heading || row.article.article_id}`">
               <li v-if="row.heading" class="rq-decision-head" :class="'is-' + row.heading">
@@ -1473,13 +1699,14 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
                   row.decision ? 'rq-item-' + row.decision : '',
                   {
                     'is-active': currentArticle?.article_id === row.article.article_id && activeTab.id !== 'others',
+                    'is-focused': row.article.article_id === focusedArticleId,
                     'is-locked': activeTab.id === 'queue' && row.article.locked_by && row.article.locked_by !== myUsername,
                   },
                 ]"
-                @click="openArticle(row.article)"
+                @click="handleRowClick(row.article, $event)"
               >
                 <label v-if="activeTab.id !== 'others'" class="rq-cb-wrapper" @click.stop>
-                  <input type="checkbox" :checked="selectedForBulk.includes(row.article.article_id)" @change="toggleBulkSelection(row.article.article_id, $event)" class="rq-cb" />
+                  <input type="checkbox" :checked="selectedForBulk.includes(row.article.article_id)" @click.stop="handleSelectClick(row.article.article_id, $event)" class="rq-cb" />
                 </label>
                 <div class="rq-item-content">
                   <span class="rq-item-title">{{ row.article.title }}</span>
@@ -1504,15 +1731,7 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
               <span v-else>No decisions by other judges yet</span>
             </li>
 
-            <li v-if="hasMoreRows" class="rq-load-more-wrap">
-              <button type="button" class="rq-load-more" @click="loadMoreSidebarArticles(activeTab.key, activeTab.list)">Show 100 more</button>
-            </li>
-            <li
-              v-if="activeTab.id === 'queue' && !hasMoreSidebarArticles('pending', filteredNewArticles) && hasMoreAssignedArticles && !isBackgroundLoading"
-              class="rq-load-more-wrap"
-            >
-              <button type="button" class="rq-load-more" @click="loadMoreAssignedArticles">Load next 250 articles from server</button>
-            </li>
+            <li v-if="isBackgroundLoading && hasMoreAssignedArticles" class="rq-list-loading">Loading more…</li>
           </ul>
         </div>
       </aside>
@@ -1773,7 +1992,12 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
                 : action.label
             }}</dd>
           </div>
-          <div class="rq-help-row"><dt><kbd class="rq-kbd">Esc</kbd></dt><dd>Leave the comment box / close this panel</dd></div>
+          <div class="rq-help-row"><dt><kbd class="rq-kbd">↑ ↓</kbd></dt><dd>Move through the queue list (Home / End for the ends)</dd></div>
+          <div class="rq-help-row"><dt><kbd class="rq-kbd">⇧ ↑ ↓</kbd></dt><dd>Select as you move, or unselect on the way back</dd></div>
+          <div class="rq-help-row"><dt><kbd class="rq-kbd">Space</kbd></dt><dd>Select or unselect the row you are on</dd></div>
+          <div class="rq-help-row"><dt><kbd class="rq-kbd">Ctrl A</kbd></dt><dd>Select every row on screen, or clear them</dd></div>
+          <div class="rq-help-row"><dt><kbd class="rq-kbd">Enter</kbd></dt><dd>Open the article you are on</dd></div>
+          <div class="rq-help-row"><dt><kbd class="rq-kbd">Esc</kbd></dt><dd>Leave the comment box / clear the selection / close the queue</dd></div>
           <div class="rq-help-row"><dt><kbd class="rq-kbd">/</kbd></dt><dd>Show or hide this panel</dd></div>
         </dl>
         <p v-if="shortcutError" class="rq-help-error">{{ shortcutError }}</p>

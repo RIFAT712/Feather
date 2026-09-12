@@ -159,6 +159,7 @@ button { cursor: pointer; }
 }
 
 .rq-queue-panel {
+  position: relative;
   width: var(--rq-panel-w, 340px);
   flex-shrink: 0;
   overflow: hidden;
@@ -279,9 +280,7 @@ button { cursor: pointer; }
    border and radius gone it only broke the decision headings: an ancestor
    clip between a sticky element and its scroll container stops the sticky. */
 .rq-list { list-style: none; padding: 0; margin: 0; background: var(--rq-surface-alt); border: 0; border-radius: 0; }
-.rq-load-more-wrap { padding: 10px 12px 14px; }
-.rq-load-more { width: 100%; border: 1px solid var(--rq-border); border-radius: 7px; padding: 8px 10px; background: var(--rq-surface-alt); color: var(--rq-text-muted); font: inherit; font-size: .75rem; font-weight: 600; cursor: pointer; }
-.rq-load-more:hover { background: var(--rq-surface-hover); color: var(--rq-text); }
+.rq-list-loading { padding: 8px 12px 12px; color: var(--rq-text-muted); font-size: .72rem; text-align: center; }
 .rq-list-item {
   display: flex; align-items: center; gap: 8px; margin: 0; padding: 6px 12px;
   border: none; border-radius: 0;
@@ -344,24 +343,46 @@ button { cursor: pointer; }
 .rq-item-title { flex: 1; min-width: 0; font-size: 0.9rem; line-height: 1.5; font-weight: 500; color: var(--rq-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rq-list-item.is-active .rq-item-title { color: var(--rq-accent-hover); font-weight: 600; }
 .rq-item-meta { flex-shrink: 0; white-space: nowrap; font-size: 0.7rem; line-height: 1.5; color: var(--rq-text-muted); }
+/* Keyboard focus, which is not the open article: an outline rather than a
+   background, so it reads on top of the selected and decision tints. */
+.rq-list-item.is-focused { outline: 2px solid var(--rq-accent); outline-offset: -2px; }
 .rq-list-item.is-locked { opacity: 0.5; }
 .rq-icon-lock { color: var(--rq-text-muted); font-size: 1.1rem; }
 .rq-list-empty { padding: 32px 24px; text-align: center; color: var(--rq-text-muted); font-size: 0.8rem; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .rq-empty-icon { font-size: 2rem; opacity: 0.3; }
 
-.rq-bulk-banner { padding: 8px 16px; background: #205184; border-bottom: 1px solid #5a8db8; display: flex; align-items: center; justify-content: space-between; }
-.rq-bulk-count { font-size: 0.85rem; font-weight: 600; color: #d5eaff; }
-.rq-bulk-actions { display: flex; gap: 6px; }
+/* The selection bands float over the bottom of the queue rather than sitting
+   above the list. In flow they pushed every row down as they appeared -- and
+   the comment box appears on the *second* row selected, so the rows moved
+   mid-gesture and a shift-click landed on a different article than the one
+   under the cursor. Floating them costs the last ~80px of the list, which
+   `.has-bulk` gives back as scroll padding. */
+.rq-bulk-bar {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  z-index: 6;
+  /* Opaque: the banner's own tint is translucent, which was invisible while it
+     sat on the panel background and showed the rows through it once it moved
+     on top of them. */
+  background: var(--rq-surface);
+  box-shadow: 0 -6px 18px rgba(32, 54, 77, .12);
+}
+.rq-queue-panel.has-bulk .rq-panel-scroll { padding-bottom: 82px; }
+
+/* Two bands above a list that is the point of the panel, so both are kept to
+   one line: the count sits on the button row, and the comment box says how
+   many articles it covers in its own placeholder rather than in a heading and
+   a hint above itself. */
+.rq-bulk-banner { padding: 4px 10px; background: #205184; border-bottom: 1px solid #5a8db8; display: flex; align-items: center; justify-content: space-between; }
+.rq-bulk-count { font-size: 0.75rem; font-weight: 600; color: #d5eaff; }
+.rq-bulk-actions { display: flex; gap: 4px; }
 .rq-bulk-comment-panel {
-  padding: 6px 12px 8px;
+  padding: 4px 10px 5px;
   background: var(--rq-surface-alt);
   border-bottom: 1px solid var(--rq-border);
 }
-.rq-bulk-comment-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; color: var(--rq-text); font-size: .72rem; font-weight: 650; line-height: 1.2; }
-.rq-bulk-comment-hint { overflow: hidden; color: var(--rq-text-muted); font-size: .65rem; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.rq-bulk-comment-input { display: block; width: 100%; min-height: 34px; height: 34px; max-height: 56px; padding: 7px 10px; resize: vertical; font-size: .78rem; line-height: 1.25; }
 .rq-bbtn {
-  width: 32px; height: 32px; border-radius: 8px; border: none; display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 6px; border: none; display: flex; align-items: center; justify-content: center;
   color: #fff; transition: transform 160ms var(--ease-out), filter 160ms var(--ease-out);
 }
 .rq-bbtn:hover:not(:disabled) { filter: brightness(1.2); }
@@ -534,6 +555,10 @@ button { cursor: pointer; }
   height: 40px; /* Fixed height for 1-2 lines */
 }
 .rq-input:focus { outline: none; border-color: var(--rq-accent); background: var(--rq-surface-alt); }
+/* Must follow `.rq-input`, whose 40px height and 8px/16px padding it
+   overrides -- the bulk box shares that class for the theme rules only.
+   Same specificity, so order is what decides it. */
+.rq-bulk-comment-input { display: block; width: 100%; min-height: 28px; height: 28px; max-height: 56px; padding: 5px 8px; resize: vertical; font-size: .75rem; line-height: 1.25; }
 
 .rq-actions-wrapper {
   display: flex;
@@ -659,6 +684,8 @@ button { cursor: pointer; }
   .rq-secondary-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; gap: 8px; }
   
   .rq-mobile-nav { display: flex; position: fixed; bottom: 0; left: 0; right: 0; height: 70px; z-index: 50; }
+  /* Clear of the fixed bottom nav. */
+  .rq-bulk-bar { bottom: 70px; }
 
   .rq-pane-tabs { display: flex !important; }
   .rq-preview-container.is-split { flex-direction: column; }
@@ -687,8 +714,7 @@ button { cursor: pointer; }
      the screen, and clipped vowel signs are worse here than anywhere. */
   .rq-item-title { font-size: .84rem; line-height: 1.5; }
   .rq-item-meta { font-size: .66rem; line-height: 1.5; }
-  .rq-load-more-wrap { padding: 7px 9px 9px; }
-  .rq-load-more { padding: 7px 8px; font-size: .7rem; }
+  .rq-list-loading { padding: 7px 9px 9px; font-size: .68rem; }
   .rq-preview-panel { margin-bottom: 0; }
   .rq-article-header { min-height: 42px; padding: 5px 9px; gap: 7px; }
   .rq-article-title-link { font-size: .92rem; }
@@ -711,6 +737,7 @@ button { cursor: pointer; }
   .rq-actions-wrapper .rq-btn span, .rq-actions-wrapper .rq-btn-ghost span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rq-error-msg { padding: 4px 7px; font-size: .7rem; }
   .rq-mobile-nav { height: 60px; }
+  .rq-bulk-bar { bottom: 60px; }
   .rq-nav-btn { gap: 2px; }
   .rq-nav-icon { font-size: 1.2rem; }
   .rq-nav-label { font-size: .62rem; }
