@@ -628,6 +628,67 @@ def get_owner_user(current_user: models.User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Owner privileges required")
     return current_user
 
+def contest_or_404(code: str, db: Session) -> models.Contest:
+    """The contest with this code, or 404.
+
+    A plain call rather than a FastAPI dependency: several callers are helpers
+    rather than route handlers, and as a dependency it would resolve *before*
+    the body of endpoints that currently answer 403 first, turning an
+    unauthorized request for a missing contest into a 404.
+    """
+    contest = db.query(models.Contest).filter_by(code=code).first()
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    return contest
+
+def jury_or_owner(db: Session, article: models.Article, user: models.User,
+                  detail: str = "Not authorized"):
+    """(contest, is_owner, is_jury) for an article, 403 unless one of the two.
+
+    The three article-write endpoints (lock, review, review/undo) carried
+    byte-identical copies of this, and two of them need `is_owner`/`is_jury`
+    afterwards for the self-review and COI rules -- so this returns the pair
+    rather than the bool `viewer_sees_jury_stats` gives.
+    """
+    contest = article.contest
+    is_owner = user.role == models.RoleEnum.owner
+    is_jury = db.query(models.ContestJury).filter_by(
+        contest_id=contest.id, user_id=user.id
+    ).first() is not None
+    if not (is_owner or is_jury):
+        raise HTTPException(status_code=403, detail=detail)
+    return contest, is_owner, is_jury
+
+def _reviews_by_article(db: Session, article_ids: list) -> dict:
+    """{article_id: [review dicts]} for a page of articles, in one query.
+
+    Ordered by timestamp in SQL (NULLs first, matching the old
+    `or datetime.min` sort key) and skipped reviews excluded. Outer-joined on
+    the reviewer so a review can never disappear from a page because its user
+    row is missing -- the jury panel already did this, `/log` used an inner
+    join, and there is no reason for the two to disagree.
+    """
+    grouped = {}
+    if not article_ids:
+        return grouped
+    for article_id, reviewer, review_status, comment, timestamp in db.query(
+        models.Review.article_id,
+        models.User.wiki_username,
+        models.Review.status,
+        models.Review.comment,
+        models.Review.timestamp,
+    ).outerjoin(models.User, models.User.id == models.Review.reviewer_id) \
+     .filter(models.Review.article_id.in_(article_ids),
+             models.Review.status != models.ReviewStatus.skipped) \
+     .order_by(models.Review.timestamp.asc(), models.Review.id.asc()).all():
+        grouped.setdefault(article_id, []).append({
+            "reviewer": reviewer,
+            "decision": review_status.value,
+            "comment": comment,
+            "reviewed_at": timestamp.isoformat() if timestamp else None,
+        })
+    return grouped
+
 @app.get("/api/admin/db-diagnostics")
 def db_diagnostics(code: Optional[str] = Query(default=None), _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
     """One-shot diagnostic: what indexes actually exist on `articles`, how big
@@ -959,27 +1020,9 @@ JURY_ARTICLE_COLUMNS = (
 def serialize_jury_articles(db: Session, rows, jury_map: dict) -> list:
     """Same item shape the old per-article serializer produced, for a whole page
     at once. Reviews come back in one grouped query over the page's article ids
-    instead of a lazy/selectin load per article, ordered by timestamp in SQL
-    (NULLs first, which is what the old `or datetime.min` sort key did)."""
+    instead of a lazy/selectin load per article."""
     article_ids = [row[0] for row in rows]
-    reviews_by_article = {}
-    if article_ids:
-        for article_id, reviewer, review_status, comment, timestamp in db.query(
-            models.Review.article_id,
-            models.User.wiki_username,
-            models.Review.status,
-            models.Review.comment,
-            models.Review.timestamp,
-        ).outerjoin(models.User, models.User.id == models.Review.reviewer_id) \
-         .filter(models.Review.article_id.in_(article_ids),
-                 models.Review.status != models.ReviewStatus.skipped) \
-         .order_by(models.Review.timestamp.asc(), models.Review.id.asc()).all():
-            reviews_by_article.setdefault(article_id, []).append({
-                "reviewer": reviewer,
-                "decision": review_status.value,
-                "comment": comment,
-                "reviewed_at": timestamp.isoformat() if timestamp else None,
-            })
+    reviews_by_article = _reviews_by_article(db, article_ids)
 
     items = []
     for (article_id, title, submitted_by_name, submitted_at, article_status,
@@ -1390,17 +1433,13 @@ def redistribute_contest_queues(code: str, _: models.User = Depends(get_owner_us
     member submits a large batch of their own articles: they cannot judge
     those, and anyone restricted against them cannot either, so the queues
     drift apart until they are re-planned as a whole."""
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
     moved = redistribute_pending_articles(db, contest)
     return {"status": "success", "moved": moved}
 
 @app.get("/api/admin/contests/{code}/jury-restrictions")
 def get_jury_restrictions(code: str, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
     return [{"id": item.id, "jury_username": item.jury_user.wiki_username,
              "submitter_username": item.submitter_user.wiki_username}
             for item in contest.jury_restrictions]
@@ -1430,9 +1469,7 @@ def add_jury_restriction(code: str, data: JuryRestriction, _: models.User = Depe
 
 @app.delete("/api/admin/contests/{code}/jury-restrictions/{restriction_id}")
 def delete_jury_restriction(code: str, restriction_id: int, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
     item = db.query(models.ContestJuryRestriction).filter_by(id=restriction_id, contest_id=contest.id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Restriction not found")
@@ -1443,9 +1480,7 @@ def delete_jury_restriction(code: str, restriction_id: int, _: models.User = Dep
 
 @app.get("/api/admin/contests/{code}/banned-users")
 def get_banned_users(code: str, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
     return [{"id": item.id, "username": item.user.wiki_username}
             for item in contest.banned_users if item.user]
 
@@ -1472,9 +1507,7 @@ def ban_contest_user(code: str, data: ContestBan, _: models.User = Depends(get_o
 
 @app.delete("/api/admin/contests/{code}/banned-users/{ban_id}")
 def unban_contest_user(code: str, ban_id: int, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
     item = db.query(models.ContestBannedUser).filter_by(id=ban_id, contest_id=contest.id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Ban not found")
@@ -1527,9 +1560,7 @@ TALK_TEMPLATE_ARTICLE_STATUSES = (models.ArticleStatus.pending, models.ArticleSt
 def get_talk_queue_status(code: str, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
     """Counts by status plus the failures, so a stalled queue is visible
     without opening the database."""
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
 
     counts = {"queued": 0, "processing": 0, "done": 0, "failed": 0}
     rows = db.query(models.TalkPageJob.status, func.count(models.TalkPageJob.id)).filter(
@@ -1564,9 +1595,7 @@ def get_talk_queue_status(code: str, _: models.User = Depends(get_owner_user), d
 
 @app.post("/api/admin/contests/{code}/talk-queue/retry-failed")
 def retry_failed_talk_jobs(code: str, _: models.User = Depends(get_owner_user), db: Session = Depends(get_db)):
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
     requeued = db.query(models.TalkPageJob).filter(
         models.TalkPageJob.contest_id == contest.id,
         models.TalkPageJob.status == "failed"
@@ -1740,9 +1769,7 @@ async def backfill_talk_queue(
     button otherwise commits thousands of edits before telling you how many
     it was -- so the preview exists to be run first.
     """
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
     if not contest.talk_template_name:
         raise HTTPException(status_code=400, detail="This contest has no talk template configured")
 
@@ -2024,9 +2051,7 @@ async def process_articles_batch(
 
 @app.get("/api/contests/{code}/my-role")
 def get_contest_role(code: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
         
     is_jury = db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=current_user.id).first() is not None
     is_owner = current_user.role == models.RoleEnum.owner
@@ -2173,9 +2198,7 @@ async def submit_bulk(
 @app.get("/api/contests/{code}/results")
 def get_contest_results(code: str, db: Session = Depends(get_db),
                         viewer: Optional[models.User] = Depends(get_optional_user)):
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
 
     # Aggregated in SQL instead of loading every article/review row into Python —
     # on large contests that full load was the dominant cost of this public page.
@@ -2219,9 +2242,7 @@ def get_contest_stats(code: str, db: Session = Depends(get_db),
     """Grouped-count summary for dashboards/polling that only need totals, not every
     article/review row. Also carries a cheap change signature so pollers can skip
     re-fetching the full /log payload when nothing actually changed."""
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
 
     status_counts = {s.value: 0 for s in models.ArticleStatus}
     total = 0
@@ -2376,9 +2397,7 @@ def get_contest_log(
     so the client fetches one small page instead of the whole contest. It
     combines with status/submitted_by, and `total` reflects the filtered count
     so the caller's pagination stays correct."""
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
 
     submitter_id = None
     if submitted_by:
@@ -2435,25 +2454,8 @@ def get_contest_log(
     active_locks = {}
     if include_reviews and article_ids:
         # Same two extra round trips selectinload+joinedload used to make, minus
-        # the Review/User object graph nobody reads. Ordered by timestamp here
-        # rather than sorted per article in Python; NULL timestamps sort first
-        # either way, which is what `or datetime.min` was doing.
-        for article_id, reviewer, review_status, comment, timestamp in db.query(
-            models.Review.article_id,
-            models.User.wiki_username,
-            models.Review.status,
-            models.Review.comment,
-            models.Review.timestamp,
-        ).join(models.User, models.User.id == models.Review.reviewer_id) \
-         .filter(models.Review.article_id.in_(article_ids),
-                 models.Review.status != models.ReviewStatus.skipped) \
-         .order_by(models.Review.timestamp.asc(), models.Review.id.asc()).all():
-            reviews_by_article.setdefault(article_id, []).append({
-                "reviewer": reviewer,
-                "decision": review_status.value,
-                "comment": comment,
-                "reviewed_at": timestamp.isoformat() if timestamp else None,
-            })
+        # the Review/User object graph nobody reads.
+        reviews_by_article = _reviews_by_article(db, article_ids)
 
         lock_cutoff = utcnow() - timedelta(minutes=15)
         active_locks = dict(db.query(
@@ -2501,9 +2503,7 @@ def get_contest_submitters(code: str, db: Session = Depends(get_db)):
     headers without crawling every article in the contest just to group them
     client-side. Each group's actual articles are then fetched on demand,
     filtered by submitter, via GET .../log?submitted_by=<username>."""
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
 
     # Counted on submitter_id, not the joined username: (contest_id,
     # submitter_id) is indexed, so the aggregate is satisfied straight from
@@ -2578,9 +2578,7 @@ def get_jury_panel_articles_page(
     Keyset-paginated (after_id, ordered by id) rather than offset/limit -- new
     submissions keep landing while a jury is paging through their queue, and
     offset/limit silently skips or re-shuffles rows under that."""
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
     is_owner = _jury_panel_authorize(contest, current_user, db, view_as)
     jury_map = get_eligible_juries(contest)
     # Only the first page of a queue walk plans assignments. The allocator is a
@@ -2637,9 +2635,7 @@ def get_jury_panel_queue_stats(
     stays the job of the endpoints that actually hand out work (/articles/page and
     the roster/rule-change sites).
     """
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
     is_owner = _jury_panel_authorize(contest, current_user, db, view_as)
     jury_map = get_eligible_juries(contest)
 
@@ -2784,9 +2780,7 @@ async def get_admin_special_articles(
     """
     if current_user.role != models.RoleEnum.owner:
         raise HTTPException(status_code=403, detail="Owner only")
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
 
     mine = [
         *_jury_panel_filters(contest),
@@ -2831,9 +2825,7 @@ async def get_admin_special_articles(
 @app.get("/api/jury-panel/contests/{code}/progress")
 def get_jury_panel_progress(code: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Return assigned, judged, and remaining counts for this contest's jury members."""
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
     is_owner = _jury_panel_authorize(contest, current_user, db)
     jury_map = get_eligible_juries(contest)
     rebalance_pending_articles(db, contest, jury_map)
@@ -2961,9 +2953,7 @@ def get_global_logs(
 
 @app.get("/api/contests/{code}/users/{username}")
 def get_contest_user_profile(code: str, username: str, db: Session = Depends(get_db)):
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
         
     user = db.query(models.User).filter_by(wiki_username=username).first()
     if not user:
@@ -3027,9 +3017,7 @@ async def get_user_created_articles(code: str, username: str, db: Session = Depe
     replica is unavailable, instead of the frontend paginating usercontribs
     directly from the browser.
     """
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
     if not contest.start_date or not contest.end_date:
         raise HTTPException(status_code=400, detail="Contest has no date range configured")
 
@@ -3309,9 +3297,7 @@ def get_deleted_articles(
     Jury/owner only: it lists titles that were removed from the contest, which
     is moderation history rather than public standings.
     """
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
     is_owner = current_user.role == models.RoleEnum.owner
     is_jury = db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=current_user.id).first() is not None
     if not (is_owner or is_jury):
@@ -3373,11 +3359,8 @@ def lock_article(article_id: int, current_user: models.User = Depends(get_curren
     if article.status != models.ArticleStatus.pending and not own_review:
         raise HTTPException(status_code=409, detail="Article has already been permanently reviewed.")
         
-    contest = article.contest
-    is_owner = current_user.role == models.RoleEnum.owner
-    is_jury = db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=current_user.id).first() is not None
-    if not (is_owner or is_jury):
-        raise HTTPException(status_code=403, detail="Not authorized to lock articles in this contest")
+    contest, is_owner, is_jury = jury_or_owner(
+        db, article, current_user, "Not authorized to lock articles in this contest")
     existing_lock = db.query(models.ArticleLock).filter_by(article_id=article_id).first()
     if existing_lock and existing_lock.locked_at >= utcnow() - timedelta(minutes=15) \
             and existing_lock.locked_by != current_user.wiki_username:
@@ -3512,11 +3495,7 @@ def review_article(
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
 
-    contest = article.contest
-    is_owner = current_user.role == models.RoleEnum.owner
-    is_jury = db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=current_user.id).first() is not None
-    if not (is_owner or is_jury):
-        raise HTTPException(status_code=403, detail="Not authorized")
+    contest, is_owner, is_jury = jury_or_owner(db, article, current_user)
 
     if is_jury and not is_owner and not contest.allow_self_review and article.submitter_id == current_user.id:
         raise HTTPException(status_code=403, detail="Jury members cannot review their own articles.")
@@ -3589,11 +3568,7 @@ def undo_review(
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
 
-    contest = article.contest
-    is_owner = current_user.role == models.RoleEnum.owner
-    is_jury = db.query(models.ContestJury).filter_by(contest_id=contest.id, user_id=current_user.id).first() is not None
-    if not (is_owner or is_jury):
-        raise HTTPException(status_code=403, detail="Not authorized")
+    contest, is_owner, is_jury = jury_or_owner(db, article, current_user)
 
     own_review = db.query(models.Review).filter_by(
         article_id=article_id, reviewer_id=current_user.id
@@ -3659,9 +3634,7 @@ def contest_integrity_check(
     grinding through an HTTP crawl or, worse, reporting every article as
     missing.
     """
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
 
     query = db.query(models.Article).options(joinedload(models.Article.submitter)) \
         .filter(models.Article.contest_id == contest.id)
@@ -3784,9 +3757,7 @@ EXPORT_BATCH = 500
 
 
 def _export_contest(code: str, db: Session) -> models.Contest:
-    contest = db.query(models.Contest).filter_by(code=code).first()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
+    contest = contest_or_404(code, db)
     return contest
 
 
