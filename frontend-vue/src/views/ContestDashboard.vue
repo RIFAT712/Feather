@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, computed, inject } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ActivityLog from './ActivityLog.vue';
+import ScrollTopButton from '../components/ui/ScrollTopButton.vue';
 import { CdxTable } from '@wikimedia/codex';
 import { useContestStats } from '../composables/useContestData';
 import { formatDateLong, windowStatus, toDate } from '../utils/datetime';
@@ -181,6 +182,7 @@ onUnmounted(() => {
         <div v-if="user" class="log-section">
       <ActivityLog :contest="contest" :roles="roles" embedded />
     </div>
+    <ScrollTopButton />
   </div>
 </template>
 

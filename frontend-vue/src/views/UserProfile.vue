@@ -3,6 +3,7 @@ import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { CdxTable } from '@wikimedia/codex';
 import GlobalLoader from '../components/ui/GlobalLoader.vue';
+import ScrollTopButton from '../components/ui/ScrollTopButton.vue';
 import { formatDateTime as fmtDateTime } from '../utils/datetime';
 import { LIST_STEP, screenful, onPageNearBottom } from '../utils/listWindow';
 
@@ -13,7 +14,6 @@ const error = ref(null);
 const submissionSort = ref({});
 const reviewSort = ref({});
 const competitionPosition = ref(null);
-const showScrollTop = ref(false);
 const submissionColumns = [
   { id: 'title', label: 'Article', allowSort: true, minWidth: '220px' },
   { id: 'status', label: 'Status', allowSort: true },
@@ -171,21 +171,13 @@ const fetchProfile = async () => {
 let stopScrollGrowth;
 onMounted(() => {
   fetchProfile();
-  window.addEventListener('scroll', updateScrollTopVisibility, { passive: true });
   stopScrollGrowth = onPageNearBottom(() => {
     if (hiddenReviewCount.value) showMoreReviews();
     else if (hiddenSubmissionCount.value) showMoreSubmissions();
   });
 });
 
-const updateScrollTopVisibility = () => {
-  showScrollTop.value = window.scrollY > 420;
-};
-const scrollToTop = () => {
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-};
 onBeforeUnmount(() => {
-  window.removeEventListener('scroll', updateScrollTopVisibility);
   stopScrollGrowth?.();
 });
 
@@ -346,9 +338,7 @@ const formatDate = (dateStr) => {
         </div>
       </div>
     </div>
-    <button v-if="showScrollTop" class="scroll-top-button" type="button" aria-label="Back to top" title="Back to top" @click="scrollToTop">
-      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m10 3.2 6.2 6.2-1.4 1.4-3.8-3.8V17H9V7l-3.8 3.8-1.4-1.4z" /></svg>
-    </button>
+    <ScrollTopButton />
   </div>
 </template>
 
