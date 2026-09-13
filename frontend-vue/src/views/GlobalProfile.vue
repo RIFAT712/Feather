@@ -5,6 +5,7 @@ import { CdxTable, CdxIcon } from '@wikimedia/codex';
 import { cdxIconLinkExternal } from '@wikimedia/codex-icons';
 import { formatDate as fmtDate, formatDateTime as fmtDateTime } from '../utils/datetime';
 import GlobalLoader from '../components/ui/GlobalLoader.vue';
+import { LIST_STEP, screenful } from '../utils/listWindow';
 
 const route = useRoute();
 const router = useRouter();
@@ -35,13 +36,13 @@ const reviewColumns = [
 // ~11k articles). The fetch is unchanged; only the number of rows drawn is.
 // Keyed per contest so opening a second one does not inherit the first's
 // window, and reset whenever a fresh profile arrives.
-const ROW_WINDOW = 100;
+const ROW_WINDOW = screenful(48);
 const rowWindows = ref({});
 const windowFor = (key) => rowWindows.value[key] || ROW_WINDOW;
 const visibleRows = (key, rows) => (rows || []).slice(0, windowFor(key));
 const hiddenRows = (key, rows) => Math.max((rows || []).length - windowFor(key), 0);
 const showMoreRows = (key) => {
-  rowWindows.value = { ...rowWindows.value, [key]: windowFor(key) + ROW_WINDOW };
+  rowWindows.value = { ...rowWindows.value, [key]: windowFor(key) + LIST_STEP };
 };
 watch(profile, () => { rowWindows.value = {}; });
 

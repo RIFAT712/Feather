@@ -6,6 +6,7 @@ import { cdxIconArticleCheck, cdxIconTrash, cdxIconBlock, cdxIconSearch } from '
 import { useQueryClient } from '@tanstack/vue-query';
 import { useContestStats, useContestErrorLog, useContestSubmitters, removeArticlesFromLogCache, useContestArticleSearch, SEARCH_MIN_LENGTH } from '../composables/useContestData';
 import { fetchAllContestLogPages } from '../utils/contestLog';
+import { LIST_STEP, screenful } from '../utils/listWindow';
 import { Doughnut, Bar } from 'vue-chartjs';
 import GlobalLoader from '../components/ui/GlobalLoader.vue';
 import {
@@ -331,16 +332,17 @@ const toggleSubmitter = (username) => {
   const opening = !expandedSubmitters.value[username];
   expandedSubmitters.value = { ...expandedSubmitters.value, [username]: opening };
   if (visibleGroupCounts.value[username] === undefined) {
-    visibleGroupCounts.value = { ...visibleGroupCounts.value, [username]: 100 };
+    visibleGroupCounts.value = { ...visibleGroupCounts.value, [username]: GROUP_WINDOW };
   }
   if (opening && !isSearchingSubmissions.value) loadSubmitterArticles(username);
 };
-const visibleGroupArticles = (group) => group.articles.slice(0, visibleGroupCounts.value[group.username] || 100);
+const GROUP_WINDOW = screenful(48);
+const visibleGroupArticles = (group) => group.articles.slice(0, visibleGroupCounts.value[group.username] || GROUP_WINDOW);
 const groupHasMore = (group) => visibleGroupArticles(group).length < group.articles.length;
 const loadMoreGroupArticles = (group) => {
   visibleGroupCounts.value = {
     ...visibleGroupCounts.value,
-    [group.username]: Math.min((visibleGroupCounts.value[group.username] || 100) + 100, group.articles.length),
+    [group.username]: Math.min((visibleGroupCounts.value[group.username] || GROUP_WINDOW) + LIST_STEP, group.articles.length),
   };
 };
 

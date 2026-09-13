@@ -5,6 +5,7 @@ import { CdxIcon, CdxTable } from '@wikimedia/codex';
 import { cdxIconAlert, cdxIconBlock, cdxIconSearch } from '@wikimedia/codex-icons';
 import { useContestStats, useContestLog, useContestSubmitters, useContestArticleSearch, SEARCH_MIN_LENGTH } from '../composables/useContestData';
 import { formatDateTimeDayFirst } from '../utils/datetime';
+import { LIST_STEP, screenful, onPageNearBottom } from '../utils/listWindow';
 import GlobalLoader from '../components/ui/GlobalLoader.vue';
 
 // roles comes from ContestLayout (the shared parent for every contest route),
@@ -163,13 +164,21 @@ const groupedByUser = computed(() => {
 // hangs the tab -- the data behind it arrives in well under a second. Each view
 // now renders a window and grows it on demand, the same way JuryStats's
 // submissions tab does. Nothing about what gets fetched changes.
-const ENTRY_WINDOW = 100;
+const ENTRY_WINDOW = screenful(90);
 
 const visibleTimelineCount = ref(ENTRY_WINDOW);
 const visibleLog = computed(() => displayedLog.value.slice(0, visibleTimelineCount.value));
 const hiddenTimelineCount = computed(() =>
   Math.max(displayedLog.value.length - visibleTimelineCount.value, 0));
-const showMoreTimeline = () => { visibleTimelineCount.value += ENTRY_WINDOW; };
+const showMoreTimeline = () => { visibleTimelineCount.value += LIST_STEP; };
+// The timeline is one flat list, so scrolling the page is enough to know what
+// to grow. The per-user groups below are collapsible and interleaved, where the
+// bottom of the page says nothing about which group the reader is in -- those
+// keep their button.
+const stopScrollGrowth = onPageNearBottom(() => {
+  if (hiddenTimelineCount.value) showMoreTimeline();
+});
+onBeforeUnmount(stopScrollGrowth);
 
 const visibleGroupCounts = ref({});
 const groupWindow = (group) => visibleGroupCounts.value[group.user] || ENTRY_WINDOW;
@@ -178,7 +187,7 @@ const hiddenGroupCount = (group) => Math.max(group.entries.length - groupWindow(
 const showMoreInGroup = (group) => {
   visibleGroupCounts.value = {
     ...visibleGroupCounts.value,
-    [group.user]: groupWindow(group) + ENTRY_WINDOW,
+    [group.user]: groupWindow(group) + LIST_STEP,
   };
 };
 

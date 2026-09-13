@@ -1,0 +1,1 @@
+var e=(e=44)=>{let t=typeof window<`u`&&window.innerHeight||800;return Math.max(Math.ceil(t/e)+4,12)},t=(e,t=400)=>{let n=()=>{window.innerHeight+window.scrollY>=document.documentElement.scrollHeight-t&&e()};return window.addEventListener(`scroll`,n,{passive:!0}),()=>window.removeEventListener(`scroll`,n)};export{e as n,t};

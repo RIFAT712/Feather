@@ -21,6 +21,7 @@ import {
   cdxIconBlock,
 } from '@wikimedia/codex-icons';
 import { formatDateDayFirst } from '../utils/datetime';
+import { LIST_STEP, screenful } from '../utils/listWindow';
 import { fetchAllContestLogPages } from '../utils/contestLog';
 import { postBulkInChunks } from '../utils/bulkReview';
 import GlobalLoader from '../components/ui/GlobalLoader.vue';
@@ -741,12 +742,13 @@ const otherReviewedArticles = computed(() => {
   );
 });
 
-const visibleSidebarArticles = (section, list) => list.slice(0, sidebarVisibleCounts.value[section] || 100);
+const QUEUE_WINDOW = screenful(44);
+const visibleSidebarArticles = (section, list) => list.slice(0, sidebarVisibleCounts.value[section] || QUEUE_WINDOW);
 const hasMoreSidebarArticles = (section, list) => visibleSidebarArticles(section, list).length < list.length;
 const loadMoreSidebarArticles = (section, list) => {
   sidebarVisibleCounts.value = {
     ...sidebarVisibleCounts.value,
-    [section]: Math.min((sidebarVisibleCounts.value[section] || 100) + 100, list.length),
+    [section]: Math.min((sidebarVisibleCounts.value[section] || QUEUE_WINDOW) + LIST_STEP, list.length),
   };
 };
 

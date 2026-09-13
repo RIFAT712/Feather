@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import { CdxTable } from '@wikimedia/codex';
 import GlobalLoader from '../components/ui/GlobalLoader.vue';
 import { formatDateTime as fmtDateTime } from '../utils/datetime';
+import { LIST_STEP, screenful, onPageNearBottom } from '../utils/listWindow';
 
 const route = useRoute();
 const profile = ref(null);
@@ -81,12 +82,12 @@ const sortedReviews = computed(() => sortRows(
 // already returns the whole set in one response, so this is purely about how
 // much of it is drawn -- sorting still applies to the full list, and the window
 // is taken after the sort so "show more" reveals the next rows in order.
-const ROW_WINDOW = 100;
+const ROW_WINDOW = screenful(56);
 const visibleSubmissionCount = ref(ROW_WINDOW);
 const visibleSubmissions = computed(() => sortedSubmissions.value.slice(0, visibleSubmissionCount.value));
 const hiddenSubmissionCount = computed(() =>
   Math.max(sortedSubmissions.value.length - visibleSubmissionCount.value, 0));
-const showMoreSubmissions = () => { visibleSubmissionCount.value += ROW_WINDOW; };
+const showMoreSubmissions = () => { visibleSubmissionCount.value += LIST_STEP; };
 
 // Collapsible panels. v-if rather than v-show: a collapsed section should cost
 // nothing to render, which is the point on a profile carrying thousands of
@@ -134,7 +135,7 @@ const visibleReviewCount = ref(ROW_WINDOW);
 const visibleReviews = computed(() => sortedReviews.value.slice(0, visibleReviewCount.value));
 const hiddenReviewCount = computed(() =>
   Math.max(sortedReviews.value.length - visibleReviewCount.value, 0));
-const showMoreReviews = () => { visibleReviewCount.value += ROW_WINDOW; };
+const showMoreReviews = () => { visibleReviewCount.value += LIST_STEP; };
 
 const fetchProfile = async () => {
   isLoading.value = true;
@@ -165,9 +166,16 @@ const fetchProfile = async () => {
   }
 };
 
+// Reviews sit below submissions, so the section the reader has actually
+// reached is whichever one still has rows left, counted from the bottom.
+let stopScrollGrowth;
 onMounted(() => {
   fetchProfile();
   window.addEventListener('scroll', updateScrollTopVisibility, { passive: true });
+  stopScrollGrowth = onPageNearBottom(() => {
+    if (hiddenReviewCount.value) showMoreReviews();
+    else if (hiddenSubmissionCount.value) showMoreSubmissions();
+  });
 });
 
 const updateScrollTopVisibility = () => {
@@ -176,7 +184,10 @@ const updateScrollTopVisibility = () => {
 const scrollToTop = () => {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 };
-onBeforeUnmount(() => window.removeEventListener('scroll', updateScrollTopVisibility));
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', updateScrollTopVisibility);
+  stopScrollGrowth?.();
+});
 
 const formatDate = (dateStr) => {
   if (!dateStr) return 'N/A';
