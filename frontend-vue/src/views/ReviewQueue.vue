@@ -712,6 +712,26 @@ const clearBulkSelection = () => {
   bulkRangeIds.value = [];
 };
 
+// What a mutation does to the queue afterwards. It used to be
+// `await fetchArticles(false)`, which re-walks the *whole* assigned queue from
+// the first page -- thirty-odd requests on a large contest, the list snapping
+// back to the top and the panel sitting empty while it runs, which reads as the
+// tool reloading itself. The single-decision path never did that: it updates
+// `articles` in place and appends the next keyset item. Every mutation does
+// that now. `dropIds` are rows that no longer exist at all (removed from the
+// contest); decided rows stay in the list carrying their new status.
+const reconcileQueue = (refillCount = 1, dropIds = []) => {
+  if (dropIds.length) {
+    const gone = new Set(dropIds);
+    articles.value = articles.value.filter(article => !gone.has(article.article_id));
+  }
+  if (props.assignedQueue) {
+    refillAssignedQueue(Math.max(refillCount, 1));
+  } else {
+    fetchArticles(false).catch(error => console.warn('Background queue refresh failed', error));
+  }
+};
+
 const otherReviewedArticles = computed(() => {
   if (!myUsername.value || !roles.value.is_owner) return [];
   return articles.value.filter(a =>
@@ -1450,7 +1470,7 @@ const handleRemoveArticle = async (article) => {
       currentArticle.value = null;
       mobileTab.value = 'list';
     }
-    await fetchArticles(false);
+    reconcileQueue(1, [article.article_id]);
   } catch (error) {
     console.error("Error removing article", error);
   } finally {
@@ -1536,7 +1556,19 @@ const handleBulkDecision = async (decision) => {
       wikitextSource.value = '';
       isLoadingPreview.value = false;
     }
-    await fetchArticles(false);
+    // Same optimistic update the single-decision path makes, over the whole
+    // batch: the decided rows leave the Queue tab and turn up under Re-review
+    // without waiting on a round trip.
+    const optimisticReview = {
+      reviewer: myUsername.value,
+      decision,
+      comment: reviewComment,
+      reviewed_at: new Date().toISOString(),
+    };
+    const decided = new Set(succeeded);
+    articles.value = articles.value.map(article => decided.has(article.article_id)
+      ? { ...article, status: decision, reviews: [...(article.reviews || []), optimisticReview] }
+      : article);
     if (advanceAfter && (currentWasSuccessfullyReviewed || !currentArticle.value || !availableNewArticles.value.find(a => a.article_id === currentArticle.value.article_id))) {
       if (availableNewArticles.value.length > 0) {
         selectArticle(availableNewArticles.value[0]);
@@ -1545,6 +1577,7 @@ const handleBulkDecision = async (decision) => {
         mobileTab.value = 'list';
       }
     }
+    reconcileQueue(succeeded.length);
   } catch (err) {
     console.error("Bulk review failed", err);
   } finally {
@@ -1571,9 +1604,8 @@ const handleBulkRemove = async () => {
     }
     bulkComment.value = '';
     currentArticle.value = null;
-    // Reconcile silently; bulk deletion must not replace the workspace with
-    // the full-screen initial loading state.
-    await fetchArticles(false);
+    const removedIds = selectedIds.filter(id => !failedIds.includes(id));
+    reconcileQueue(removedIds.length, removedIds);
     mobileTab.value = 'list';
   } catch (err) {
     console.error("Bulk remove failed", err);
