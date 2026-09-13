@@ -445,9 +445,6 @@ button { cursor: pointer; }
 .rq-tag { font-size: 0.7rem; font-weight: 500; color: var(--rq-text-muted); background: var(--rq-surface-alt); padding: 2px 8px; border-radius: 5px; white-space: nowrap; }
 .rq-tag-locked { background: #fff1d6; color: #8a5a00; display: flex; align-items: center; gap: 4px; }
 .rq-tag-verdict { font-weight: 600; }
-/* Zero references on an entry the rules require them for is the single most
-   common reason to reject, so it gets colour rather than another grey chip. */
-.rq-tag-warn { background: #fff1d6; color: #8a5a00; }
 .rq-tag-accepted { background: #dff6e9; color: var(--rq-success-dark); }
 .rq-tag-rejected { background: #fde4e4; color: var(--rq-danger-dark); }
 .rq-tag-skipped { background: #edf0f3; color: var(--rq-text-muted); }

@@ -262,13 +262,6 @@ const LIGHT_CSS = `
 const previewSrcdoc = ref('');
 let previewRequestId = 0;
 
-// Size and reference count, read off the wikitext the preview already fetches
-// (`prop=text|wikitext`) rather than a second request. This is the *current*
-// revision -- what the jury is looking at -- not the revision the backend
-// checked the contest rules against, so it is a reading aid, not a verdict.
-const articleBytes = computed(() => (wikitextSource.value ? new Blob([wikitextSource.value]).size : 0));
-const articleRefs = computed(() => (wikitextSource.value.match(/<ref[\s>/]/gi) || []).length);
-const formatBytes = (n) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} kB`);
 
 const fetchPreview = async (title) => {
   const requestId = ++previewRequestId;
@@ -1907,12 +1900,6 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
                   <span class="rq-tag">by {{ currentArticle.submitted_by }}</span>
                   <span v-if="currentArticle.wiki_creation_date" class="rq-tag rq-tag-date">
                     {{ formatDateDayFirst(currentArticle.wiki_creation_date) }}
-                  </span>
-                  <span v-if="articleBytes" class="rq-tag" :title="`${articleBytes.toLocaleString()} bytes of wikitext in the current revision`">
-                    {{ formatBytes(articleBytes) }}
-                  </span>
-                  <span v-if="articleBytes" class="rq-tag" :class="{ 'rq-tag-warn': !articleRefs }" title="References in the current revision">
-                    {{ articleRefs }} ref{{ articleRefs === 1 ? '' : 's' }}
                   </span>
                   <span v-if="currentArticle.locked_by && currentArticle.locked_by !== myUsername" class="rq-tag rq-tag-locked">
                     <CdxIcon :icon="cdxIconLock" /> {{ currentArticle.locked_by }} reviewing

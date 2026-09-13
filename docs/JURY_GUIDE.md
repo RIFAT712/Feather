@@ -25,7 +25,7 @@ Three regions, and the whole screen is yours — the site navigation is hidden h
 | Region | What it is |
 | --- | --- |
 | Queue drawer, left | Your assigned articles. <kbd>Q</kbd> shows or hides it, <kbd>Esc</kbd> closes it. Drag its right edge to resize, or focus the divider and use <kbd>←</kbd> <kbd>→</kbd>; <kbd>Home</kbd> resets the width |
-| Article, centre | The rendered entry, with the title, who submitted it, and the facts below |
+| Article, centre | The rendered entry, with the title and who submitted it above it |
 | Decision panel, bottom | Canned reasons, the note box, and Accept / Reject / Skip / Delete |
 
 Above the queue sits the strip of counts — total, pending, OK, rejected — and a dot that
@@ -79,14 +79,11 @@ Beside the title:
 | --- | --- |
 | by _name_ | Who submitted it to the contest |
 | a date | When the page was created on the wiki |
-| `1.4 kB` | Size of the current wikitext |
-| `3 refs` | How many `<ref>` tags it has. Turns amber at zero |
 | a padlock | Someone else has it open right now |
 | Accepted / Rejected | Your own last decision, when you are looking at something you have judged |
 
-Size and reference count are read from the revision you are looking at, not the revision
-Feather checked at submission time — treat them as a reading aid. The rules themselves were
-enforced when the title was submitted; anything that failed them never reached your queue.
+The contest rules — size, references, creation window, authorship — were enforced when the
+title was submitted; anything that failed them never reached your queue.
 
 <kbd>W</kbd> splits the pane and shows the raw wikitext beside the rendered entry, with a
 Copy button. On a narrow window the two stack; on a phone a Visual / Wikitext switch picks
@@ -140,7 +137,7 @@ Reject can be revisited from Re-review; Remove cannot.
 
 | Key | What it does |
 | --- | --- |
-| <kbd>↑</kbd> <kbd>↓</kbd> | Move through the queue **and open what you land on** — the article, its facts and its preview follow you |
+| <kbd>↑</kbd> <kbd>↓</kbd> | Move through the queue **and open what you land on** — the article and its preview follow you |
 | <kbd>PgUp</kbd> <kbd>PgDn</kbd> | Ten rows at a time |
 | <kbd>Home</kbd> <kbd>End</kbd> | The ends of the list |
 | <kbd>Shift</kbd> + any of those | Drag the selection along with you; coming back toward where you started unselects |

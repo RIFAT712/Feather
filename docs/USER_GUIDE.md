@@ -96,7 +96,7 @@ Articles are assigned to you rather than raced for, opening one locks it for 15 
 a selection of rows can be decided in one action.
 
 **[JURY\_GUIDE.md](JURY_GUIDE.md) is the full guide to that screen** — the layout, canned
-reasons, the facts beside the title, how the queue is shared out, the three tabs, bulk
+reasons, how the queue is shared out, the three tabs, bulk
 selection, keyboard navigation, and what to do when something looks wrong.
 
 ---
