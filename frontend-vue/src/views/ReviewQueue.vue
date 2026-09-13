@@ -262,6 +262,14 @@ const LIGHT_CSS = `
 const previewSrcdoc = ref('');
 let previewRequestId = 0;
 
+// Size and reference count, read off the wikitext the preview already fetches
+// (`prop=text|wikitext`) rather than a second request. This is the *current*
+// revision -- what the jury is looking at -- not the revision the backend
+// checked the contest rules against, so it is a reading aid, not a verdict.
+const articleBytes = computed(() => (wikitextSource.value ? new Blob([wikitextSource.value]).size : 0));
+const articleRefs = computed(() => (wikitextSource.value.match(/<ref[\s>/]/gi) || []).length);
+const formatBytes = (n) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} kB`);
+
 const fetchPreview = async (title) => {
   const requestId = ++previewRequestId;
   isLoadingPreview.value = true;
@@ -628,6 +636,18 @@ const scrollFocusedRowIntoView = () => {
   if (overlap > 0) scroller.scrollTop += overlap;
 };
 
+// Arrowing onto a row also opens it, so the preview follows the focus -- but
+// only once the arrows stop: every open fetches the article and takes a review
+// lock, so holding Down through fifty rows must not fire fifty of those.
+let focusOpenTimer;
+const openFocusedSoon = () => {
+  clearTimeout(focusOpenTimer);
+  focusOpenTimer = setTimeout(() => {
+    const article = rowArticles.value.find(a => a.article_id === focusedArticleId.value);
+    if (article && article.article_id !== currentArticle.value?.article_id) selectArticle(article);
+  }, 250);
+};
+
 const moveFocusTo = (targetIndex, extend) => {
   const rows = rowArticles.value;
   if (!rows.length) return;
@@ -635,7 +655,14 @@ const moveFocusTo = (targetIndex, extend) => {
   const from = at >= 0 ? at : Math.max(0, rows.findIndex(a => a.article_id === currentArticle.value?.article_id));
   const next = Math.min(rows.length - 1, Math.max(0, targetIndex));
   focusedArticleId.value = rows[next].article_id;
+  // The focused row is exposed through aria-activedescendant, which a screen
+  // reader only reads out while the list itself holds DOM focus -- arrowing
+  // from anywhere else in the workspace has to pull focus onto it.
+  document.querySelector('.rq-list')?.focus({ preventScroll: true });
   nextTick(scrollFocusedRowIntoView);
+  // Shift+Arrow is building a bulk range, not browsing -- leave the open
+  // article where it is.
+  if (!extend) openFocusedSoon();
   if (activeTab.value.id === 'others') return;
   // A plain arrow moves focus and nothing else -- it leaves both the selection
   // and the anchor where they are, which is what makes the range predictable
@@ -667,10 +694,7 @@ const moveFocus = async (delta, extend) => {
   // Walking off the end extends the list, the same way scrolling into it does.
   // Without this the keyboard stops dead on row 100 of 2,077 and the only way
   // past it is the mouse.
-  if (at + delta > rows.length - 1) {
-    await growList();
-    if (rowArticles.value.length === rows.length) return;
-  }
+  if (at + delta > rows.length - 1) await growList();
   moveFocusTo(at + delta, extend);
 };
 
@@ -819,6 +843,7 @@ const getMyLatestComment = (article) => {
 };
 
 const selectArticle = (article) => {
+  clearTimeout(focusOpenTimer);
   const canReReview = article?.reviews?.some(r => r.reviewer === myUsername.value);
   if (!article || (article.status !== 'pending' && !canReReview)) return;
   // A deliberate pick ends the initial auto-select; a later page arriving must
@@ -1311,6 +1336,11 @@ const handleShortcut = (event) => {
     event.preventDefault();
     return;
   }
+  if (!sidebarCollapsed.value && (event.key === 'PageDown' || event.key === 'PageUp')) {
+    moveFocus(event.key === 'PageDown' ? 10 : -10, event.shiftKey);
+    event.preventDefault();
+    return;
+  }
   if (!sidebarCollapsed.value && (event.key === 'Home' || event.key === 'End')) {
     moveFocusTo(event.key === 'Home' ? 0 : rowArticles.value.length - 1, event.shiftKey);
     event.preventDefault();
@@ -1363,7 +1393,17 @@ const handleShortcut = (event) => {
   const key = normalizeShortcutKey(event.key);
   if (heldKeys.has(key)) return;
   const action = SHORTCUT_ACTIONS.find(a => shortcuts.value[a.id] === key)?.id;
-  if (!action) return;
+  // After the configured shortcuts, never before: a digit rebound to Accept has
+  // to stay Accept.
+  if (!action) {
+    const slot = Number(key);
+    if (!editingReasons.value && slot >= 1 && slot <= reasonPresets.value.length && !isInteractiveTarget(document.activeElement)) {
+      applyReason(reasonPresets.value[slot - 1]);
+      heldKeys.add(key);
+      event.preventDefault();
+    }
+    return;
+  }
   // Let the browser have Enter/Space whenever they would be activating a
   // control; the shortcut only applies when focus is on the page itself.
   if (ACTIVATION_KEYS.has(key) && isInteractiveTarget(document.activeElement)) return;
@@ -1396,6 +1436,46 @@ const handleShortcut = (event) => {
 
 const commentBox = ref(null);
 
+// The same handful of sentences get typed into every rejection, so they live in
+// a chip row over the comment box: click one, or press its digit, to drop it in.
+// Kept per browser rather than per contest -- they are the jury's own wording,
+// and there is no endpoint to hang them off. Nine at most, because the digits
+// are what makes them fast and there are nine of those.
+const DEFAULT_REASONS = [
+  'Too short.',
+  'No references.',
+  'Created outside the contest window.',
+  'Not created by the submitter.',
+  'Machine-translated.',
+  'Missing etymology or pronunciation.',
+];
+const reasonPresets = ref(DEFAULT_REASONS);
+const editingReasons = ref(false);
+const reasonDraft = ref('');
+try {
+  const saved = JSON.parse(localStorage.getItem('review_queue_reasons') || 'null');
+  const clean = Array.isArray(saved) ? saved.filter(r => typeof r === 'string' && r.trim()) : [];
+  if (clean.length) reasonPresets.value = clean.slice(0, 9);
+} catch (e) { /* a corrupt entry just leaves the defaults in place */ }
+
+const applyReason = (text) => {
+  const existing = comment.value.trim();
+  // Appends rather than replaces: two reasons at once is the common case, and
+  // clobbering a sentence the jury just typed is not undoable from here.
+  comment.value = existing ? `${existing} ${text}` : text;
+  commentBox.value?.focus();
+};
+const openReasonEditor = () => {
+  reasonDraft.value = reasonPresets.value.join('\n');
+  editingReasons.value = true;
+};
+const saveReasons = () => {
+  const next = reasonDraft.value.split('\n').map(r => r.trim()).filter(Boolean).slice(0, 9);
+  reasonPresets.value = next.length ? next : DEFAULT_REASONS;
+  localStorage.setItem('review_queue_reasons', JSON.stringify(reasonPresets.value));
+  editingReasons.value = false;
+};
+
 onMounted(() => {
   window.addEventListener('keydown', handleShortcut);
   window.addEventListener('keyup', releaseHeldKey);
@@ -1407,6 +1487,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('blur', clearHeldKeys);
   clearTimeout(undoExpiryTimer);
   clearTimeout(wikitextCopyTimer);
+  clearTimeout(focusOpenTimer);
 });
 
 const handleRemoveArticle = async (article) => {
@@ -1671,10 +1752,17 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
           </div>
         </transition>
 
-        <div class="rq-panel-scroll" @scroll.passive="onListScroll">
-          <ul class="rq-list" role="tabpanel" :aria-label="activeTab.label">
+        <div class="rq-panel-scroll" role="tabpanel" :aria-label="activeTab.label" @scroll.passive="onListScroll">
+          <ul
+            class="rq-list"
+            role="listbox"
+            tabindex="0"
+            aria-multiselectable="true"
+            aria-label="Articles"
+            :aria-activedescendant="focusedArticleId ? `rq-row-${focusedArticleId}` : null"
+          >
             <template v-for="row in visibleRows" :key="`${activeTab.id}-${row.heading || row.article.article_id}`">
-              <li v-if="row.heading" class="rq-decision-head" :class="'is-' + row.heading">
+              <li v-if="row.heading" role="presentation" class="rq-decision-head" :class="'is-' + row.heading">
                 <button
                   type="button"
                   class="rq-decision-toggle"
@@ -1692,6 +1780,10 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
               </li>
               <li
                 v-else
+                :id="`rq-row-${row.article.article_id}`"
+                role="option"
+                :aria-selected="selectedForBulk.includes(row.article.article_id) ? 'true' : 'false'"
+                :aria-current="currentArticle?.article_id === row.article.article_id && activeTab.id !== 'others' ? 'true' : null"
                 class="rq-list-item"
                 :class="[
                   activeTab.id === 'queue' ? 'rq-item-pending' : '',
@@ -1706,7 +1798,7 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
                 @click="handleRowClick(row.article, $event)"
               >
                 <label v-if="activeTab.id !== 'others'" class="rq-cb-wrapper" @click.stop>
-                  <input type="checkbox" :checked="selectedForBulk.includes(row.article.article_id)" @click.stop="handleSelectClick(row.article.article_id, $event)" class="rq-cb" />
+                  <input type="checkbox" :aria-label="`Select ${row.article.title}`" :checked="selectedForBulk.includes(row.article.article_id)" @click.stop="handleSelectClick(row.article.article_id, $event)" class="rq-cb" />
                 </label>
                 <div class="rq-item-content">
                   <span class="rq-item-title">{{ row.article.title }}</span>
@@ -1723,7 +1815,7 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
               </li>
             </template>
 
-            <li v-if="!activeTab.list.length" class="rq-list-empty">
+            <li v-if="!activeTab.list.length" role="presentation" class="rq-list-empty">
               <CdxIcon v-if="activeTab.id === 'queue' && !searchQuery" :icon="cdxIconArticleCheck" class="rq-empty-icon" />
               <span v-if="searchQuery">Nothing here matches &ldquo;{{ searchQuery }}&rdquo;</span>
               <span v-else-if="activeTab.id === 'queue'">All caught up</span>
@@ -1731,7 +1823,7 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
               <span v-else>No decisions by other judges yet</span>
             </li>
 
-            <li v-if="isBackgroundLoading && hasMoreAssignedArticles" class="rq-list-loading">Loading more…</li>
+            <li v-if="isBackgroundLoading && hasMoreAssignedArticles" role="presentation" class="rq-list-loading">Loading more…</li>
           </ul>
         </div>
       </aside>
@@ -1815,6 +1907,12 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
                   <span class="rq-tag">by {{ currentArticle.submitted_by }}</span>
                   <span v-if="currentArticle.wiki_creation_date" class="rq-tag rq-tag-date">
                     {{ formatDateDayFirst(currentArticle.wiki_creation_date) }}
+                  </span>
+                  <span v-if="articleBytes" class="rq-tag" :title="`${articleBytes.toLocaleString()} bytes of wikitext in the current revision`">
+                    {{ formatBytes(articleBytes) }}
+                  </span>
+                  <span v-if="articleBytes" class="rq-tag" :class="{ 'rq-tag-warn': !articleRefs }" title="References in the current revision">
+                    {{ articleRefs }} ref{{ articleRefs === 1 ? '' : 's' }}
                   </span>
                   <span v-if="currentArticle.locked_by && currentArticle.locked_by !== myUsername" class="rq-tag rq-tag-locked">
                     <CdxIcon :icon="cdxIconLock" /> {{ currentArticle.locked_by }} reviewing
@@ -1905,6 +2003,33 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
             <div class="rq-decision-body">
               <div v-if="reviewError" class="rq-error-msg">{{ reviewError }}</div>
               
+              <div class="rq-reasons">
+                <template v-if="!editingReasons">
+                  <button
+                    v-for="(reason, i) in reasonPresets"
+                    :key="reason"
+                    type="button"
+                    class="rq-reason-chip"
+                    :title="`Add to the note: ${reason}`"
+                    @click="applyReason(reason)"
+                  >
+                    <kbd class="rq-kbd rq-desktop-only">{{ i + 1 }}</kbd> {{ reason }}
+                  </button>
+                  <button type="button" class="rq-reason-edit" @click="openReasonEditor">Edit</button>
+                </template>
+                <template v-else>
+                  <textarea
+                    v-model="reasonDraft"
+                    class="rq-input rq-reason-draft"
+                    rows="4"
+                    aria-label="Canned reasons, one per line"
+                    placeholder="One reason per line — the first nine get a number key"
+                  ></textarea>
+                  <button type="button" class="rq-reason-edit" @click="saveReasons">Save</button>
+                  <button type="button" class="rq-reason-edit" @click="editingReasons = false">Cancel</button>
+                </template>
+              </div>
+
               <div class="rq-decision-form">
                 <textarea
                   ref="commentBox"
@@ -1992,12 +2117,14 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
                 : action.label
             }}</dd>
           </div>
-          <div class="rq-help-row"><dt><kbd class="rq-kbd">↑ ↓</kbd></dt><dd>Move through the queue list (Home / End for the ends)</dd></div>
+          <div class="rq-help-row"><dt><kbd class="rq-kbd">↑ ↓</kbd></dt><dd>Move through the queue list and open what you land on</dd></div>
+          <div class="rq-help-row"><dt><kbd class="rq-kbd">PgUp PgDn</kbd></dt><dd>Jump ten rows at a time (Home / End for the ends)</dd></div>
           <div class="rq-help-row"><dt><kbd class="rq-kbd">⇧ ↑ ↓</kbd></dt><dd>Select as you move, or unselect on the way back</dd></div>
           <div class="rq-help-row"><dt><kbd class="rq-kbd">Space</kbd></dt><dd>Select or unselect the row you are on</dd></div>
           <div class="rq-help-row"><dt><kbd class="rq-kbd">Ctrl A</kbd></dt><dd>Select every row on screen, or clear them</dd></div>
           <div class="rq-help-row"><dt><kbd class="rq-kbd">Enter</kbd></dt><dd>Open the article you are on</dd></div>
           <div class="rq-help-row"><dt><kbd class="rq-kbd">Esc</kbd></dt><dd>Leave the comment box / clear the selection / close the queue</dd></div>
+          <div class="rq-help-row"><dt><kbd class="rq-kbd">1 … 9</kbd></dt><dd>Add that canned reason to the note</dd></div>
           <div class="rq-help-row"><dt><kbd class="rq-kbd">/</kbd></dt><dd>Show or hide this panel</dd></div>
         </dl>
         <p v-if="shortcutError" class="rq-help-error">{{ shortcutError }}</p>
@@ -2006,6 +2133,12 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
             Click a key to rebind it. Saved for {{ myUsername || 'this browser' }} only.
             Shortcuts are ignored while you're typing in a text field, and a held key acts once.
           </p>
+          <a
+            class="rq-help-guide"
+            href="https://github.com/RIFAT712/Feather/blob/main/docs/JURY_GUIDE.md"
+            target="_blank"
+            rel="noopener"
+          >Full jury panel guide</a>
           <button type="button" class="rq-help-reset" @click="resetShortcuts">Reset to defaults</button>
         </div>
       </div>

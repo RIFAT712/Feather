@@ -10,8 +10,7 @@ source of truth; update it first.
 - [Getting in](#getting-in)
 - [The pages](#the-pages)
 - [Submitting articles](#submitting-articles)
-- [Judging a queue](#judging-a-queue)
-- [Selecting many at once](#selecting-many-at-once)
+- [Judging a queue](#judging-a-queue) — summary; the full jury guide is [JURY_GUIDE.md](JURY_GUIDE.md)
 - [Running a contest](#running-a-contest)
 - [Reference](#reference)
 
@@ -89,67 +88,16 @@ article the checker cannot read correctly, or an entry agreed off-wiki.
 
 The workspace at `/<code>/jury/review-v2` is one article at a time, full screen, with the
 queue tucked away until you call it. Press <kbd>Q</kbd> to show or hide the queue;
-<kbd>Esc</kbd> closes it.
+<kbd>A</kbd> accepts, <kbd>R</kbd> rejects, <kbd>S</kbd> skips, <kbd>C</kbd> is the note
+box, <kbd>U</kbd> undoes the decision you just made, and <kbd>?</kbd> lists every key and
+lets you rebind it.
 
-### Deciding
+Articles are assigned to you rather than raced for, opening one locks it for 15 minutes, and
+a selection of rows can be decided in one action.
 
-- <kbd>A</kbd> accept, <kbd>R</kbd> reject, <kbd>S</kbd> skip — skip records no decision and
-  moves you on.
-- <kbd>C</kbd> jumps into the comment box. Whatever you write is attached to the decision
-  and shown to the submitter on their profile.
-- <kbd>U</kbd> undoes the decision you just made. The toast counts down about two seconds —
-  after that, reopen the article from **Re-review** and decide again.
-- <kbd>W</kbd> shows the raw wikitext beside the rendered article.
-- <kbd>?</kbd> opens the shortcut panel. Every key there is rebindable and saved for your
-  wiki username, not the browser.
-
-### Your queue
-
-Articles are assigned to you rather than raced for. Feather balances the pending pool across
-the jury — taking conflict-of-interest pairs into account, and giving the hardest-to-place
-articles their juries first — so nobody is left with a queue of work only they can do.
-
-Opening an article locks it for 15 minutes, so two jury members cannot land decisions on the
-same row at once. The lock lifts when you decide, move on, or the time runs out.
-
-### The three tabs
-
-| Tab | What it holds |
-| --- | --- |
-| Queue | Pending articles assigned to you |
-| Re-review | Everything you have judged, in accepted and rejected blocks you can collapse |
-| Other judges | Organizer only — decisions made by everyone else, read-only |
-
-The search box above the tabs filters by title. On **Re-review** it also matches the
-submitter, so typing a username pulls up everything of theirs you have judged — the fastest
-way to revisit one person's batch. The list extends itself as you scroll; there is nothing
-to click to load more.
-
----
-
-## Selecting many at once
-
-Rows can be selected the same way as files in a file manager, and the same way with the
-keyboard. A selection can then be accepted, rejected or removed in one action, with a single
-comment applied to all of it.
-
-| Gesture | What happens |
-| --- | --- |
-| Click a row | Opens that article. The selection is untouched |
-| Click the checkbox | Selects the row without opening it |
-| <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + click | Same, anywhere on the row |
-| <kbd>Shift</kbd> + click | Takes the range from the last row you touched. Shift-click back toward it to shrink the range |
-| <kbd>↑</kbd> <kbd>↓</kbd> | Move through the list. <kbd>Home</kbd> and <kbd>End</kbd> jump to the ends |
-| <kbd>Shift</kbd> + <kbd>↑</kbd> <kbd>↓</kbd> | Drag the selection along with you; coming back toward where you started unselects |
-| <kbd>Space</kbd> | Select or unselect the row you are on |
-| <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>A</kbd> | Every row on screen, or clear them if they are all selected |
-| <kbd>Enter</kbd> | Open the row you are on |
-| <kbd>Esc</kbd> | Clear the selection. Press it again to close the queue |
-
-**Bulk decisions are real decisions.** Accept, Reject and Remove act on everything selected
-— up to 500 articles per action — and the comment box above the buttons goes on every one of
-them. Remove takes articles out of the contest entirely; accept and reject can be changed
-later from Re-review.
+**[JURY\_GUIDE.md](JURY_GUIDE.md) is the full guide to that screen** — the layout, canned
+reasons, the facts beside the title, how the queue is shared out, the three tabs, bulk
+selection, keyboard navigation, and what to do when something looks wrong.
 
 ---
 
@@ -217,19 +165,7 @@ article" — every decision, with its comment and its judge.
 
 ### Keyboard, at a glance
 
-| Key | Action |
-| --- | --- |
-| <kbd>A</kbd> <kbd>R</kbd> <kbd>S</kbd> | Accept, reject, skip |
-| <kbd>C</kbd> | Comment box |
-| <kbd>U</kbd> | Undo the last decision, within about two seconds |
-| <kbd>W</kbd> | Raw wikitext |
-| <kbd>Q</kbd> | Show or hide the queue |
-| <kbd>?</kbd> | Shortcut panel — rebind any of these |
-| <kbd>↑</kbd> <kbd>↓</kbd> <kbd>Home</kbd> <kbd>End</kbd> | Move through the queue |
-| <kbd>Shift</kbd> + arrows | Select as you move |
-| <kbd>Space</kbd> | Select or unselect the current row |
-| <kbd>Enter</kbd> | Open the current row |
-| <kbd>Esc</kbd> | Leave the comment box, clear a selection, close the queue |
-
-Shortcuts are ignored while you are typing in a text field, and a held key acts once —
-except the arrows, which repeat so you can run down a list.
+Every shortcut in the review workspace, and what it does, is in
+[JURY\_GUIDE.md](JURY_GUIDE.md#moving-around-with-the-keyboard). Shortcuts are ignored while
+you are typing in a text field, and a held key acts once — except the arrows, which repeat
+so you can run down a list.
