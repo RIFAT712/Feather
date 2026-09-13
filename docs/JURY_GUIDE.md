@@ -6,7 +6,7 @@ queue. The rest of Feather — submitting, contest settings, exports — is in
 
 - [The layout](#the-layout)
 - [Deciding](#deciding)
-- [Notes and canned reasons](#notes-and-canned-reasons)
+- [Notes](#notes)
 - [Reading the article](#reading-the-article)
 - [Your queue](#your-queue)
 - [The three tabs](#the-three-tabs)
@@ -26,7 +26,7 @@ Three regions, and the whole screen is yours — the site navigation is hidden h
 | --- | --- |
 | Queue drawer, left | Your assigned articles. <kbd>Q</kbd> shows or hides it, <kbd>Esc</kbd> closes it. Drag its right edge to resize, or focus the divider and use <kbd>←</kbd> <kbd>→</kbd>; <kbd>Home</kbd> resets the width |
 | Article, centre | The rendered entry, with the title and who submitted it above it |
-| Decision panel, bottom | Canned reasons, the note box, and Accept / Reject / Skip / Delete |
+| Decision panel, bottom | The note box, and Accept / Reject / Skip / Delete |
 
 Above the queue sits the strip of counts — total, pending, OK, rejected — and a dot that
 means the panel is refreshing itself. It polls every few seconds, so a decision someone else
@@ -53,19 +53,13 @@ After the toast expires, a decision is still not final: reopen the article from
 **Delete** is not a decision. It removes the article from the contest entirely, and the
 submitter loses it. Reject is what you want unless the submission itself should not exist.
 
-## Notes and canned reasons
+## Notes
 
 <kbd>C</kbd> jumps into the note box. Whatever you write is attached to the decision and
 shown to the submitter on their profile, so it is worth a sentence on a reject.
 
-Above the box is a row of canned reasons. Click one — or press its number, <kbd>1</kbd> to
-<kbd>9</kbd> — and it is **added** to the note rather than replacing it, so two reasons and
-a sentence of your own can share one note.
-
-**Edit** swaps the row for a text box: one reason per line, save. They are kept in this
-browser (not on your account, unlike the shortcuts), the first nine get a number key, and
-clearing the box entirely puts the defaults back. If you rebind a shortcut to a digit, that
-shortcut wins and the reason on that number can still be clicked.
+A note written for one article stays with that article. Deciding a whole selection at once
+puts the same note on every article in it.
 
 ## Reading the article
 

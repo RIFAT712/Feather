@@ -95,8 +95,8 @@ lets you rebind it.
 Articles are assigned to you rather than raced for, opening one locks it for 15 minutes, and
 a selection of rows can be decided in one action.
 
-**[JURY\_GUIDE.md](JURY_GUIDE.md) is the full guide to that screen** — the layout, canned
-reasons, how the queue is shared out, the three tabs, bulk
+**[JURY\_GUIDE.md](JURY_GUIDE.md) is the full guide to that screen** — the layout, how the
+queue is shared out, the three tabs, bulk
 selection, keyboard navigation, and what to do when something looks wrong.
 
 ---

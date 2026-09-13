@@ -638,7 +638,9 @@ const openFocusedSoon = () => {
   focusOpenTimer = setTimeout(() => {
     const article = rowArticles.value.find(a => a.article_id === focusedArticleId.value);
     if (article && article.article_id !== currentArticle.value?.article_id) selectArticle(article);
-  }, 250);
+    // Long enough to swallow one OS auto-repeat burst (~30ms a step), short
+    // enough that a single press feels like a click. 250ms read as lag.
+  }, 90);
 };
 
 const moveFocusTo = (targetIndex, extend) => {
@@ -1386,17 +1388,7 @@ const handleShortcut = (event) => {
   const key = normalizeShortcutKey(event.key);
   if (heldKeys.has(key)) return;
   const action = SHORTCUT_ACTIONS.find(a => shortcuts.value[a.id] === key)?.id;
-  // After the configured shortcuts, never before: a digit rebound to Accept has
-  // to stay Accept.
-  if (!action) {
-    const slot = Number(key);
-    if (!editingReasons.value && slot >= 1 && slot <= reasonPresets.value.length && !isInteractiveTarget(document.activeElement)) {
-      applyReason(reasonPresets.value[slot - 1]);
-      heldKeys.add(key);
-      event.preventDefault();
-    }
-    return;
-  }
+  if (!action) return;
   // Let the browser have Enter/Space whenever they would be activating a
   // control; the shortcut only applies when focus is on the page itself.
   if (ACTIVATION_KEYS.has(key) && isInteractiveTarget(document.activeElement)) return;
@@ -1429,45 +1421,6 @@ const handleShortcut = (event) => {
 
 const commentBox = ref(null);
 
-// The same handful of sentences get typed into every rejection, so they live in
-// a chip row over the comment box: click one, or press its digit, to drop it in.
-// Kept per browser rather than per contest -- they are the jury's own wording,
-// and there is no endpoint to hang them off. Nine at most, because the digits
-// are what makes them fast and there are nine of those.
-const DEFAULT_REASONS = [
-  'Too short.',
-  'No references.',
-  'Created outside the contest window.',
-  'Not created by the submitter.',
-  'Machine-translated.',
-  'Missing etymology or pronunciation.',
-];
-const reasonPresets = ref(DEFAULT_REASONS);
-const editingReasons = ref(false);
-const reasonDraft = ref('');
-try {
-  const saved = JSON.parse(localStorage.getItem('review_queue_reasons') || 'null');
-  const clean = Array.isArray(saved) ? saved.filter(r => typeof r === 'string' && r.trim()) : [];
-  if (clean.length) reasonPresets.value = clean.slice(0, 9);
-} catch (e) { /* a corrupt entry just leaves the defaults in place */ }
-
-const applyReason = (text) => {
-  const existing = comment.value.trim();
-  // Appends rather than replaces: two reasons at once is the common case, and
-  // clobbering a sentence the jury just typed is not undoable from here.
-  comment.value = existing ? `${existing} ${text}` : text;
-  commentBox.value?.focus();
-};
-const openReasonEditor = () => {
-  reasonDraft.value = reasonPresets.value.join('\n');
-  editingReasons.value = true;
-};
-const saveReasons = () => {
-  const next = reasonDraft.value.split('\n').map(r => r.trim()).filter(Boolean).slice(0, 9);
-  reasonPresets.value = next.length ? next : DEFAULT_REASONS;
-  localStorage.setItem('review_queue_reasons', JSON.stringify(reasonPresets.value));
-  editingReasons.value = false;
-};
 
 onMounted(() => {
   window.addEventListener('keydown', handleShortcut);
@@ -1990,33 +1943,6 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
             <div class="rq-decision-body">
               <div v-if="reviewError" class="rq-error-msg">{{ reviewError }}</div>
               
-              <div class="rq-reasons">
-                <template v-if="!editingReasons">
-                  <button
-                    v-for="(reason, i) in reasonPresets"
-                    :key="reason"
-                    type="button"
-                    class="rq-reason-chip"
-                    :title="`Add to the note: ${reason}`"
-                    @click="applyReason(reason)"
-                  >
-                    <kbd class="rq-kbd rq-desktop-only">{{ i + 1 }}</kbd> {{ reason }}
-                  </button>
-                  <button type="button" class="rq-reason-edit" @click="openReasonEditor">Edit</button>
-                </template>
-                <template v-else>
-                  <textarea
-                    v-model="reasonDraft"
-                    class="rq-input rq-reason-draft"
-                    rows="4"
-                    aria-label="Canned reasons, one per line"
-                    placeholder="One reason per line — the first nine get a number key"
-                  ></textarea>
-                  <button type="button" class="rq-reason-edit" @click="saveReasons">Save</button>
-                  <button type="button" class="rq-reason-edit" @click="editingReasons = false">Cancel</button>
-                </template>
-              </div>
-
               <div class="rq-decision-form">
                 <textarea
                   ref="commentBox"
@@ -2111,7 +2037,6 @@ const articleUrl = (title) => `${WIKI_BASE}${encodeURIComponent(title)}`;
           <div class="rq-help-row"><dt><kbd class="rq-kbd">Ctrl A</kbd></dt><dd>Select every row on screen, or clear them</dd></div>
           <div class="rq-help-row"><dt><kbd class="rq-kbd">Enter</kbd></dt><dd>Open the article you are on</dd></div>
           <div class="rq-help-row"><dt><kbd class="rq-kbd">Esc</kbd></dt><dd>Leave the comment box / clear the selection / close the queue</dd></div>
-          <div class="rq-help-row"><dt><kbd class="rq-kbd">1 … 9</kbd></dt><dd>Add that canned reason to the note</dd></div>
           <div class="rq-help-row"><dt><kbd class="rq-kbd">/</kbd></dt><dd>Show or hide this panel</dd></div>
         </dl>
         <p v-if="shortcutError" class="rq-help-error">{{ shortcutError }}</p>
